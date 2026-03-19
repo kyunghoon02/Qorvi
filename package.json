@@ -1,0 +1,32 @@
+{
+  "name": "whalegraph",
+  "private": true,
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "build": "corepack pnpm build:web",
+    "build:web": "corepack pnpm --filter @whalegraph/web build",
+    "dev": "corepack pnpm dev:web",
+    "dev:api": "go run ./apps/api/cmd/api",
+    "dev:web": "corepack pnpm --filter @whalegraph/web dev",
+    "dev:workers": "go run ./apps/workers",
+    "lint": "corepack pnpm lint:web",
+    "lint:web": "corepack pnpm --filter @whalegraph/ui lint && corepack pnpm --filter @whalegraph/web lint",
+    "typecheck": "corepack pnpm typecheck:web",
+    "typecheck:web": "corepack pnpm --filter @whalegraph/ui typecheck && corepack pnpm --filter @whalegraph/web typecheck",
+    "test": "corepack pnpm test:web && corepack pnpm go:test",
+    "test:web": "corepack pnpm --filter @whalegraph/ui test && corepack pnpm --filter @whalegraph/web test",
+    "format": "biome format --write .",
+    "check": "corepack pnpm lint:web && corepack pnpm typecheck:web && corepack pnpm test:web && corepack pnpm go:vet && corepack pnpm go:test",
+    "go:fmt": "gofmt -w .",
+    "go:vet": "for dir in apps/api apps/workers packages/domain packages/config packages/providers packages/db packages/intelligence packages/ops packages/billing; do (cd \"$dir\" && go vet ./...) || exit 1; done",
+    "go:test": "for dir in apps/api apps/workers packages/domain packages/config packages/providers packages/db packages/intelligence packages/ops packages/billing; do (cd \"$dir\" && go test ./...) || exit 1; done",
+    "go:list": "for dir in apps/api apps/workers packages/domain packages/config packages/providers packages/db packages/intelligence packages/ops packages/billing; do (cd \"$dir\" && go list ./...) || exit 1; done"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22.13.10",
+    "tsx": "4.20.5",
+    "turbo": "2.3.3",
+    "typescript": "5.8.2"
+  }
+}
