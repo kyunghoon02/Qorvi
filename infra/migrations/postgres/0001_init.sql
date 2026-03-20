@@ -63,11 +63,14 @@ create table if not exists transactions (
   chain text not null,
   tx_hash text not null,
   wallet_id uuid not null references wallets(id) on delete cascade,
+  direction text not null default 'unknown',
+  counterparty_chain text,
+  counterparty_address text,
   raw_payload_path text not null,
   schema_version integer not null default 1,
   observed_at timestamptz not null,
   created_at timestamptz not null default now(),
-  unique (chain, tx_hash)
+  unique (chain, tx_hash, wallet_id)
 );
 
 create table if not exists signal_events (

@@ -7,6 +7,7 @@ require (
 	github.com/whalegraph/whalegraph/packages/db v0.0.0
 	github.com/whalegraph/whalegraph/packages/domain v0.0.0
 	github.com/whalegraph/whalegraph/packages/intelligence v0.0.0
+	github.com/whalegraph/whalegraph/packages/providers v0.0.0
 )
 
 require (
@@ -30,3 +31,5 @@ replace github.com/whalegraph/whalegraph/packages/db => ../../packages/db
 replace github.com/whalegraph/whalegraph/packages/domain => ../../packages/domain
 
 replace github.com/whalegraph/whalegraph/packages/intelligence => ../../packages/intelligence
+
+replace github.com/whalegraph/whalegraph/packages/providers => ../../packages/providers

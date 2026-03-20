@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -395,6 +396,113 @@ func TestAdminStatusRouteRequiresRole(t *testing.T) {
 	}
 }
 
+func TestAlchemyWebhookRouteAcceptsAddressActivityPayload(t *testing.T) {
+	t.Parallel()
+
+	ingest := &fakeWebhookIngestService{
+		alchemyResult: WebhookIngestResult{AcceptedCount: 2, EventKind: "address_activity"},
+	}
+	srv := NewWithDependencies(Dependencies{WebhookIngest: ingest})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/webhooks/providers/alchemy/address-activity",
+		bytes.NewBufferString(`{"webhookId":"wh_test","id":"evt_test","createdAt":"2026-03-20T00:00:00Z","type":"ADDRESS_ACTIVITY","event":{"network":"ETH_MAINNET","activity":[{"blockNum":"0xdf34a3","hash":"0xabc","fromAddress":"0x503828976d22510aad0201ac7ec88293211d23da","toAddress":"0xbe3f4b43db5eb49d1f48f53443b9abce45da3b79","category":"token","asset":"USDC"},{"blockNum":"0xdf34a4","hash":"0xdef","fromAddress":"0x503828976d22510aad0201ac7ec88293211d23da","toAddress":"0xbe3f4b43db5eb49d1f48f53443b9abce45da3b79","category":"token","asset":"USDC"}]}}`),
+	)
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d", rr.Code)
+	}
+
+	var body Envelope[ProviderWebhookAcceptancePayload]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.Provider != "alchemy" {
+		t.Fatalf("unexpected provider %q", body.Data.Provider)
+	}
+	if body.Data.AcceptedCount != 2 {
+		t.Fatalf("expected accepted count 2, got %d", body.Data.AcceptedCount)
+	}
+	if !ingest.alchemyCalled {
+		t.Fatal("expected alchemy ingest service to be called")
+	}
+}
+
+func TestHeliusWebhookRouteAcceptsBatchPayload(t *testing.T) {
+	t.Parallel()
+
+	ingest := &fakeWebhookIngestService{
+		providerResult: WebhookIngestResult{AcceptedCount: 3, EventKind: "webhook_batch"},
+	}
+	srv := NewWithDependencies(Dependencies{WebhookIngest: ingest})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/providers/helius/webhooks/address-activity",
+		bytes.NewBufferString(`[{"signature":"abc"},{"signature":"def"},{"signature":"ghi"}]`),
+	)
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d", rr.Code)
+	}
+
+	var body Envelope[ProviderWebhookAcceptancePayload]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if body.Data.AcceptedCount != 3 {
+		t.Fatalf("expected accepted count 3, got %d", body.Data.AcceptedCount)
+	}
+	if body.Data.EventKind != "webhook_batch" {
+		t.Fatalf("unexpected event kind %q", body.Data.EventKind)
+	}
+	if !ingest.providerCalled {
+		t.Fatal("expected provider ingest service to be called")
+	}
+}
+
+func TestWebhookRouteRejectsUnsupportedProvider(t *testing.T) {
+	t.Parallel()
+
+	srv := New()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/providers/unknown/webhooks/address-activity",
+		bytes.NewBufferString(`{}`),
+	)
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestWebhookRouteRejectsInvalidPayload(t *testing.T) {
+	t.Parallel()
+
+	srv := New()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/providers/alchemy/webhooks/address-activity",
+		bytes.NewBufferString(`{"event":{"activity":[]}}`),
+	)
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rr.Code)
+	}
+}
+
 func decode[T any](t *testing.T, raw []byte, dst *T) {
 	t.Helper()
 
@@ -426,6 +534,37 @@ func (r *testWalletGraphRepository) FindWalletGraph(_ context.Context, _ string,
 	}
 
 	return graph, nil
+}
+
+type fakeWebhookIngestService struct {
+	alchemyResult  WebhookIngestResult
+	providerResult WebhookIngestResult
+
+	alchemyCalled  bool
+	providerCalled bool
+}
+
+func (f *fakeWebhookIngestService) IngestAlchemyAddressActivity(_ context.Context, _ AlchemyAddressActivityWebhook) (WebhookIngestResult, error) {
+	f.alchemyCalled = true
+	if f.alchemyResult == (WebhookIngestResult{}) {
+		return WebhookIngestResult{AcceptedCount: 1, EventKind: "address_activity"}, nil
+	}
+
+	return f.alchemyResult, nil
+}
+
+func (f *fakeWebhookIngestService) IngestProviderWebhook(_ context.Context, provider string, _ json.RawMessage) (WebhookIngestResult, error) {
+	f.providerCalled = true
+	if f.providerResult == (WebhookIngestResult{}) {
+		switch provider {
+		case "helius":
+			return WebhookIngestResult{AcceptedCount: 1, EventKind: "webhook_event"}, nil
+		default:
+			return WebhookIngestResult{AcceptedCount: 1, EventKind: "address_activity"}, nil
+		}
+	}
+
+	return f.providerResult, nil
 }
 
 func walletSummaryFixture() domain.WalletSummary {

@@ -143,16 +143,16 @@ LIMIT 1
 		StatsSQL: `
 SELECT
   w.id AS wallet_id,
-  s.as_of_date,
-  s.transaction_count,
-  s.counterparty_count,
-  s.latest_activity_at,
-  s.incoming_tx_count,
-  s.outgoing_tx_count
+  COALESCE(date(max(t.observed_at)), w.updated_at::date) AS as_of_date,
+  count(t.id) AS transaction_count,
+  count(DISTINCT nullif(t.counterparty_address, '')) AS counterparty_count,
+  max(t.observed_at) AS latest_activity_at,
+  count(*) FILTER (WHERE t.direction = 'inbound') AS incoming_tx_count,
+  count(*) FILTER (WHERE t.direction = 'outbound') AS outgoing_tx_count
 FROM wallets w
-JOIN wallet_daily_stats s ON s.wallet_id = w.id
+LEFT JOIN transactions t ON t.wallet_id = w.id
 WHERE w.chain = $1 AND w.address = $2
-ORDER BY s.as_of_date DESC
+GROUP BY w.id, w.updated_at
 LIMIT 1
 `,
 		StatsArgs: []any{string(normalized.Chain), normalized.Address},

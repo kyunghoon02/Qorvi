@@ -72,6 +72,7 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 	env, err := ParseProviderEnv(map[string]string{
 		"APP_BASE_URL":                      "http://localhost:3000",
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
+		"ALCHEMY_BASE_URL":                  "https://eth-mainnet.g.alchemy.com",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
 		"CLERK_AUDIENCE":                    "whalegraph",
@@ -81,6 +82,8 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 		"CLERK_SECRET_KEY":                  "clerk_secret",
 		"DUNE_API_KEY":                      "dune_secret",
 		"HELIUS_API_KEY":                    "helius_secret",
+		"HELIUS_BASE_URL":                   "https://mainnet.helius-rpc.com",
+		"HELIUS_DATA_API_BASE_URL":          "https://api-mainnet.helius-rpc.com/v0",
 		"LOG_LEVEL":                         "info",
 		"MORALIS_API_KEY":                   "moralis_secret",
 		"NEO4J_PASSWORD":                    "neo4jpassword",
@@ -103,5 +106,14 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 	}
 	if env.Worker.RedisURL != "redis://localhost:6379" {
 		t.Fatalf("expected Redis URL to be loaded")
+	}
+	if env.AlchemyBaseURL != "https://eth-mainnet.g.alchemy.com" {
+		t.Fatalf("expected Alchemy base URL to be loaded")
+	}
+	if env.HeliusBaseURL != "https://mainnet.helius-rpc.com" {
+		t.Fatalf("expected Helius base URL to be loaded")
+	}
+	if env.HeliusDataAPIBaseURL != "https://api-mainnet.helius-rpc.com/v0" {
+		t.Fatalf("expected Helius data API base URL to be loaded")
 	}
 }

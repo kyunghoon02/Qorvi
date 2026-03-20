@@ -24,9 +24,10 @@ const (
 )
 
 type ProviderCredentials struct {
-	Provider ProviderName
-	APIKey   string
-	BaseURL  string
+	Provider       ProviderName
+	APIKey         string
+	BaseURL        string
+	DataAPIBaseURL string
 }
 
 type ProviderRequestContext struct {

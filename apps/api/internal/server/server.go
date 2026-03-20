@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,17 +55,27 @@ type AdminStatusPayload struct {
 	Scope  string `json:"scope"`
 }
 
+type ProviderWebhookAcceptancePayload struct {
+	Provider      string `json:"provider"`
+	EventKind     string `json:"eventKind"`
+	AcceptedCount int    `json:"acceptedCount"`
+	EventCount    int    `json:"eventCount"`
+	Accepted      bool   `json:"accepted"`
+}
+
 type Server struct {
-	mux     *http.ServeMux
-	wallets *service.WalletSummaryService
-	graphs  *service.WalletGraphService
-	search  *service.SearchService
+	mux           *http.ServeMux
+	wallets       *service.WalletSummaryService
+	graphs        *service.WalletGraphService
+	search        *service.SearchService
+	webhookIngest WebhookIngestService
 }
 
 type Dependencies struct {
 	Wallets       *service.WalletSummaryService
 	Graphs        *service.WalletGraphService
 	Search        *service.SearchService
+	WebhookIngest WebhookIngestService
 	ClerkVerifier auth.ClerkVerifier
 }
 
@@ -86,20 +97,26 @@ func NewWithDependencies(deps Dependencies) *Server {
 	if deps.Search == nil {
 		deps.Search = service.NewSearchService(deps.Wallets)
 	}
+	if deps.WebhookIngest == nil {
+		deps.WebhookIngest = newCountingWebhookIngestService()
+	}
 	if deps.ClerkVerifier == nil {
 		deps.ClerkVerifier = auth.NewHeaderClerkVerifier()
 	}
 
 	mux := http.NewServeMux()
 	s := &Server{
-		mux:     mux,
-		wallets: deps.Wallets,
-		graphs:  deps.Graphs,
-		search:  deps.Search,
+		mux:           mux,
+		wallets:       deps.Wallets,
+		graphs:        deps.Graphs,
+		search:        deps.Search,
+		webhookIngest: deps.WebhookIngest,
 	}
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
+	mux.HandleFunc("POST /v1/webhooks/providers/alchemy/address-activity", s.handleAlchemyAddressActivityWebhook)
+	mux.HandleFunc("POST /v1/providers/", s.handleProviderRoute)
 	mux.HandleFunc("GET /v1/wallets/", s.handleWalletRoute)
 	mux.Handle(
 		"GET /v1/admin/status",
@@ -156,6 +173,16 @@ func (s *Server) handleWalletRoute(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "wallet route not found", chain, tierFromHeader(r)))
 	}
+}
+
+func (s *Server) handleProviderRoute(w http.ResponseWriter, r *http.Request) {
+	provider, resource, ok := parseProviderRoutePath(r.URL.Path)
+	if !ok || resource != "webhooks/address-activity" {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "provider route not found", "", ""))
+		return
+	}
+
+	s.handleProviderAddressActivityWebhook(w, r, provider)
 }
 
 func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request, chain string, address string) {
@@ -225,6 +252,37 @@ func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleProviderAddressActivityWebhook(w http.ResponseWriter, r *http.Request, provider string) {
+	if !isSupportedWebhookProvider(provider) {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "unsupported webhook provider", "", ""))
+		return
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid webhook payload", "", ""))
+		return
+	}
+
+	result, err := s.webhookIngest.IngestProviderWebhook(r.Context(), provider, json.RawMessage(raw))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", err.Error(), "", ""))
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, Envelope[ProviderWebhookAcceptancePayload]{
+		Success: true,
+		Data: ProviderWebhookAcceptancePayload{
+			Provider:      provider,
+			EventKind:     result.EventKind,
+			AcceptedCount: result.AcceptedCount,
+			EventCount:    result.AcceptedCount,
+			Accepted:      true,
+		},
+		Meta: newMeta("", "system", freshness("live", 0)),
+	})
+}
+
 func parseWalletRoutePath(path string) (string, string, string, bool) {
 	rest, ok := strings.CutPrefix(path, "/v1/wallets/")
 	if !ok {
@@ -248,6 +306,20 @@ func parseWalletRoutePath(path string) (string, string, string, bool) {
 	return chain, address, resource, true
 }
 
+func parseProviderRoutePath(path string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1/providers/")
+	if !ok {
+		return "", "", false
+	}
+
+	provider, resource, ok := strings.Cut(rest, "/")
+	if !ok || provider == "" || resource == "" {
+		return "", "", false
+	}
+
+	return provider, resource, true
+}
+
 func parseWalletGraphDepth(raw string) (int, error) {
 	if strings.TrimSpace(raw) == "" {
 		return 1, nil
@@ -259,6 +331,15 @@ func parseWalletGraphDepth(raw string) (int, error) {
 	}
 
 	return depth, nil
+}
+
+func isSupportedWebhookProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "alchemy", "helius":
+		return true
+	default:
+		return false
+	}
 }
 
 func tierFromHeader(r *http.Request) string {

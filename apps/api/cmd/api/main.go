@@ -43,6 +43,7 @@ func main() {
 	srv := server.NewWithDependencies(server.Dependencies{
 		Wallets:       buildWalletSummaryService(clients, cfg.WalletSummaryCacheTTL),
 		Graphs:        buildWalletGraphService(clients, cfg.WalletSummaryCacheTTL),
+		WebhookIngest: buildWebhookIngestService(clients),
 		ClerkVerifier: clerkVerifier,
 	})
 

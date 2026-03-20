@@ -1,7 +1,5 @@
 package providers
 
-import "github.com/whalegraph/whalegraph/packages/domain"
-
 type MoralisAdapter struct{}
 
 func (a MoralisAdapter) Name() ProviderName { return ProviderMoralis }
@@ -9,14 +7,7 @@ func (a MoralisAdapter) Kind() AdapterKind  { return AdapterHistorical }
 
 func (a MoralisAdapter) FetchWalletActivity(ctx ProviderRequestContext) ([]ProviderWalletActivity, error) {
 	return []ProviderWalletActivity{
-		CreateProviderActivityFixture(struct {
-			Provider      ProviderName
-			Chain         domain.Chain
-			WalletAddress string
-			SourceID      string
-			Kind          string
-			Confidence    float64
-		}{
+		CreateProviderActivityFixture(ProviderActivityFixtureInput{
 			Provider:      a.Name(),
 			Chain:         ctx.Chain,
 			WalletAddress: ctx.WalletAddress,

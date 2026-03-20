@@ -80,8 +80,11 @@ func TestBuildWalletSummaryQueryPlan(t *testing.T) {
 	if plan.SignalsParams["address"] != "0x1234567890abcdef1234567890abcdef12345678" {
 		t.Fatalf("unexpected graph params %#v", plan.SignalsParams)
 	}
-	if !contains(plan.StatsSQL, "wallet_daily_stats") {
-		t.Fatalf("expected stats SQL to query wallet_daily_stats")
+	if !contains(plan.StatsSQL, "LEFT JOIN transactions") {
+		t.Fatalf("expected stats SQL to aggregate transactions")
+	}
+	if !contains(plan.StatsSQL, "counterparty_address") {
+		t.Fatalf("expected stats SQL to use counterparty aggregation")
 	}
 	if !contains(plan.SignalsCypher, "INTERACTED_WITH") {
 		t.Fatalf("expected graph cypher to reference graph signals")

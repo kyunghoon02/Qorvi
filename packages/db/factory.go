@@ -37,6 +37,38 @@ func NewWalletGraphReaderFromClients(clients *StorageClients) *Neo4jWalletGraphR
 	return NewNeo4jWalletGraphReader(clients.Neo4j, "neo4j")
 }
 
+func NewWalletStoreFromClients(clients *StorageClients) *PostgresWalletStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletStoreFromPool(clients.Postgres)
+}
+
+func NewNormalizedTransactionStoreFromClients(clients *StorageClients) *PostgresNormalizedTransactionStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresNormalizedTransactionStoreFromPool(clients.Postgres)
+}
+
+func NewProviderUsageLogStoreFromClients(clients *StorageClients) *PostgresProviderUsageLogStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresProviderUsageLogStoreFromPool(clients.Postgres)
+}
+
+func NewJobRunStoreFromClients(clients *StorageClients) *PostgresJobRunStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresJobRunStoreFromPool(clients.Postgres)
+}
+
 func NewWalletSummaryRepositoryFromHandles(
 	ctx context.Context,
 	handles Handles,
