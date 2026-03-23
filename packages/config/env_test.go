@@ -81,6 +81,27 @@ func TestParseClerkVerificationConfig(t *testing.T) {
 	}
 }
 
+func TestParseClerkVerificationConfigDerivesURLsFromPublishableKey(t *testing.T) {
+	t.Parallel()
+
+	env := cloneEnv()
+	env["CLERK_ISSUER_URL"] = ""
+	env["CLERK_JWKS_URL"] = ""
+	env["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"] = "pk_test_YWJzb2x1dGUtaW1wYWxhLTY0LmNsZXJrLmFjY291bnRzLmRldiQ"
+
+	cfg, err := ParseClerkVerificationConfig(env)
+	if err != nil {
+		t.Fatalf("expected derived clerk verification config, got %v", err)
+	}
+
+	if cfg.IssuerURL != "https://absolute-impala-64.clerk.accounts.dev" {
+		t.Fatalf("unexpected derived issuer url %q", cfg.IssuerURL)
+	}
+	if cfg.JWKSURL != "https://absolute-impala-64.clerk.accounts.dev/.well-known/jwks.json" {
+		t.Fatalf("unexpected derived jwks url %q", cfg.JWKSURL)
+	}
+}
+
 func TestParseAPIEnvFailsWhenPostgresURLIsMissing(t *testing.T) {
 	t.Parallel()
 

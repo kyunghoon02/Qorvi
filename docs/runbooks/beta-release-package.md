@@ -44,7 +44,8 @@ corepack pnpm beta:hardening
 3. admin/ops operator 확인 결과
    - `/v1/admin/provider-quotas`
    - `/v1/admin/observability`
-4. billing/account closeout 확인 결과
+4. optional billing activation 확인 결과
+   - billing을 beta에서 켤 경우에만 아래를 포함
    - `/v1/billing/plans`
    - `/v1/billing/checkout-sessions`
    - `/v1/webhooks/billing/stripe`
@@ -66,7 +67,7 @@ corepack pnpm beta:hardening
 1. provider quota warning / critical
 2. ingest freshness lag
 3. alert delivery failure
-4. billing reconciliation anomaly
+4. billing을 beta에서 켠 경우 billing reconciliation anomaly
 5. admin override/audit consistency
 
 ## 5. Manual Recovery Entry Points
@@ -99,7 +100,7 @@ WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 현재 beta open을 막지는 않지만 launch 직후 follow-up 대상으로 유지하는 항목:
 
-1. billing closeout copy/polish
+1. optional billing activation closeout
 2. ops anomaly surfacing polish
 3. beta 운영 중 실제 provider pressure에 따른 quota tuning
 
@@ -112,4 +113,4 @@ WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 1. `/Users/kh/Github/WhaleGraph/docs/runbooks/launch-gates.md`에 `block`이 없다.
 2. `corepack pnpm beta:evidence:core`가 통과한다.
 3. operator가 admin/ops surface를 직접 확인했다.
-4. billing/account mixed flow가 현재 환경에서 재현 가능하다.
+4. billing을 beta에서 켠 경우 billing/account mixed flow가 현재 환경에서 재현 가능하다.

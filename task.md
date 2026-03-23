@@ -11,6 +11,7 @@
 4. 점수, 라벨링, 알림 관련 변경은 `ops-admin-engineer` 검토를 포함한다.
 5. 배포 직전 task는 `billing-launch-engineer`의 release gate 체크 없이는 완료 처리하지 않는다.
 6. 앞으로 product-facing task는 mock, fabricated preview data, local seed record를 새로 추가하지 않는다. 구현이 미완인 경우에도 실제 `loading`, `indexing`, `empty`, `unavailable`, `error` 상태를 정의하고 그 상태를 기준으로 작업한다.
+7. beta open 준비는 local `.env`와 target deployment env를 분리해 관리한다. beta preflight는 target env file을 직접 검증할 수 있어야 한다.
 
 ## 2. 상태 규칙
 
@@ -656,6 +657,10 @@
   - billing webhook
   - subscription reconciliation
   - current state: `apps/api` checkout session endpoint, public `GET /v1/billing/plans`, billing webhook endpoint baseline 완료, Postgres/in-memory billing account persistence baseline 완료, webhook reconciliation으로 `/v1/account` plan override 가능, `.env.example` Stripe env와 `/account`/`/pricing` checkout route 정합성 반영 완료, live Stripe HTTP client baseline과 `billing_checkout_sessions` / `billing_subscriptions` / `billing_subscription_reconciliations` persistence baseline 완료, worker `billing-subscription-sync` mode로 subscription status sync baseline 완료
+- Launch Policy:
+  - billing capability는 구현 완료 상태로 유지한다.
+  - 하지만 beta open에서는 Stripe를 blocker로 두지 않고, invite-only/free beta를 우선한다.
+  - Stripe activation과 checkout closeout은 post-beta monetization track으로 다룬다.
 - Definition of Done:
   - 최소 1개 유료 플랜 결제가 가능
 

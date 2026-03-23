@@ -7,12 +7,13 @@ MODE="full"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/beta-hardening.sh [--prep] [--evidence-core]
+Usage: ./scripts/beta-hardening.sh [--prep] [--evidence-core] [--evidence-billing]
 
 Options:
-  --prep           Run beta preflight infra + migrations only
-  --evidence-core  Run repeatable beta evidence commands only
-  --help           Show this message
+  --prep              Run beta preflight infra + migrations only
+  --evidence-core     Run repeatable beta evidence commands only
+  --evidence-billing  Run optional billing evidence commands
+  --help              Show this message
 EOF
 }
 
@@ -24,6 +25,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --evidence-core)
       MODE="evidence-core"
+      shift
+      ;;
+    --evidence-billing)
+      MODE="evidence-billing"
       shift
       ;;
     --help)
@@ -58,8 +63,13 @@ run_evidence_core() {
   echo "==> Beta evidence: backend/provider/worker contracts"
   GOCACHE=/tmp/whalegraph-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
 
-  echo "==> Beta evidence: mixed browser/API beta flow"
-  corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
+  echo "==> Beta evidence: browser/API tracking beta flow"
+  corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"
+}
+
+run_evidence_billing() {
+  echo "==> Beta evidence: optional billing checkout flow"
+  corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "creates checkout intent, reconciles billing, and shows upgraded account"
 }
 
 case "$MODE" in
@@ -68,6 +78,9 @@ case "$MODE" in
     ;;
   evidence-core)
     run_evidence_core
+    ;;
+  evidence-billing)
+    run_evidence_billing
     ;;
   full)
     run_prep

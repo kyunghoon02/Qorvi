@@ -14,11 +14,11 @@
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| Functional Gates | `pass` | search, wallet detail, graph, alerts, billing/account 핵심 흐름 검증 완료 |
+| Functional Gates | `pass` | search, wallet detail, graph, alerts 핵심 흐름 검증 완료 |
 | Reliability Gates | `pass` | replay, provider contract, webhook duplicate safety, worker refresh/invalidation 경로 검증 완료 |
 | UX Gates | `pass` | loading/indexing/ready degraded states와 beta mixed-flow E2E 검증 완료 |
 | Ops Gates | `pass` | observability, provider quotas, alert delivery, audit/admin surfaces 존재 |
-| Residual Hardening | `warn` | beta open 후 residual billing/ops polish는 가능하지만 launch blocker는 아님 |
+| Residual Hardening | `warn` | billing activation, residual ops polish는 가능하지만 launch blocker는 아님 |
 
 결론: `beta go`, 단 `Residual Hardening`은 launch 직후 follow-up으로 유지한다.
 
@@ -68,7 +68,7 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 - `/Users/kh/Github/WhaleGraph/apps/web/app/alerts/page.tsx`
 - `/Users/kh/Github/WhaleGraph/apps/web/app/alerts/alert-center-screen.tsx`
 
-### 3.3 Billing And Account
+### 3.3 Billing Activation Readiness
 
 체크 항목:
 
@@ -77,7 +77,13 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 3. `POST /v1/webhooks/billing/stripe`가 billing account persistence와 entitlement sync를 갱신한다.
 4. `/account`와 `/pricing`가 success/cancel state를 정상 표시한다.
 
-현재 상태: `pass`
+현재 상태: `warn`
+
+정책:
+
+1. billing capability는 구현 완료 상태로 유지한다.
+2. beta open은 invite-only/free beta를 우선하므로 Stripe activation을 blocker로 두지 않는다.
+3. billing을 beta에서 켜는 경우에만 아래 체크 항목을 launch gate로 승격한다.
 
 관련 경로:
 
@@ -177,12 +183,16 @@ corepack pnpm beta:hardening
    - `corepack pnpm --filter @whalegraph/web typecheck`
    - `corepack pnpm --filter @whalegraph/web lint`
 3. browser/API mixed beta flow evidence
-   - `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts`
+   - `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
 4. gate document review
    - 이 문서와 `/Users/kh/Github/WhaleGraph/plan.md`
    - `/Users/kh/Github/WhaleGraph/task.md`
    - `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-release-package.md`
    - `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-launch-review.md`
+
+optional billing evidence:
+
+- `corepack pnpm beta:evidence:billing`
 
 ## 8. Rollback And Recovery Package
 
@@ -215,7 +225,7 @@ WHALEGRAPH_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 
 1. `/v1/webhooks/billing/stripe` 수신 로그와 persistence row를 확인한다.
 2. `billing-subscription-sync` worker를 수동 실행해 reconciliation을 다시 맞춘다.
-3. billing blocker가 남으면 `/pricing`의 upgrade CTA는 유지하되 운영 판단은 `warn`으로 남긴다.
+3. billing blocker가 남으면 `/pricing`의 upgrade CTA는 유지하되 beta open 판단은 `warn`으로 남긴다.
 
 ```bash
 WHALEGRAPH_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers

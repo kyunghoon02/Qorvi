@@ -7,11 +7,12 @@ MODE="full"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/beta-open-prep.sh [--env-only]
+Usage: ./scripts/beta-open-prep.sh [--env-only] [--env-file <path>]
 
 Options:
-  --env-only  Validate required beta env values only
-  --help      Show this message
+  --env-only         Validate required beta env values only
+  --env-file <path>  Load env values from a specific file instead of .env
+  --help             Show this message
 EOF
 }
 
@@ -20,6 +21,14 @@ while [[ $# -gt 0 ]]; do
     --env-only)
       MODE="env-only"
       shift
+      ;;
+    --env-file)
+      if [[ $# -lt 2 ]]; then
+        echo "--env-file requires a path" >&2
+        exit 1
+      fi
+      ENV_FILE="$2"
+      shift 2
       ;;
     --help)
       usage
@@ -35,10 +44,12 @@ done
 
 cd "$ROOT_DIR"
 
-if [[ -f "$ROOT_DIR/.env" ]]; then
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
+
+if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source "$ROOT_DIR/.env"
+  source "$ENV_FILE"
   set +a
 fi
 
@@ -96,23 +107,6 @@ check_optional() {
   return 0
 }
 
-check_not_contains() {
-  local key="$1"
-  local forbidden="$2"
-  local note="$3"
-  local value="${!key:-}"
-
-  if [[ "$value" == *"$forbidden"* ]]; then
-    report "BLOCK" "$key" "$note"
-    block_count=$((block_count + 1))
-    return 1
-  fi
-
-  report "PASS" "$key" ""
-  pass_count=$((pass_count + 1))
-  return 0
-}
-
 check_same_origin() {
   local lhs_key="$1"
   local rhs_key="$2"
@@ -144,6 +138,7 @@ check_same_origin() {
 echo "WhaleGraph Beta Open Prep"
 echo "Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "Repo: $ROOT_DIR"
+echo "Env file: $ENV_FILE"
 echo
 
 echo "[1/3] Env sanity"
@@ -162,15 +157,8 @@ required_keys=(
   AUTH_PROVIDER
   AUTH_SECRET
   CLERK_SECRET_KEY
-  CLERK_ISSUER_URL
-  CLERK_JWKS_URL
   CLERK_AUDIENCE
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-  STRIPE_SECRET_KEY
-  STRIPE_WEBHOOK_SECRET
-  STRIPE_PUBLISHABLE_KEY
-  STRIPE_SUCCESS_URL
-  STRIPE_CANCEL_URL
   ALCHEMY_API_KEY
   HELIUS_API_KEY
   MORALIS_API_KEY
@@ -187,6 +175,11 @@ done
 
 optional_keys=(
   DUNE_API_KEY
+  STRIPE_SECRET_KEY
+  STRIPE_WEBHOOK_SECRET
+  STRIPE_PUBLISHABLE_KEY
+  STRIPE_SUCCESS_URL
+  STRIPE_CANCEL_URL
   STRIPE_BASE_URL
   WHALEGRAPH_ALERT_SMTP_HOST
 )
@@ -195,8 +188,6 @@ for key in "${optional_keys[@]}"; do
   check_optional "$key" || true
 done
 
-check_not_contains "CLERK_ISSUER_URL" "example.clerk.accounts.dev" "replace example Clerk issuer URL" || true
-check_not_contains "CLERK_JWKS_URL" "example.clerk.accounts.dev" "replace example Clerk JWKS URL" || true
 check_same_origin "STRIPE_SUCCESS_URL" "APP_BASE_URL" || true
 check_same_origin "STRIPE_CANCEL_URL" "APP_BASE_URL" || true
 

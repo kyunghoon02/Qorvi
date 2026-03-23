@@ -9,7 +9,7 @@ beta 운영자는 아래 5가지를 책임진다.
 1. search / wallet / graph read path 정상 여부 확인
 2. provider quota 및 ingest freshness 확인
 3. alert delivery failure와 inbox 이상징후 확인
-4. billing reconciliation anomaly 확인
+4. billing을 beta에서 켠 경우 billing reconciliation anomaly 확인
 5. labels / suppressions / audit consistency 확인
 
 ## 2. Service Map
@@ -36,7 +36,7 @@ curl http://localhost:4000/healthz
 
 2. admin observability / provider quotas 확인
 3. alert delivery failure 여부 확인
-4. billing/account anomaly 확인
+4. billing을 beta에서 켠 경우 billing/account anomaly 확인
 5. audit trail 누락 여부 확인
 
 핵심 문서와 경로:
@@ -59,7 +59,7 @@ wallet backfill 재시도:
 WHALEGRAPH_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
-billing subscription sync 재실행:
+optional billing subscription sync 재실행:
 
 ```bash
 WHALEGRAPH_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
@@ -94,13 +94,13 @@ WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 ### Billing mismatch
 
-1. checkout/webhook/account 상태 순서대로 확인
-2. billing subscription sync 재실행
+1. billing을 beta에서 켠 경우 checkout/webhook/account 상태 순서대로 확인
+2. billing을 beta에서 켠 경우 billing subscription sync 재실행
 3. unresolved mismatch는 `warn`로 승격 후 운영자 공유
 
 ## 6. Escalation Ownership
 
 - ops/admin surface 문제: `ops-admin-engineer`
 - API/auth/watchlist/alerts 문제: `api-platform-engineer`
-- billing/account/Stripe 문제: `billing-launch-engineer`
+- billing/account/Stripe 문제: billing을 beta에서 켰을 때만 `billing-launch-engineer`
 - provider/ingest/enrichment 문제: `provider-integration-engineer`

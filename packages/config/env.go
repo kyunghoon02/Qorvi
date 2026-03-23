@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
@@ -262,11 +263,26 @@ func envMapFromOS() map[string]string {
 }
 
 func ParseClerkVerificationConfig(source map[string]string) (ClerkVerificationConfig, error) {
-	issuerURL, err := requiredHTTPSURL(source, "CLERK_ISSUER_URL")
+	issuerURL := strings.TrimSpace(source["CLERK_ISSUER_URL"])
+	jwksURL := strings.TrimSpace(source["CLERK_JWKS_URL"])
+	if issuerURL == "" || jwksURL == "" {
+		derivedIssuerURL, derivedJWKSURL, err := deriveClerkVerificationURLs(
+			strings.TrimSpace(source["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"]),
+		)
+		if err == nil {
+			if issuerURL == "" {
+				issuerURL = derivedIssuerURL
+			}
+			if jwksURL == "" {
+				jwksURL = derivedJWKSURL
+			}
+		}
+	}
+	validatedIssuerURL, err := validateRequiredHTTPSURL(issuerURL, "CLERK_ISSUER_URL")
 	if err != nil {
 		return ClerkVerificationConfig{}, err
 	}
-	jwksURL, err := requiredHTTPSURL(source, "CLERK_JWKS_URL")
+	validatedJWKSURL, err := validateRequiredHTTPSURL(jwksURL, "CLERK_JWKS_URL")
 	if err != nil {
 		return ClerkVerificationConfig{}, err
 	}
@@ -277,11 +293,40 @@ func ParseClerkVerificationConfig(source map[string]string) (ClerkVerificationCo
 	}
 
 	return ClerkVerificationConfig{
-		IssuerURL:        issuerURL,
-		JWKSURL:          jwksURL,
+		IssuerURL:        validatedIssuerURL,
+		JWKSURL:          validatedJWKSURL,
 		Audience:         audience,
 		ClockSkewSeconds: clockSkewSeconds,
 	}, nil
+}
+
+func deriveClerkVerificationURLs(publishableKey string) (string, string, error) {
+	trimmedKey := strings.TrimSpace(publishableKey)
+	if trimmedKey == "" {
+		return "", "", fmt.Errorf("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required to derive Clerk URLs")
+	}
+
+	encodedSegment := trimmedKey
+	if index := strings.LastIndex(trimmedKey, "_"); index >= 0 && index < len(trimmedKey)-1 {
+		encodedSegment = trimmedKey[index+1:]
+	}
+
+	domainBytes, err := base64.RawURLEncoding.DecodeString(encodedSegment)
+	if err != nil {
+		return "", "", fmt.Errorf("derive Clerk URLs from publishable key: %w", err)
+	}
+
+	domain := strings.TrimSpace(strings.TrimSuffix(string(domainBytes), "$"))
+	if domain == "" {
+		return "", "", fmt.Errorf("derive Clerk URLs from publishable key: empty domain")
+	}
+	if !strings.Contains(domain, ".") {
+		return "", "", fmt.Errorf("derive Clerk URLs from publishable key: invalid domain")
+	}
+
+	issuerURL := "https://" + domain
+	jwksURL := issuerURL + "/.well-known/jwks.json"
+	return issuerURL, jwksURL, nil
 }
 
 func required(source map[string]string, key string) (string, error) {
@@ -369,6 +414,15 @@ func requiredHTTPSURL(source map[string]string, key string) (string, error) {
 	value, err := required(source, key)
 	if err != nil {
 		return "", err
+	}
+
+	return validateRequiredHTTPSURL(value, key)
+}
+
+func validateRequiredHTTPSURL(value string, key string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%s is required", key)
 	}
 
 	parsed, err := url.Parse(value)

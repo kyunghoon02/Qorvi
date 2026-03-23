@@ -9,7 +9,7 @@
 - Reviewer set:
   - engineering closeout
   - operator handoff
-  - billing/launch review
+  - launch review
 
 ## 2. Executed Evidence
 
@@ -24,19 +24,18 @@ corepack pnpm beta:evidence:core
 1. `@whalegraph/web typecheck` 통과
 2. `@whalegraph/web lint` 통과
 3. `go test ./packages/providers ./apps/api/internal/server ./apps/workers` 통과
-4. `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts` 통과
+4. `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"` 통과
    - `searches a wallet and lands on tracked alerts`
-   - `creates checkout intent, reconciles billing, and shows upgraded account`
 
 ## 3. Gate Outcome
 
 | Gate | Outcome | Basis |
 | --- | --- | --- |
-| Functional | `pass` | wallet/search/graph/alerts/billing mixed flow 검증 완료 |
+| Functional | `pass` | wallet/search/graph/alerts core flow 검증 완료 |
 | Reliability | `pass` | provider contracts, replay, worker refresh/invalidation, webhook duplicate safety 확인 |
 | UX | `pass` | degraded state 정책과 mixed E2E 검증 완료 |
 | Ops | `pass` | admin observability, provider quotas, alert delivery/admin surfaces 존재 |
-| Residual Hardening | `warn` | billing copy/ops polish/quota tuning은 launch 이후 follow-up 유지 |
+| Residual Hardening | `warn` | billing activation, ops polish, quota tuning은 beta 이후 follow-up 유지 |
 
 ## 4. Blocking Issues
 
@@ -44,14 +43,11 @@ corepack pnpm beta:evidence:core
 
 현재 open 전에 해소해야 할 항목:
 
-1. `WHALEGRAPH_RAW_PAYLOAD_ROOT`
-2. Clerk secret / publishable key
-3. Stripe secret / webhook / publishable key / success-cancel URL
-4. Moralis key / base URL
+1. Clerk secret / publishable key
 
 launch 이후 follow-up으로 남길 `warn`:
 
-1. billing closeout copy/polish
+1. billing activation closeout
 2. ops anomaly surfacing polish
 3. provider pressure에 따른 quota tuning
 
@@ -62,7 +58,11 @@ launch 이후 follow-up으로 남길 `warn`:
 1. `/Users/kh/Github/WhaleGraph/docs/runbooks/launch-gates.md`에 새로운 `block`이 추가되지 않는다.
 2. `corepack pnpm beta:open:prep`가 target environment에서 통과한다.
 3. operator가 `/v1/admin/provider-quotas`, `/v1/admin/observability`를 직접 확인한다.
-4. billing/account mixed flow가 target beta environment에서도 재현 가능하다.
+
+billing을 beta에서 함께 활성화할 경우:
+
+1. `corepack pnpm beta:evidence:billing`이 통과한다.
+2. billing/account mixed flow가 target beta environment에서도 재현 가능하다.
 
 ## 6. Next Action
 
