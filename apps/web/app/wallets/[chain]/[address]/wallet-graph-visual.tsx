@@ -27,6 +27,7 @@ import type {
   WalletGraphFlowEdge as WalletGraphFlowEdgeType,
   WalletGraphFlowNode as WalletGraphFlowNodeType,
 } from "./wallet-graph-flow-types";
+import { useForceSimulation } from "./use-force-simulation";
 import {
   type WalletGraphEdgeFamilyFilter,
   type WalletGraphEdgeKindFilter,
@@ -109,6 +110,9 @@ export function WalletGraphVisual({
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState(
     flowModel.edges,
   );
+
+  const primaryNodeId = useMemo(() => flowModel.nodes.find(n => n.data.isPrimary)?.id, [flowModel.nodes]);
+  useForceSimulation(flowNodes, setFlowNodes, flowEdges, primaryNodeId);
 
   useEffect(() => {
     setFlowNodes(flowModel.nodes);

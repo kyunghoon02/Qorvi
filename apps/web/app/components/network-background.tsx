@@ -4,66 +4,141 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-function ParticleNetwork({ count = 400 }) {
+function ParticleNetwork() {
   const pointsRef = useRef<THREE.Points | null>(null);
   const linesRef = useRef<THREE.LineSegments | null>(null);
 
   const { pointsGeometry, linesGeometry, hasLines } = useMemo(() => {
-    const pArray = new Float32Array(count * 3);
-    const cArray = new Float32Array(count * 3);
-    const boxSize = 25;
+    const pArray: number[] = [];
+    const cArray: number[] = [];
+    const linePositions: number[] = [];
+    const lineColors: number[] = [];
 
-    // Create random points
-    for (let i = 0; i < count; i++) {
-      pArray[i * 3] = (Math.random() - 0.5) * boxSize;
-      pArray[i * 3 + 1] = (Math.random() - 0.5) * boxSize;
-      pArray[i * 3 + 2] = (Math.random() - 0.5) * boxSize - 5;
+    const rootCount = 15;
+    const maxSteps = 80;
 
-      // Color nodes based on elegant dark colors
-      const colorRandom = Math.random();
-      const color = new THREE.Color();
-      if (colorRandom > 0.85) {
-        color.setHex(0x14b8a6); // subtle teal
-      } else if (colorRandom > 0.7) {
-        color.setHex(0x8b5cf6); // subtle violet
-      } else {
-        color.setHex(0x555555); // muted gray
-      }
-      color.toArray(cArray, i * 3);
+    const palette = [
+      0x00f0ff, // neon blue
+      0xff00cc, // hot pink
+      0x00ff66, // neon green
+      0xffeb3b, // yellow
+      0xff3366, // red-pink
+      0x8a2be2, // blue-violet
+    ];
+
+    interface Strand {
+      pos: THREE.Vector3;
+      dir: THREE.Vector3;
+      step: number;
+      color: THREE.Color;
+      isMain: boolean;
     }
 
-    // Connect close points
-    const linePositions: number[] = [];
-    const maxConnectionDistance = 3.6;
+    const queue: Strand[] = [];
 
-    for (let i = 0; i < count; i++) {
-      for (let j = i + 1; j < count; j++) {
-        const leftX = pArray[i * 3] ?? 0;
-        const leftY = pArray[i * 3 + 1] ?? 0;
-        const leftZ = pArray[i * 3 + 2] ?? 0;
-        const rightX = pArray[j * 3] ?? 0;
-        const rightY = pArray[j * 3 + 1] ?? 0;
-        const rightZ = pArray[j * 3 + 2] ?? 0;
-        const dx = leftX - rightX;
-        const dy = leftY - rightY;
-        const dz = leftZ - rightZ;
-        const distSq = dx * dx + dy * dy + dz * dz;
+    for (let i = 0; i < rootCount; i++) {
+      // Create roots near center
+      const startPos = new THREE.Vector3(
+        (Math.random() - 0.5) * 4,
+        (Math.random() - 0.5) * 4,
+        (Math.random() - 0.5) * 4 - 2 // Offset backwards slightly less
+      );
+      const baseDir = new THREE.Vector3(
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+        Math.random() - 0.5
+      ).normalize();
 
-        if (distSq < maxConnectionDistance * maxConnectionDistance) {
-          linePositions.push(leftX, leftY, leftZ, rightX, rightY, rightZ);
-        }
+      const coreColor = new THREE.Color(
+        palette[Math.floor(Math.random() * palette.length)]
+      );
+
+      // Root points
+      pArray.push(startPos.x, startPos.y, startPos.z);
+      cArray.push(coreColor.r, coreColor.g, coreColor.b);
+
+      const strandsNum = 3 + Math.random() * 4;
+      for (let s = 0; s < strandsNum; s++) {
+        const dir = baseDir.clone();
+        dir.x += (Math.random() - 0.5) * 0.3;
+        dir.y += (Math.random() - 0.5) * 0.3;
+        dir.z += (Math.random() - 0.5) * 0.3;
+        dir.normalize();
+
+        const col = coreColor.clone().offsetHSL((Math.random() - 0.5) * 0.1, 0, 0);
+        queue.push({
+          pos: startPos.clone(),
+          dir,
+          step: 0,
+          color: col,
+          isMain: true,
+        });
       }
+    }
+
+    while (queue.length > 0) {
+      const { pos, dir, step, color, isMain } = queue.shift()!;
+      if (step > maxSteps) continue;
+
+      const length = 0.3 + Math.random() * 0.3;
+      const nextPos = pos.clone().add(dir.clone().multiplyScalar(length));
+
+      if (Math.random() > 0.8 || step === maxSteps) {
+        pArray.push(nextPos.x, nextPos.y, nextPos.z);
+        cArray.push(color.r, color.g, color.b);
+      }
+
+      linePositions.push(pos.x, pos.y, pos.z, nextPos.x, nextPos.y, nextPos.z);
+      lineColors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+
+      // smooth curve
+      const nextDir = dir.clone();
+      const wander = isMain ? 0.15 : 0.3;
+      nextDir.x += (Math.random() - 0.5) * wander;
+      nextDir.y += (Math.random() - 0.5) * wander;
+      nextDir.z += (Math.random() - 0.5) * wander;
+      nextDir.normalize();
+
+      // branch?
+      if (step > 10 && step < maxSteps - 10 && Math.random() < 0.05) {
+        const branchDir = nextDir.clone();
+        branchDir.x += (Math.random() - 0.5) * 0.8;
+        branchDir.y += (Math.random() - 0.5) * 0.8;
+        branchDir.z += (Math.random() - 0.5) * 0.8;
+        branchDir.normalize();
+
+        const branchColor = color.clone().offsetHSL((Math.random() - 0.5) * 0.15, 0, 0);
+        queue.push({
+          pos: nextPos.clone(),
+          dir: branchDir,
+          step: step + 1,
+          color: branchColor,
+          isMain: false,
+        });
+      }
+
+      queue.push({
+        pos: nextPos.clone(),
+        dir: nextDir,
+        step: step + 1,
+        color,
+        isMain,
+      });
     }
 
     const pGeo = new THREE.BufferGeometry();
-    pGeo.setAttribute("position", new THREE.BufferAttribute(pArray, 3));
-    pGeo.setAttribute("color", new THREE.BufferAttribute(cArray, 3));
+    pGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pArray), 3));
+    pGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cArray), 3));
 
     const lGeo = new THREE.BufferGeometry();
     if (linePositions.length > 0) {
       lGeo.setAttribute(
         "position",
         new THREE.BufferAttribute(new Float32Array(linePositions), 3),
+      );
+      lGeo.setAttribute(
+        "color",
+        new THREE.BufferAttribute(new Float32Array(lineColors), 3),
       );
     }
 
@@ -72,7 +147,7 @@ function ParticleNetwork({ count = 400 }) {
       linesGeometry: lGeo,
       hasLines: linePositions.length > 0,
     };
-  }, [count]);
+  }, []);
 
   useFrame((state) => {
     const t = state.clock.getElapsedTime() * 0.03;
@@ -92,7 +167,7 @@ function ParticleNetwork({ count = 400 }) {
         <pointsMaterial
           transparent
           vertexColors
-          size={0.12}
+          size={0.15}
           sizeAttenuation={true}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
@@ -101,9 +176,9 @@ function ParticleNetwork({ count = 400 }) {
       {hasLines && (
         <lineSegments ref={linesRef} geometry={linesGeometry}>
           <lineBasicMaterial
-            color="#3a3a3a"
+            vertexColors
             transparent
-            opacity={0.25}
+            opacity={0.35}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
           />
@@ -150,7 +225,7 @@ export function NetworkBackground() {
       {canRenderCanvas ? (
         <Canvas camera={{ position: [0, 0, 18], fov: 60 }}>
           <fog attach="fog" args={["#121212", 10, 28]} />
-          <ParticleNetwork count={450} />
+          <ParticleNetwork />
         </Canvas>
       ) : null}
     </div>

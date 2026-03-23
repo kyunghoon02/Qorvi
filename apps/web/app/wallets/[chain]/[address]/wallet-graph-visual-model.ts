@@ -143,26 +143,19 @@ export function buildWalletGraphVisualModel({
 }): WalletGraphVisualModel {
   const width = 1180;
   const centerX = width / 2;
-  const primaryWidth = 248;
-  const primaryHeight = 88;
+  const primaryWidth = 32;
+  const primaryHeight = 32;
+  const height = 900;
+  const centerY = height / 2;
+  const primaryX = centerX - primaryWidth / 2;
+  const primaryY = centerY - primaryHeight / 2;
+
   const primaryIndex = Math.max(
     nodes.findIndex((node) => node.kind === "wallet"),
     0,
   );
   const primaryNode = nodes[primaryIndex];
   const sideNodes = nodes.filter((_, index) => index !== primaryIndex);
-  const columnNodes = buildColumnNodes(sideNodes, edges, primaryNode?.id);
-  const leftHeights = columnNodes.left.map(nodeCardHeight);
-  const rightHeights = columnNodes.right.map(nodeCardHeight);
-  const columnHeight = Math.max(
-    layoutColumnHeight(leftHeights),
-    layoutColumnHeight(rightHeights),
-    primaryHeight,
-  );
-  const height = Math.max(500, columnHeight + 120);
-  const centerY = height / 2;
-  const primaryX = centerX - primaryWidth / 2;
-  const primaryY = centerY - primaryHeight / 2;
 
   const nodeViewModels = new Map<string, WalletGraphVisualNode>();
 
@@ -182,22 +175,124 @@ export function buildWalletGraphVisualModel({
     });
   }
 
-  const leftNodes = layoutColumnNodes({
-    nodes: columnNodes.left,
-    column: "left",
-    x: 48,
-    height,
-  });
-  const rightNodes = layoutColumnNodes({
-    nodes: columnNodes.right,
-    column: "right",
-    x: width - 48,
-    height,
+  // Custom Force-Directed Physics Simulation (Static)
+  const simulatedPositions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
+
+  sideNodes.forEach((node) => {
+    simulatedPositions.set(node.id, {
+      x: primaryX + (Math.random() - 0.5) * 400,
+      y: primaryY + (Math.random() - 0.5) * 400,
+      vx: 0,
+      vy: 0,
+    });
   });
 
-  for (const node of leftNodes.concat(rightNodes)) {
-    nodeViewModels.set(node.id, node);
+  if (primaryNode) {
+    simulatedPositions.set(primaryNode.id, { x: primaryX, y: primaryY, vx: 0, vy: 0 });
   }
+
+  // Settings
+  const ITERATIONS = 0;
+  const REPULSION = 18000;
+  const SPRING_LENGTH = 180;
+  const SPRING_K = 0.08;
+  const DAMPING = 0.75;
+  const CENTER_FORCE = 0.04;
+
+  const simNodes = Array.from(simulatedPositions.entries());
+
+  for (let step = 0; step < ITERATIONS; step++) {
+    // Apply Repulsion
+    for (let i = 0; i < simNodes.length; i++) {
+      for (let j = i + 1; j < simNodes.length; j++) {
+        const [idA, a] = simNodes[i]!;
+        const [idB, b] = simNodes[j]!;
+
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        let distSq = dx * dx + dy * dy;
+        if (distSq === 0) distSq = 1;
+
+        if (distSq < 400000) {
+          const force = REPULSION / distSq;
+          const dist = Math.sqrt(distSq);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+
+          if (idA !== primaryNode?.id) {
+            a.vx += fx;
+            a.vy += fy;
+          }
+          if (idB !== primaryNode?.id) {
+            b.vx -= fx;
+            b.vy -= fy;
+          }
+        }
+      }
+    }
+
+    // Apply Springs
+    edges.forEach((edge) => {
+      const source = simulatedPositions.get(edge.sourceId);
+      const target = simulatedPositions.get(edge.targetId);
+      if (source && target) {
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (dist - SPRING_LENGTH) * SPRING_K;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+
+        if (edge.sourceId !== primaryNode?.id) {
+          source.vx += fx;
+          source.vy += fy;
+        }
+        if (edge.targetId !== primaryNode?.id) {
+          target.vx -= fx;
+          target.vy -= fy;
+        }
+      }
+    });
+
+    // Apply Gravity/Center
+    simNodes.forEach(([id, p]) => {
+      if (id !== primaryNode?.id) {
+        p.vx -= (p.x - centerX) * CENTER_FORCE;
+        p.vy -= (p.y - centerY) * CENTER_FORCE;
+      }
+    });
+
+    // Integration
+    simNodes.forEach(([id, p]) => {
+      if (id !== primaryNode?.id) {
+        p.vx *= DAMPING;
+        p.vy *= DAMPING;
+        p.x += p.vx;
+        p.y += p.vy;
+      }
+    });
+  }
+
+  sideNodes.forEach((node) => {
+    const pos = simulatedPositions.get(node.id)!;
+    const w = nodeCardWidth(node);
+    const h = nodeCardHeight(node);
+    const column = pos.x < centerX ? "left" : "right";
+
+    nodeViewModels.set(node.id, {
+      ...node,
+      tone: walletGraphNodeTone[node.kind],
+      kindLabel: formatGraphKind(node.kind),
+      x: pos.x - w / 2,
+      y: pos.y - h / 2,
+      width: w,
+      height: h,
+      title: node.label,
+      subtitle: buildNodeSubtitle(node),
+      isPrimary: false,
+      column,
+    });
+  });
 
   const orderedNodeViewModels = nodes
     .map((node) => nodeViewModels.get(node.id))
@@ -554,19 +649,11 @@ function layoutColumnNodes({
 }
 
 function nodeCardWidth(node: WalletGraphPreviewNode): number {
-  if (node.kind === "wallet") {
-    return 216;
-  }
-
-  if (node.kind === "cluster") {
-    return 208;
-  }
-
-  return 220;
+  return 16;
 }
 
 function nodeCardHeight(node: WalletGraphPreviewNode): number {
-  return node.kind === "wallet" ? 82 : 76;
+  return 16;
 }
 
 function layoutColumnHeight(nodeHeights: number[]): number {
@@ -687,19 +774,43 @@ function buildCurvedEdgePath({
     };
   }
 
-  const start = resolveNodeAnchor(sourceNode, targetNode);
-  const end = resolveNodeAnchor(targetNode, sourceNode);
-  const direction = start.x <= end.x ? 1 : -1;
-  const distance = Math.abs(end.x - start.x);
-  const controlOffset = Math.max(96, Math.min(220, distance * 0.42));
+  const start = {
+    x: sourceNode.x + sourceNode.width / 2,
+    y: sourceNode.y + sourceNode.height / 2,
+  };
+  const end = {
+    x: targetNode.x + targetNode.width / 2,
+    y: targetNode.y + targetNode.height / 2,
+  };
+
   const midX = (start.x + end.x) / 2;
   const midY = (start.y + end.y) / 2;
-  const labelBias = start.y <= end.y ? -20 : 20;
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  const nx = -dy / (dist || 1);
+  const ny = dx / (dist || 1);
+
+  // Deterministic curvature factor based on node IDs
+  const sourceIdLen = sourceNode.id.length || 1;
+  const targetIdLen = targetNode.id.length || 1;
+  const idHash = (sourceIdLen + targetIdLen) % 10;
+  const curveDirection = idHash >= 5 ? 1 : -1;
+  const curveIntensity = 0.15 + (idHash % 5) * 0.05;
+  const offset = dist * curveIntensity * curveDirection;
+
+  const cx = midX + nx * offset;
+  const cy = midY + ny * offset;
+
+  const approxLabelX = (midX + cx) / 2;
+  const approxLabelY = (midY + cy) / 2;
 
   return {
-    path: `M ${start.x} ${start.y} C ${start.x + controlOffset * direction} ${start.y}, ${end.x - controlOffset * direction} ${end.y}, ${end.x} ${end.y}`,
-    labelX: midX,
-    labelY: midY + labelBias,
+    path: `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`,
+    labelX: approxLabelX,
+    labelY: Math.max(approxLabelY - 12, 0),
   };
 }
 
@@ -903,4 +1014,4 @@ function buildSummaryCards({
 }
 
 const MAX_VISIBLE_EDGES = 8;
-const ROW_GAP = 18;
+const ROW_GAP = 48;

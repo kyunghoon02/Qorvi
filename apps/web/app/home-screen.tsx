@@ -168,9 +168,9 @@ export function HomeScreen({
       const nextSummary = await loadWalletSummaryPreview(
         summaryFallback
           ? {
-              request: walletRequest,
-              fallback: summaryFallback,
-            }
+            request: walletRequest,
+            fallback: summaryFallback,
+          }
           : { request: walletRequest },
       );
       if (!canCommit()) {
@@ -181,18 +181,18 @@ export function HomeScreen({
       const loadedGraph = await loadWalletGraphPreview(
         graphFallback
           ? {
-              request: {
-                ...walletRequest,
-                depthRequested: 2,
-              },
-              fallback: graphFallback,
-            }
-          : {
-              request: {
-                ...walletRequest,
-                depthRequested: 2,
-              },
+            request: {
+              ...walletRequest,
+              depthRequested: 2,
             },
+            fallback: graphFallback,
+          }
+          : {
+            request: {
+              ...walletRequest,
+              depthRequested: 2,
+            },
+          },
       );
       if (!canCommit()) {
         return;
@@ -201,13 +201,13 @@ export function HomeScreen({
         loadedGraph.mode === "unavailable" &&
           nextSummary.topCounterparties.length > 0
           ? deriveWalletGraphPreviewFromSummary({
-              request: {
-                ...walletRequest,
-                depthRequested: 2,
-              },
-              summary: nextSummary,
-              fallback: loadedGraph,
-            })
+            request: {
+              ...walletRequest,
+              depthRequested: 2,
+            },
+            summary: nextSummary,
+            fallback: loadedGraph,
+          })
           : loadedGraph,
       );
     },
@@ -292,9 +292,9 @@ export function HomeScreen({
       preview.topCounterparties.find(
         (counterparty) =>
           counterparty.chain.toLowerCase() ===
-            activeNode.chain?.toLowerCase() &&
+          activeNode.chain?.toLowerCase() &&
           counterparty.address.toLowerCase() ===
-            activeNode.address?.toLowerCase(),
+          activeNode.address?.toLowerCase(),
       ) ?? null;
     const fallback = summaryCounterparty
       ? buildCounterpartyEntityAssignment(summaryCounterparty)
@@ -371,25 +371,7 @@ export function HomeScreen({
               border: "none",
             }}
           >
-            <div>
-              <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>
-                {hasWalletPreview ? preview.label : "Search a wallet"}
-              </h2>
-              <p
-                style={{
-                  margin: "4px 0 0",
-                  color: "var(--muted)",
-                  fontSize: "0.85rem",
-                }}
-              >
-                {graphAvailability.stateLabel}
-              </p>
-            </div>
-            <div className="preview-state">
-              <span className="home-graph-state">
-                {graphPreview.depthResolved}-hop
-              </span>
-            </div>
+
           </div>
 
           {hasWalletPreview ? (
