@@ -22,3 +22,6 @@ go.work.sum
 .env.test.local
 .env.production.local
 !.env.example
+.whalegraph/raw-payloads
+apps/web/test-results
+apps/web/tsconfig.tsbuildinfo

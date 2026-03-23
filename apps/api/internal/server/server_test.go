@@ -11,6 +11,7 @@ import (
 
 	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
 	"github.com/whalegraph/whalegraph/apps/api/internal/service"
+	"github.com/whalegraph/whalegraph/packages/db"
 	"github.com/whalegraph/whalegraph/packages/domain"
 )
 
@@ -43,8 +44,9 @@ func TestWalletSummaryRoute(t *testing.T) {
 	t.Parallel()
 
 	srv := NewWithDependencies(Dependencies{
-		Wallets:       service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}),
+		Wallets:       service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
 		Graphs:        service.NewWalletGraphService(&testWalletGraphRepository{graph: walletGraphFixture()}),
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
 
@@ -106,11 +108,121 @@ func TestWalletSummaryRouteRejectsUnsupportedChain(t *testing.T) {
 	}
 }
 
+func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{ClerkVerifier: auth.NewHeaderClerkVerifier()})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/billing/checkout-sessions", bytes.NewReader([]byte(`{
+		"tier":"pro",
+		"successUrl":"http://localhost:3000/account?checkout=success",
+		"cancelUrl":"http://localhost:3000/account?checkout=cancel",
+		"customerEmail":"ops@whalegraph.test"
+	}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", rr.Code)
+	}
+
+	var body Envelope[service.BillingCheckoutResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.CheckoutSession.Provider != "stripe" {
+		t.Fatalf("expected stripe session, got %q", body.Data.CheckoutSession.Provider)
+	}
+	if body.Data.Plan.Tier != "pro" {
+		t.Fatalf("expected pro plan, got %q", body.Data.Plan.Tier)
+	}
+}
+
+func TestBillingPlansRouteReturnsCatalog(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{ClerkVerifier: auth.NewHeaderClerkVerifier()})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/billing/plans", nil)
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.BillingPlansResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Plans) < 3 {
+		t.Fatalf("expected at least 3 plans, got %d", len(body.Data.Plans))
+	}
+	if body.Data.Plans[0].CheckoutSessionPath != "/v1/billing/checkout-sessions" {
+		t.Fatalf("unexpected checkout path %q", body.Data.Plans[0].CheckoutSessionPath)
+	}
+}
+
+func TestStripeBillingWebhookReconcilesAccountPlan(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{ClerkVerifier: auth.NewHeaderClerkVerifier()})
+
+	webhookRR := httptest.NewRecorder()
+	webhookReq := httptest.NewRequest(http.MethodPost, "/v1/webhooks/billing/stripe", bytes.NewReader([]byte(`{
+		"type":"checkout.session.completed",
+		"subscriptionId":"sub_123",
+		"customerId":"cus_456",
+		"principalUserId":"user_123",
+		"planTier":"team",
+		"status":"active"
+	}`)))
+	webhookReq.Header.Set("Content-Type", "application/json")
+
+	srv.Handler().ServeHTTP(webhookRR, webhookReq)
+
+	if webhookRR.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d", webhookRR.Code)
+	}
+
+	accountRR := httptest.NewRecorder()
+	accountReq := httptest.NewRequest(http.MethodGet, "/v1/account", nil)
+	accountReq.Header.Set("X-Clerk-User-Id", "user_123")
+	accountReq.Header.Set("X-Clerk-Session-Id", "session_123")
+	accountReq.Header.Set("X-Clerk-Role", "user")
+	accountReq.Header.Set("X-Whalegraph-Plan", "free")
+
+	srv.Handler().ServeHTTP(accountRR, accountReq)
+
+	if accountRR.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", accountRR.Code)
+	}
+
+	var accountBody Envelope[service.AccountResponse]
+	decode(t, accountRR.Body.Bytes(), &accountBody)
+
+	if accountBody.Data.Plan.Tier != "team" {
+		t.Fatalf("expected reconciled team plan, got %q", accountBody.Data.Plan.Tier)
+	}
+	if accountBody.Data.Access.Plan != "team" {
+		t.Fatalf("expected access plan team, got %q", accountBody.Data.Access.Plan)
+	}
+}
+
 func TestWalletGraphRouteDefaultsToOneHop(t *testing.T) {
 	t.Parallel()
 
 	srv := NewWithDependencies(Dependencies{
 		Graphs:        service.NewWalletGraphService(&testWalletGraphRepository{graph: walletGraphFixture()}),
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
 
@@ -134,6 +246,9 @@ func TestWalletGraphRouteDefaultsToOneHop(t *testing.T) {
 	if body.Data.DepthResolved != 1 {
 		t.Fatalf("expected resolved depth 1, got %d", body.Data.DepthResolved)
 	}
+	if body.Data.NeighborhoodSummary == nil {
+		t.Fatal("expected neighborhood summary")
+	}
 }
 
 func TestWalletGraphRouteBlocksFreeTierTwoHop(t *testing.T) {
@@ -141,6 +256,7 @@ func TestWalletGraphRouteBlocksFreeTierTwoHop(t *testing.T) {
 
 	srv := NewWithDependencies(Dependencies{
 		Graphs:        service.NewWalletGraphService(&testWalletGraphRepository{graph: walletGraphFixture()}),
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
 
@@ -166,6 +282,7 @@ func TestWalletGraphRouteAllowsProTwoHopRequest(t *testing.T) {
 	repo := &testWalletGraphRepository{graph: walletGraphFixture()}
 	srv := NewWithDependencies(Dependencies{
 		Graphs:        service.NewWalletGraphService(repo),
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
 
@@ -199,6 +316,12 @@ func TestWalletGraphRouteAllowsProTwoHopRequest(t *testing.T) {
 	if len(body.Data.Edges) != 2 {
 		t.Fatalf("expected 2 edges, got %d", len(body.Data.Edges))
 	}
+	if body.Data.NeighborhoodSummary == nil {
+		t.Fatal("expected neighborhood summary")
+	}
+	if body.Data.NeighborhoodSummary.ClusterNodeCount != 1 {
+		t.Fatalf("unexpected neighborhood summary %#v", body.Data.NeighborhoodSummary)
+	}
 	if body.Data.Edges[0].Kind != domain.WalletGraphEdgeMemberOf || body.Data.Edges[0].Weight != 82 {
 		t.Fatalf("unexpected structural edge: %#v", body.Data.Edges[0])
 	}
@@ -207,6 +330,146 @@ func TestWalletGraphRouteAllowsProTwoHopRequest(t *testing.T) {
 	}
 	if !repo.called {
 		t.Fatal("expected graph repository to be invoked")
+	}
+}
+
+func TestShadowExitFeedRoute(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		ShadowExits:   service.NewShadowExitFeedService(&testShadowExitFeedRepository{page: shadowExitFeedFixture()}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/signals/shadow-exits?limit=10", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.ShadowExitFeedResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected one shadow exit item, got %d", len(body.Data.Items))
+	}
+	if body.Data.WindowLabel != "Last 24 hours" {
+		t.Fatalf("unexpected window label %q", body.Data.WindowLabel)
+	}
+	if body.Data.Items[0].WalletRoute != "/wallets/solana/So11111111111111111111111111111111111111112" {
+		t.Fatalf("unexpected wallet route %q", body.Data.Items[0].WalletRoute)
+	}
+	if body.Data.Items[0].Explanation == "" {
+		t.Fatal("expected explanation")
+	}
+	if body.Data.Items[0].Score != 34 {
+		t.Fatalf("unexpected score %d", body.Data.Items[0].Score)
+	}
+	if body.Data.Items[0].Rating != "medium" {
+		t.Fatalf("unexpected rating %q", body.Data.Items[0].Rating)
+	}
+}
+
+func TestFirstConnectionFeedRoute(t *testing.T) {
+	t.Parallel()
+
+	repo := &testFirstConnectionFeedRepository{page: firstConnectionFeedFixture()}
+	srv := NewWithDependencies(Dependencies{
+		FirstConnections: service.NewFirstConnectionFeedService(repo),
+		ClerkVerifier:    auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/signals/first-connections?limit=10", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.FirstConnectionFeedResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected one first connection item, got %d", len(body.Data.Items))
+	}
+	if body.Data.WindowLabel != "Hot feed baseline" {
+		t.Fatalf("unexpected window label %q", body.Data.WindowLabel)
+	}
+	if body.Data.Items[0].WalletRoute != "/wallets/evm/0x1234567890abcdef1234567890abcdef12345678" {
+		t.Fatalf("unexpected wallet route %q", body.Data.Items[0].WalletRoute)
+	}
+	if body.Data.Items[0].Explanation == "" {
+		t.Fatal("expected explanation")
+	}
+	if body.Data.Items[0].Score != 72 {
+		t.Fatalf("unexpected score %d", body.Data.Items[0].Score)
+	}
+	if body.Data.Items[0].Rating != "high" {
+		t.Fatalf("unexpected rating %q", body.Data.Items[0].Rating)
+	}
+	if repo.sort != "latest" {
+		t.Fatalf("unexpected sort %q", repo.sort)
+	}
+}
+
+func TestFirstConnectionFeedRouteSortScore(t *testing.T) {
+	t.Parallel()
+
+	repo := &testFirstConnectionFeedRepository{page: firstConnectionFeedFixture()}
+	srv := NewWithDependencies(Dependencies{
+		FirstConnections: service.NewFirstConnectionFeedService(repo),
+		ClerkVerifier:    auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/signals/first-connections?limit=10&sort=score", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.FirstConnectionFeedResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected one first connection item, got %d", len(body.Data.Items))
+	}
+	if body.Data.Items[0].Score != 72 {
+		t.Fatalf("unexpected score %d", body.Data.Items[0].Score)
+	}
+	if repo.sort != "score" {
+		t.Fatalf("unexpected sort %q", repo.sort)
+	}
+}
+
+func TestFirstConnectionFeedRouteRejectsInvalidSort(t *testing.T) {
+	t.Parallel()
+
+	repo := &testFirstConnectionFeedRepository{page: firstConnectionFeedFixture()}
+	srv := NewWithDependencies(Dependencies{
+		FirstConnections: service.NewFirstConnectionFeedService(repo),
+		ClerkVerifier:    auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/signals/first-connections?sort=unknown", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rr.Code)
 	}
 }
 
@@ -245,10 +508,57 @@ func TestSearchRouteClassifiesWalletLikeInput(t *testing.T) {
 	}
 }
 
+func TestClusterDetailRoute(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/clusters/cluster_seed_whales", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.ClusterDetail]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.ID != "cluster_seed_whales" {
+		t.Fatalf("unexpected cluster id %q", body.Data.ID)
+	}
+	if len(body.Data.Members) != 2 || len(body.Data.CommonActions) != 1 {
+		t.Fatalf("unexpected cluster detail %#v", body.Data)
+	}
+}
+
+func TestClusterDetailRouteReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{err: service.ErrClusterDetailNotFound}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/clusters/cluster_missing", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", rr.Code)
+	}
+}
+
 func TestSearchRouteEnrichesWalletLikeInputFromLookup(t *testing.T) {
 	t.Parallel()
 
-	walletService := service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()})
+	walletService := service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil)
 	srv := NewWithDependencies(Dependencies{
 		Search:        service.NewSearchService(walletService),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
@@ -276,6 +586,50 @@ func TestSearchRouteEnrichesWalletLikeInputFromLookup(t *testing.T) {
 	}
 	if body.Data.Explanation != "Found wallet summary for Seed Whale." {
 		t.Fatalf("unexpected explanation: %s", body.Data.Explanation)
+	}
+}
+
+func TestSearchRouteQueuesManualRefreshWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	lookup := &fakeSearchWalletSummaryLookup{
+		summary: service.WalletSummary{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "Indexed Whale",
+			Indexing: service.WalletIndexingState{
+				Status:        "ready",
+				LastIndexedAt: "2026-03-22T01:00:00Z",
+			},
+		},
+	}
+	queue := &fakeSearchWalletBackfillQueueStore{}
+	searchService := service.NewSearchServiceWithBackfillQueue(lookup, queue)
+	searchService.Now = func() time.Time {
+		return time.Date(2026, time.March, 22, 4, 5, 6, 0, time.UTC)
+	}
+
+	srv := NewWithDependencies(Dependencies{
+		Search:        searchService,
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/search?q=0x1234567890abcdef1234567890abcdef12345678&refresh=manual",
+		nil,
+	)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected 1 queued manual refresh job, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Source != "search_manual_refresh" {
+		t.Fatalf("unexpected queued source %q", queue.jobs[0].Source)
 	}
 }
 
@@ -536,6 +890,17 @@ func (r *testWalletGraphRepository) FindWalletGraph(_ context.Context, _ string,
 	return graph, nil
 }
 
+type testClusterDetailRepository struct {
+	detail domain.ClusterDetail
+	err    error
+	called bool
+}
+
+func (r *testClusterDetailRepository) FindClusterDetail(_ context.Context, _ string) (domain.ClusterDetail, error) {
+	r.called = true
+	return r.detail, r.err
+}
+
 type fakeWebhookIngestService struct {
 	alchemyResult  WebhookIngestResult
 	providerResult WebhookIngestResult
@@ -565,6 +930,28 @@ func (f *fakeWebhookIngestService) IngestProviderWebhook(_ context.Context, prov
 	}
 
 	return f.providerResult, nil
+}
+
+type fakeSearchWalletSummaryLookup struct {
+	summary service.WalletSummary
+	err     error
+}
+
+func (f *fakeSearchWalletSummaryLookup) GetWalletSummary(_ context.Context, _, _ string) (service.WalletSummary, error) {
+	return f.summary, f.err
+}
+
+type fakeSearchWalletBackfillQueueStore struct {
+	jobs []db.WalletBackfillJob
+}
+
+func (f *fakeSearchWalletBackfillQueueStore) EnqueueWalletBackfill(_ context.Context, job db.WalletBackfillJob) error {
+	f.jobs = append(f.jobs, job)
+	return nil
+}
+
+func (f *fakeSearchWalletBackfillQueueStore) DequeueWalletBackfill(_ context.Context, _ string) (db.WalletBackfillJob, bool, error) {
+	return db.WalletBackfillJob{}, false, nil
 }
 
 func walletSummaryFixture() domain.WalletSummary {
@@ -672,4 +1059,134 @@ func walletGraphFixture() domain.WalletGraph {
 			},
 		},
 	}
+}
+
+func clusterDetailFixture() domain.ClusterDetail {
+	return domain.ClusterDetail{
+		ID:             "cluster_seed_whales",
+		Label:          "cluster_seed_whales",
+		ClusterType:    "whale",
+		Score:          82,
+		Classification: domain.ClusterClassificationStrong,
+		MemberCount:    2,
+		Members: []domain.ClusterMember{
+			{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678", Label: "Seed Whale"},
+			{Chain: domain.ChainEVM, Address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd", Label: "Counterparty Seed"},
+		},
+		CommonActions: []domain.ClusterCommonAction{
+			{
+				Kind:              "shared_counterparty",
+				Label:             "Bridge wallet",
+				Chain:             domain.ChainEVM,
+				Address:           "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+				SharedMemberCount: 2,
+				InteractionCount:  11,
+				ObservedAt:        "2026-03-19T01:02:03Z",
+			},
+		},
+		Evidence: []domain.Evidence{
+			{
+				Kind:       domain.EvidenceClusterOverlap,
+				Label:      "cluster member overlap",
+				Source:     "cluster-detail",
+				Confidence: 0.88,
+				ObservedAt: "2026-03-19T01:02:03Z",
+				Metadata:   map[string]any{"member_count": 2, "score": 82},
+			},
+		},
+	}
+}
+
+func shadowExitFeedFixture() domain.ShadowExitFeedPage {
+	latest := time.Date(2026, time.March, 20, 3, 4, 5, 0, time.UTC)
+	cursor := "2026-03-20T03:04:05Z|wallet_1"
+
+	return domain.ShadowExitFeedPage{
+		Items: []domain.ShadowExitFeedItem{
+			{
+				WalletID:       "wallet_1",
+				Chain:          domain.ChainSolana,
+				Address:        "So11111111111111111111111111111111111111112",
+				Label:          "Seed Whale",
+				WalletRoute:    "/wallets/solana/So11111111111111111111111111111111111111112",
+				Recommendation: "Potential exit-like reshuffling; review recent counterparties and bridge activity.",
+				ObservedAt:     latest.Format(time.RFC3339),
+				Score: domain.Score{
+					Name:   domain.ScoreShadowExit,
+					Value:  34,
+					Rating: domain.RatingMedium,
+					Evidence: []domain.Evidence{
+						{
+							Kind:       domain.EvidenceBridge,
+							Label:      "bridge movement",
+							Source:     "shadow-exit-snapshot",
+							Confidence: 1,
+							ObservedAt: latest.Format(time.RFC3339),
+							Metadata:   map[string]any{"bridge_transfers": 1},
+						},
+					},
+				},
+			},
+		},
+		NextCursor: &cursor,
+		HasMore:    true,
+	}
+}
+
+func firstConnectionFeedFixture() domain.FirstConnectionFeedPage {
+	latest := time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+	cursor := db.EncodeFirstConnectionFeedCursor(latest, "wallet_1")
+
+	return domain.FirstConnectionFeedPage{
+		Items: []domain.FirstConnectionFeedItem{
+			{
+				WalletID:       "wallet_1",
+				Chain:          domain.ChainEVM,
+				Address:        "0x1234567890abcdef1234567890abcdef12345678",
+				Label:          "Seed Whale",
+				WalletRoute:    "/wallets/evm/0x1234567890abcdef1234567890abcdef12345678",
+				Recommendation: "Elevated first-connection activity; review recent counterparties and activity.",
+				ObservedAt:     latest.Format(time.RFC3339),
+				Score: domain.Score{
+					Name:   domain.ScoreAlpha,
+					Value:  72,
+					Rating: domain.RatingHigh,
+					Evidence: []domain.Evidence{
+						{
+							Kind:       domain.EvidenceTransfer,
+							Label:      "first connection discovery signal",
+							Source:     "first-connection-snapshot",
+							Confidence: 1,
+							ObservedAt: latest.Format(time.RFC3339),
+							Metadata:   map[string]any{"new_common_entries": 2},
+						},
+					},
+				},
+			},
+		},
+		NextCursor: &cursor,
+		HasMore:    true,
+	}
+}
+
+type testShadowExitFeedRepository struct {
+	page   domain.ShadowExitFeedPage
+	called bool
+}
+
+func (r *testShadowExitFeedRepository) FindShadowExitFeed(_ context.Context, _ string, _ int) (domain.ShadowExitFeedPage, error) {
+	r.called = true
+	return r.page, nil
+}
+
+type testFirstConnectionFeedRepository struct {
+	page   domain.FirstConnectionFeedPage
+	called bool
+	sort   string
+}
+
+func (r *testFirstConnectionFeedRepository) FindFirstConnectionFeed(_ context.Context, _ string, _ int, sort string) (domain.FirstConnectionFeedPage, error) {
+	r.called = true
+	r.sort = sort
+	return r.page, nil
 }

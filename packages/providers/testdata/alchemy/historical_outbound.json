@@ -1,0 +1,37 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "transfers": [
+      {
+        "blockNum": "0xb0eadc",
+        "hash": "0xoutbound123",
+        "from": "0x1234567890abcdef1234567890abcdef12345678",
+        "to": "0xef4396d9ff8107086d215a1c9f8866c54795d7c7",
+        "value": 0.5,
+        "asset": "ETH",
+        "category": "external",
+        "rawContract": {
+          "value": "0x6f05b59d3b20000",
+          "address": null,
+          "decimal": "0x12"
+        }
+      },
+      {
+        "blockNum": "0xb0eadc",
+        "hash": "0xself123",
+        "from": "0x1234567890abcdef1234567890abcdef12345678",
+        "to": "0x1234567890abcdef1234567890abcdef12345678",
+        "value": 0.1,
+        "asset": "ETH",
+        "category": "external",
+        "rawContract": {
+          "value": "0x16345785d8a0000",
+          "address": null,
+          "decimal": "0x12"
+        }
+      }
+    ],
+    "pageKey": ""
+  }
+}

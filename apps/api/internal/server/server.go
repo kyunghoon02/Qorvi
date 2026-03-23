@@ -15,6 +15,7 @@ import (
 	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
 	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
 	"github.com/whalegraph/whalegraph/apps/api/internal/service"
+	"github.com/whalegraph/whalegraph/packages/billing"
 	"github.com/whalegraph/whalegraph/packages/db"
 	"github.com/whalegraph/whalegraph/packages/domain"
 )
@@ -64,19 +65,37 @@ type ProviderWebhookAcceptancePayload struct {
 }
 
 type Server struct {
-	mux           *http.ServeMux
-	wallets       *service.WalletSummaryService
-	graphs        *service.WalletGraphService
-	search        *service.SearchService
-	webhookIngest WebhookIngestService
+	mux              *http.ServeMux
+	wallets          *service.WalletSummaryService
+	graphs           *service.WalletGraphService
+	clusters         *service.ClusterDetailService
+	shadowExits      *service.ShadowExitFeedService
+	firstConnections *service.FirstConnectionFeedService
+	alertRules       *service.AlertRuleService
+	alertDelivery    *service.AlertDeliveryService
+	watchlists       *service.WatchlistService
+	adminConsole     *service.AdminConsoleService
+	account          *service.AccountService
+	billing          *service.BillingService
+	search           *service.SearchService
+	webhookIngest    WebhookIngestService
 }
 
 type Dependencies struct {
-	Wallets       *service.WalletSummaryService
-	Graphs        *service.WalletGraphService
-	Search        *service.SearchService
-	WebhookIngest WebhookIngestService
-	ClerkVerifier auth.ClerkVerifier
+	Wallets          *service.WalletSummaryService
+	Graphs           *service.WalletGraphService
+	Clusters         *service.ClusterDetailService
+	ShadowExits      *service.ShadowExitFeedService
+	FirstConnections *service.FirstConnectionFeedService
+	AlertRules       *service.AlertRuleService
+	AlertDelivery    *service.AlertDeliveryService
+	Watchlists       *service.WatchlistService
+	AdminConsole     *service.AdminConsoleService
+	Account          *service.AccountService
+	Billing          *service.BillingService
+	Search           *service.SearchService
+	WebhookIngest    WebhookIngestService
+	ClerkVerifier    auth.ClerkVerifier
 }
 
 func New() *Server {
@@ -87,6 +106,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 	if deps.Wallets == nil {
 		deps.Wallets = service.NewWalletSummaryService(
 			repository.NewQueryBackedWalletSummaryRepository(notFoundWalletSummaryLoader{}),
+			nil,
 		)
 	}
 	if deps.Graphs == nil {
@@ -97,6 +117,39 @@ func NewWithDependencies(deps Dependencies) *Server {
 	if deps.Search == nil {
 		deps.Search = service.NewSearchService(deps.Wallets)
 	}
+	if deps.Clusters == nil {
+		deps.Clusters = service.NewClusterDetailService(
+			repository.NewQueryBackedClusterDetailRepository(notFoundClusterDetailLoader{}),
+		)
+	}
+	if deps.ShadowExits == nil {
+		deps.ShadowExits = service.NewShadowExitFeedService(
+			repository.NewQueryBackedShadowExitFeedRepository(notFoundShadowExitFeedLoader{}),
+		)
+	}
+	if deps.FirstConnections == nil {
+		deps.FirstConnections = service.NewFirstConnectionFeedService(
+			repository.NewQueryBackedFirstConnectionFeedRepository(notFoundFirstConnectionFeedLoader{}),
+		)
+	}
+	if deps.AlertRules == nil {
+		deps.AlertRules = service.NewAlertRuleService(repository.NewInMemoryAlertRuleRepository())
+	}
+	if deps.AlertDelivery == nil {
+		deps.AlertDelivery = service.NewAlertDeliveryService(repository.NewInMemoryAlertDeliveryRepository())
+	}
+	if deps.Watchlists == nil {
+		deps.Watchlists = service.NewWatchlistService(repository.NewInMemoryWatchlistRepository())
+	}
+	if deps.AdminConsole == nil {
+		deps.AdminConsole = service.NewAdminConsoleService(repository.NewInMemoryAdminConsoleRepository())
+	}
+	if deps.Account == nil {
+		deps.Account = service.NewAccountService()
+	}
+	if deps.Billing == nil {
+		deps.Billing = service.NewBillingService(repository.NewInMemoryBillingRepository(), billing.StripeConfig{})
+	}
 	if deps.WebhookIngest == nil {
 		deps.WebhookIngest = newCountingWebhookIngestService()
 	}
@@ -106,21 +159,114 @@ func NewWithDependencies(deps Dependencies) *Server {
 
 	mux := http.NewServeMux()
 	s := &Server{
-		mux:           mux,
-		wallets:       deps.Wallets,
-		graphs:        deps.Graphs,
-		search:        deps.Search,
-		webhookIngest: deps.WebhookIngest,
+		mux:              mux,
+		wallets:          deps.Wallets,
+		graphs:           deps.Graphs,
+		clusters:         deps.Clusters,
+		shadowExits:      deps.ShadowExits,
+		firstConnections: deps.FirstConnections,
+		alertRules:       deps.AlertRules,
+		alertDelivery:    deps.AlertDelivery,
+		watchlists:       deps.Watchlists,
+		adminConsole:     deps.AdminConsole,
+		account:          deps.Account,
+		billing:          deps.Billing,
+		search:           deps.Search,
+		webhookIngest:    deps.WebhookIngest,
 	}
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
+	mux.HandleFunc("GET /v1/billing/plans", s.handleBillingPlans)
+	mux.HandleFunc("GET /v1/clusters/", s.handleClusterRoute)
+	mux.HandleFunc("GET /v1/signals/shadow-exits", s.handleShadowExitFeed)
+	mux.HandleFunc("GET /v1/signals/first-connections", s.handleFirstConnectionFeed)
+	mux.Handle("POST /v1/billing/checkout-sessions", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleBillingCheckoutSession)))
+	mux.HandleFunc("POST /v1/webhooks/billing/stripe", s.handleStripeBillingWebhook)
+	mux.Handle("GET /v1/alerts", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertInbox)))
+	mux.Handle("PATCH /v1/alerts/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertInboxRoute)))
+	mux.Handle("GET /v1/alert-rules", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertRuleCollection)))
+	mux.Handle("POST /v1/alert-rules", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertRuleCollection)))
+	mux.Handle("GET /v1/alert-rules/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertRuleRoute)))
+	mux.Handle("PATCH /v1/alert-rules/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertRuleRoute)))
+	mux.Handle("DELETE /v1/alert-rules/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertRuleRoute)))
+	mux.Handle("GET /v1/alert-delivery-channels", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertDeliveryChannelCollection)))
+	mux.Handle("POST /v1/alert-delivery-channels", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertDeliveryChannelCollection)))
+	mux.Handle("GET /v1/alert-delivery-channels/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertDeliveryChannelRoute)))
+	mux.Handle("PATCH /v1/alert-delivery-channels/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertDeliveryChannelRoute)))
+	mux.Handle("DELETE /v1/alert-delivery-channels/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAlertDeliveryChannelRoute)))
+	mux.Handle("GET /v1/watchlists", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistCollection)))
+	mux.Handle("POST /v1/watchlists", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistCollection)))
+	mux.Handle("GET /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
+	mux.Handle("POST /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
+	mux.Handle("PATCH /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
+	mux.Handle("DELETE /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
 	mux.HandleFunc("POST /v1/webhooks/providers/alchemy/address-activity", s.handleAlchemyAddressActivityWebhook)
 	mux.HandleFunc("POST /v1/providers/", s.handleProviderRoute)
 	mux.HandleFunc("GET /v1/wallets/", s.handleWalletRoute)
 	mux.Handle(
 		"GET /v1/admin/status",
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminStatus)),
+	)
+	mux.Handle(
+		"GET /v1/admin/labels",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminLabels)),
+	)
+	mux.Handle(
+		"POST /v1/admin/labels",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminLabels)),
+	)
+	mux.Handle(
+		"DELETE /v1/admin/labels/",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminLabelRoute)),
+	)
+	mux.Handle(
+		"GET /v1/admin/suppressions",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminSuppressions)),
+	)
+	mux.Handle(
+		"POST /v1/admin/suppressions",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminSuppressions)),
+	)
+	mux.Handle(
+		"DELETE /v1/admin/suppressions/",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminSuppressionRoute)),
+	)
+	mux.Handle(
+		"GET /v1/admin/provider-quotas",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminProviderQuotas)),
+	)
+	mux.Handle(
+		"GET /v1/admin/observability",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminObservability)),
+	)
+	mux.Handle(
+		"GET /v1/admin/curated-lists",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminCuratedLists)),
+	)
+	mux.Handle(
+		"POST /v1/admin/curated-lists",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminCuratedLists)),
+	)
+	mux.Handle(
+		"DELETE /v1/admin/curated-lists/",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminCuratedListRoute)),
+	)
+	mux.Handle(
+		"POST /v1/admin/curated-lists/",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminCuratedListRoute)),
+	)
+	mux.Handle(
+		"GET /v1/admin/audit-logs",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminAuditLogs)),
+	)
+	mux.Handle(
+		"GET /v1/account",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAccount)),
+	)
+	mux.Handle(
+		"GET /v1/account/entitlements",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAccount)),
 	)
 
 	return s
@@ -151,9 +297,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	options := service.SearchOptions{
+		ManualRefresh: strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("refresh")), "manual"),
+	}
+
 	writeJSON(w, http.StatusOK, Envelope[service.SearchResponse]{
 		Success: true,
-		Data:    s.search.Search(r.Context(), query),
+		Data:    s.search.SearchWithOptions(r.Context(), query, options),
 		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 60)),
 	})
 }
@@ -183,6 +333,93 @@ func (s *Server) handleProviderRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.handleProviderAddressActivityWebhook(w, r, provider)
+}
+
+func (s *Server) handleClusterRoute(w http.ResponseWriter, r *http.Request) {
+	clusterID, ok := parseClusterRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "cluster route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	if strings.TrimSpace(clusterID) == "" {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid cluster detail request", "", tierFromHeader(r)))
+		return
+	}
+
+	detail, err := s.clusters.GetClusterDetail(r.Context(), clusterID)
+	if err != nil {
+		if errors.Is(err, service.ErrClusterDetailNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), "", tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "cluster detail lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.ClusterDetail]{
+		Success: true,
+		Data:    detail,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleShadowExitFeed(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseShadowExitFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid shadow exit feed limit", "", tierFromHeader(r)))
+		return
+	}
+
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	if _, err := db.BuildShadowExitFeedQuery(limit, cursor); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid shadow exit feed cursor", "", tierFromHeader(r)))
+		return
+	}
+
+	feed, err := s.shadowExits.ListShadowExitFeed(r.Context(), cursor, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "shadow exit feed lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.ShadowExitFeedResponse]{
+		Success: true,
+		Data:    feed,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleFirstConnectionFeed(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseFirstConnectionFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid first connection feed limit", "", tierFromHeader(r)))
+		return
+	}
+
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	sort := strings.TrimSpace(r.URL.Query().Get("sort"))
+	query, err := db.BuildFirstConnectionFeedQuery(limit, cursor, sort)
+	if err != nil {
+		message := "invalid first connection feed cursor"
+		if strings.Contains(strings.ToLower(err.Error()), "sort") {
+			message = "invalid first connection feed sort"
+		}
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", message, "", tierFromHeader(r)))
+		return
+	}
+
+	feed, err := s.firstConnections.ListFirstConnectionFeedSorted(r.Context(), cursor, query.Limit, string(query.Sort))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "first connection feed lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.FirstConnectionFeedResponse]{
+		Success: true,
+		Data:    feed,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
 }
 
 func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request, chain string, address string) {
@@ -320,6 +557,18 @@ func parseProviderRoutePath(path string) (string, string, bool) {
 	return provider, resource, true
 }
 
+func parseClusterRoutePath(path string) (string, bool) {
+	clusterID, ok := strings.CutPrefix(path, "/v1/clusters/")
+	if !ok {
+		return "", false
+	}
+	clusterID = strings.TrimSpace(clusterID)
+	if clusterID == "" || strings.Contains(clusterID, "/") {
+		return "", false
+	}
+	return clusterID, true
+}
+
 func parseWalletGraphDepth(raw string) (int, error) {
 	if strings.TrimSpace(raw) == "" {
 		return 1, nil
@@ -331,6 +580,38 @@ func parseWalletGraphDepth(raw string) (int, error) {
 	}
 
 	return depth, nil
+}
+
+func parseShadowExitFeedLimit(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 20, nil
+	}
+
+	limit, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || limit <= 0 {
+		return 0, errors.New("shadow exit feed limit must be positive")
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	return limit, nil
+}
+
+func parseFirstConnectionFeedLimit(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 20, nil
+	}
+
+	limit, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || limit <= 0 {
+		return 0, errors.New("first connection feed limit must be positive")
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	return limit, nil
 }
 
 func isSupportedWebhookProvider(provider string) bool {
@@ -416,4 +697,22 @@ type notFoundWalletGraphLoader struct{}
 
 func (notFoundWalletGraphLoader) LoadWalletGraph(context.Context, db.WalletGraphQuery) (domain.WalletGraph, error) {
 	return domain.WalletGraph{}, db.ErrWalletGraphNotFound
+}
+
+type notFoundClusterDetailLoader struct{}
+
+func (notFoundClusterDetailLoader) LoadClusterDetail(context.Context, string) (domain.ClusterDetail, error) {
+	return domain.ClusterDetail{}, db.ErrClusterDetailNotFound
+}
+
+type notFoundShadowExitFeedLoader struct{}
+
+func (notFoundShadowExitFeedLoader) LoadShadowExitFeed(context.Context, db.ShadowExitFeedQuery) (domain.ShadowExitFeedPage, error) {
+	return domain.ShadowExitFeedPage{}, nil
+}
+
+type notFoundFirstConnectionFeedLoader struct{}
+
+func (notFoundFirstConnectionFeedLoader) LoadFirstConnectionFeed(context.Context, db.FirstConnectionFeedQuery) (domain.FirstConnectionFeedPage, error) {
+	return domain.FirstConnectionFeedPage{}, nil
 }

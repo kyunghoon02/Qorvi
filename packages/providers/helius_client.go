@@ -11,18 +11,22 @@ import (
 )
 
 type HeliusClient struct {
-	baseURL        string
-	dataAPIBaseURL string
-	apiKey         string
-	http           jsonHTTPClient
+	baseURL         string
+	dataAPIBaseURL  string
+	apiKey          string
+	fallbackAPIKey  string
+	fallbackBaseURL string
+	http            jsonHTTPClient
 }
 
 func NewHeliusClient(credentials ProviderCredentials, client *http.Client) *HeliusClient {
 	return &HeliusClient{
-		baseURL:        strings.TrimRight(credentials.BaseURL, "/"),
-		dataAPIBaseURL: strings.TrimRight(credentials.DataAPIBaseURL, "/"),
-		apiKey:         strings.TrimSpace(credentials.APIKey),
-		http:           newJSONHTTPClient(client),
+		baseURL:         strings.TrimRight(credentials.BaseURL, "/"),
+		dataAPIBaseURL:  strings.TrimRight(credentials.DataAPIBaseURL, "/"),
+		apiKey:          strings.TrimSpace(credentials.APIKey),
+		fallbackAPIKey:  strings.TrimSpace(credentials.FallbackAPIKey),
+		fallbackBaseURL: strings.TrimRight(credentials.FallbackBaseURL, "/"),
+		http:            newJSONHTTPClient(client),
 	}
 }
 
@@ -72,9 +76,21 @@ func (c *HeliusClient) FetchHistoricalWalletActivity(batch HistoricalBackfillBat
 		response := heliusTransactionsResponse{}
 		rawBody, err := c.http.doJSONRequestWithRaw(req, &response)
 		if err != nil {
+			if fallbackActivities, attempted, fallbackErr := c.tryFallbackHistorical(batch, err); attempted {
+				if fallbackErr != nil {
+					return nil, fallbackErr
+				}
+				return fallbackActivities, nil
+			}
 			return nil, err
 		}
 		if response.Error != nil {
+			if fallbackActivities, attempted, fallbackErr := c.tryFallbackHistorical(batch, fmt.Errorf("helius transactions api error: %s", response.Error.Message)); attempted {
+				if fallbackErr != nil {
+					return nil, fallbackErr
+				}
+				return fallbackActivities, nil
+			}
 			return nil, fmt.Errorf("helius transactions api error: %s", response.Error.Message)
 		}
 		enrichmentBySignature, err := c.fetchTransactionEnrichment(batch, response.Result.Data)
@@ -109,6 +125,34 @@ func (c *HeliusClient) FetchHistoricalWalletActivity(batch HistoricalBackfillBat
 	return activities, nil
 }
 
+func (c *HeliusClient) tryFallbackHistorical(batch HistoricalBackfillBatch, cause error) ([]ProviderWalletActivity, bool, error) {
+	if !shouldFallbackHeliusHistorical(cause) {
+		return nil, false, nil
+	}
+	if strings.TrimSpace(c.fallbackAPIKey) == "" || strings.TrimSpace(c.fallbackBaseURL) == "" {
+		return nil, true, fmt.Errorf("helius paid-plan historical fallback unavailable: missing alchemy solana fallback credentials after %w", cause)
+	}
+
+	fallback := NewAlchemyClient(ProviderCredentials{
+		Provider:      ProviderAlchemy,
+		APIKey:        c.fallbackAPIKey,
+		SolanaBaseURL: c.fallbackBaseURL,
+	}, c.http.client)
+
+	activities, err := fallback.FetchHistoricalWalletActivity(HistoricalBackfillBatch{
+		Provider:    ProviderAlchemy,
+		Request:     batch.Request,
+		WindowStart: batch.WindowStart,
+		WindowEnd:   batch.WindowEnd,
+		Limit:       batch.Limit,
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("helius paid-plan historical fallback to alchemy failed: %w", err)
+	}
+
+	return activities, true, nil
+}
+
 func (c *HeliusClient) fetchTransactionEnrichment(batch HistoricalBackfillBatch, transactions []heliusTransaction) (map[string]map[string]any, error) {
 	if c == nil || strings.TrimSpace(c.dataAPIBaseURL) == "" || len(transactions) == 0 {
 		return map[string]map[string]any{}, nil
@@ -134,6 +178,9 @@ func (c *HeliusClient) fetchTransactionEnrichment(batch HistoricalBackfillBatch,
 	var response []heliusEnhancedTransaction
 	rawBody, err := c.http.doJSONRequestWithRaw(req, &response)
 	if err != nil {
+		if shouldSkipHeliusEnrichment(err) {
+			return map[string]map[string]any{}, nil
+		}
 		return nil, err
 	}
 	payloadMetadata := capturePagePayloadMetadata(
@@ -164,10 +211,39 @@ func (c *HeliusClient) fetchTransactionEnrichment(batch HistoricalBackfillBatch,
 			"helius_account_data_count":         len(item.AccountData),
 			"helius_has_transaction_error":      item.TransactionError != nil,
 			"helius_enrichment_source_endpoint": c.dataAPIBaseURL,
+			"schema_version":                    2,
 		})
+		enrichmentBySignature[item.Signature] = mergeMetadata(
+			enrichmentBySignature[item.Signature],
+			buildHeliusHistoricalTransferMetadata(batch.Request.WalletAddress, item),
+		)
 	}
 
 	return enrichmentBySignature, nil
+}
+
+func shouldSkipHeliusEnrichment(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unexpected status 403") &&
+		(strings.Contains(message, "paid plans") ||
+			strings.Contains(message, "please upgrade") ||
+			strings.Contains(message, "feature is only available"))
+}
+
+func shouldFallbackHeliusHistorical(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return (strings.Contains(message, "unexpected status 403") || strings.Contains(message, "helius transactions api error")) &&
+		(strings.Contains(message, "paid plans") ||
+			strings.Contains(message, "please upgrade") ||
+			strings.Contains(message, "feature is only available"))
 }
 
 func (c *HeliusClient) dataEndpoint() string {
@@ -240,20 +316,35 @@ type heliusTransactionsParseRequest struct {
 }
 
 type heliusEnhancedTransaction struct {
-	Description      string           `json:"description"`
-	Type             string           `json:"type"`
-	Source           string           `json:"source"`
-	Fee              int64            `json:"fee"`
-	FeePayer         string           `json:"feePayer"`
-	Signature        string           `json:"signature"`
-	Slot             int64            `json:"slot"`
-	Timestamp        int64            `json:"timestamp"`
-	NativeTransfers  []map[string]any `json:"nativeTransfers"`
-	TokenTransfers   []map[string]any `json:"tokenTransfers"`
-	AccountData      []map[string]any `json:"accountData"`
-	TransactionError map[string]any   `json:"transactionError"`
-	Instructions     []map[string]any `json:"instructions"`
-	Events           map[string]any   `json:"events"`
+	Description      string                         `json:"description"`
+	Type             string                         `json:"type"`
+	Source           string                         `json:"source"`
+	Fee              int64                          `json:"fee"`
+	FeePayer         string                         `json:"feePayer"`
+	Signature        string                         `json:"signature"`
+	Slot             int64                          `json:"slot"`
+	Timestamp        int64                          `json:"timestamp"`
+	NativeTransfers  []heliusEnhancedNativeTransfer `json:"nativeTransfers"`
+	TokenTransfers   []heliusEnhancedTokenTransfer  `json:"tokenTransfers"`
+	AccountData      []map[string]any               `json:"accountData"`
+	TransactionError map[string]any                 `json:"transactionError"`
+	Instructions     []map[string]any               `json:"instructions"`
+	Events           map[string]any                 `json:"events"`
+}
+
+type heliusEnhancedNativeTransfer struct {
+	FromUserAccount string `json:"fromUserAccount"`
+	ToUserAccount   string `json:"toUserAccount"`
+	Amount          int64  `json:"amount"`
+}
+
+type heliusEnhancedTokenTransfer struct {
+	FromUserAccount string `json:"fromUserAccount"`
+	ToUserAccount   string `json:"toUserAccount"`
+	Mint            string `json:"mint"`
+	TokenAmount     any    `json:"tokenAmount"`
+	Symbol          string `json:"symbol"`
+	Decimals        int    `json:"decimals"`
 }
 
 func heliusTransactionToActivity(batch HistoricalBackfillBatch, tx heliusTransaction, index int, pageMetadata map[string]any, enrichment map[string]any) ProviderWalletActivity {
@@ -281,4 +372,162 @@ func heliusTransactionToActivity(batch HistoricalBackfillBatch, tx heliusTransac
 		ObservedAt:    observedAt,
 		Metadata:      metadata,
 	})
+}
+
+func buildHeliusHistoricalTransferMetadata(
+	walletAddress string,
+	item heliusEnhancedTransaction,
+) map[string]any {
+	walletAddress = strings.TrimSpace(walletAddress)
+	if walletAddress == "" {
+		return map[string]any{}
+	}
+
+	seed := heliusHistoricalTransferSeed{
+		direction: domain.TransactionDirectionUnknown,
+	}
+
+	for _, transfer := range item.TokenTransfers {
+		applyHeliusHistoricalTransfer(
+			&seed,
+			walletAddress,
+			transfer.FromUserAccount,
+			transfer.ToUserAccount,
+			heliusTokenAmountString(transfer.TokenAmount),
+			strings.TrimSpace(transfer.Mint),
+			strings.TrimSpace(transfer.Symbol),
+			transfer.Decimals,
+			true,
+		)
+	}
+
+	for _, transfer := range item.NativeTransfers {
+		applyHeliusHistoricalTransfer(
+			&seed,
+			walletAddress,
+			transfer.FromUserAccount,
+			transfer.ToUserAccount,
+			fmt.Sprintf("%d", transfer.Amount),
+			"",
+			"SOL",
+			9,
+			false,
+		)
+	}
+
+	metadata := map[string]any{}
+	if seed.direction != "" {
+		metadata["direction"] = string(seed.direction)
+	}
+	if seed.counterparty != "" {
+		metadata["counterparty_address"] = seed.counterparty
+		metadata["counterparty_chain"] = string(domain.ChainSolana)
+	}
+	if seed.amount != "" {
+		metadata["amount"] = seed.amount
+	}
+	if seed.tokenAddress != "" {
+		metadata["token_address"] = seed.tokenAddress
+		metadata["token_chain"] = string(domain.ChainSolana)
+	}
+	if seed.tokenSymbol != "" {
+		metadata["token_symbol"] = seed.tokenSymbol
+	}
+	if seed.tokenDecimals > 0 {
+		metadata["token_decimals"] = seed.tokenDecimals
+	}
+	if seed.funderAddress != "" {
+		metadata["funder_address"] = seed.funderAddress
+	}
+	if strings.TrimSpace(item.FeePayer) != "" {
+		metadata["helius_identity_fee_payer"] = strings.TrimSpace(item.FeePayer)
+	}
+	if strings.TrimSpace(item.Source) != "" {
+		metadata["helius_identity_source"] = strings.TrimSpace(item.Source)
+	}
+
+	return metadata
+}
+
+type heliusHistoricalTransferSeed struct {
+	counterparty  string
+	direction     domain.TransactionDirection
+	amount        string
+	tokenAddress  string
+	tokenSymbol   string
+	tokenDecimals int
+	funderAddress string
+}
+
+func applyHeliusHistoricalTransfer(
+	seed *heliusHistoricalTransferSeed,
+	walletAddress string,
+	from string,
+	to string,
+	amount string,
+	tokenAddress string,
+	tokenSymbol string,
+	tokenDecimals int,
+	isTokenTransfer bool,
+) {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" && to == "" {
+		return
+	}
+
+	matchesFrom := strings.EqualFold(from, walletAddress)
+	matchesTo := strings.EqualFold(to, walletAddress)
+	if !matchesFrom && !matchesTo {
+		return
+	}
+
+	direction := domain.TransactionDirectionUnknown
+	counterparty := ""
+	switch {
+	case matchesFrom && matchesTo:
+		direction = domain.TransactionDirectionSelf
+	case matchesFrom:
+		direction = domain.TransactionDirectionOutbound
+		counterparty = to
+	case matchesTo:
+		direction = domain.TransactionDirectionInbound
+		counterparty = from
+	}
+
+	if seed.direction == domain.TransactionDirectionUnknown || seed.direction == "" {
+		seed.direction = direction
+	}
+	if seed.counterparty == "" && counterparty != "" {
+		seed.counterparty = counterparty
+	}
+	if seed.amount == "" && amount != "" {
+		seed.amount = amount
+	}
+	if isTokenTransfer && seed.tokenAddress == "" && tokenAddress != "" {
+		seed.tokenAddress = tokenAddress
+		seed.tokenSymbol = tokenSymbol
+		seed.tokenDecimals = tokenDecimals
+	}
+	if seed.funderAddress == "" &&
+		direction == domain.TransactionDirectionInbound &&
+		counterparty != "" &&
+		!strings.EqualFold(counterparty, walletAddress) {
+		seed.funderAddress = counterparty
+	}
+}
+
+func heliusTokenAmountString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return fmt.Sprintf("%f", typed)
+	case int64:
+		return fmt.Sprintf("%d", typed)
+	case int:
+		return fmt.Sprintf("%d", typed)
+	default:
+		return ""
+	}
 }

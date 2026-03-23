@@ -1,0 +1,34 @@
+[
+  {
+    "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+    "fee": 5000,
+    "feePayer": "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq",
+    "type": "TRANSFER",
+    "source": "TRANSFER",
+    "timestamp": 1641038400,
+    "nativeTransfers": [
+      {
+        "fromUserAccount": "FundingWallet11111111111111111111111111111111",
+        "toUserAccount": "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq",
+        "amount": 1
+      }
+    ],
+    "tokenTransfers": [
+      {
+        "fromUserAccount": "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq",
+        "toUserAccount": "Counterparty111111111111111111111111111111111",
+        "mint": "So11111111111111111111111111111111111111112",
+        "tokenAmount": "12.5",
+        "symbol": "SOL",
+        "decimals": 9
+      }
+    ],
+    "accountData": [
+      {
+        "account": "foo"
+      }
+    ],
+    "transactionError": null,
+    "description": "transfer"
+  }
+]

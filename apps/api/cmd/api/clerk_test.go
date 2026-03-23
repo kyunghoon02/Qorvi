@@ -122,6 +122,37 @@ func TestBuildClerkVerifierRejectsWrongAuthorizedParty(t *testing.T) {
 	}
 }
 
+func TestBuildClerkVerifierFallsBackToLegacyHeadersInDevelopment(t *testing.T) {
+	t.Parallel()
+
+	verifier, err := buildClerkVerifier(config.Config{
+		API: sharedconfig.APIEnv{
+			NodeEnv:    "development",
+			AppBaseURL: "http://localhost:3000",
+			ClerkVerification: sharedconfig.ClerkVerificationConfig{
+				IssuerURL: "https://example.clerk.accounts.dev",
+				JWKSURL:   "https://example.clerk.accounts.dev/.well-known/jwks.json",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected legacy verifier fallback, got %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/status", nil)
+	req.Header.Set("X-Clerk-User-Id", "admin_1")
+	req.Header.Set("X-Clerk-Session-Id", "session_1")
+	req.Header.Set("X-Clerk-Role", "admin")
+
+	principal, err := verifier.Verify(req)
+	if err != nil {
+		t.Fatalf("expected legacy header verification, got %v", err)
+	}
+	if principal.UserID != "admin_1" || principal.Role != "admin" {
+		t.Fatalf("unexpected principal %#v", principal)
+	}
+}
+
 func mustRSAKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 

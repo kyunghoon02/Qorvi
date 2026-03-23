@@ -1,0 +1,93 @@
+# Beta Open Prep
+
+이 문서는 WhaleGraph beta open 직전 마지막 환경/운영 준비 체크리스트다. gate 판단은 `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-launch-review.md`를 따르고, 세부 복구 절차는 `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-release-package.md`를 따른다.
+
+현재 로컬 runtime 검증 결과:
+
+- `corepack pnpm beta:open:prep`는 아직 `block`
+- 채워야 하는 값:
+  - `APP_BASE_URL`
+  - `NEXT_PUBLIC_APP_BASE_URL`
+  - `NEXT_PUBLIC_API_BASE_URL`
+  - `API_HOST`
+  - `API_PORT`
+  - `WHALEGRAPH_RAW_PAYLOAD_ROOT`
+  - `AUTH_PROVIDER`
+  - `AUTH_SECRET`
+  - `CLERK_SECRET_KEY`
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+  - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET`
+  - `STRIPE_PUBLISHABLE_KEY`
+  - `STRIPE_SUCCESS_URL`
+  - `STRIPE_CANCEL_URL`
+  - `MORALIS_API_KEY`
+
+Moralis 설정 원칙:
+
+- 현재 WhaleGraph의 Moralis integration은 `체인별 node URL` 모델이 아니라 `전역 API base URL + API key` 모델이다.
+- 즉 `MORALIS_BASE_URL`은 체인마다 여러 개를 만들지 않고 단일 값으로 유지한다.
+- 권장값:
+  - `MORALIS_BASE_URL=https://deep-index.moralis.io/api/v2.2`
+- 현재 Moralis enrichment는 `EVM wallet enrichment`에만 사용되므로, 체인별 RPC endpoint를 Moralis에 맞춰 별도 설계할 필요는 없다.
+
+## 1. Environment Checklist
+
+다음 값이 target beta environment에 준비돼 있어야 한다.
+
+1. Clerk auth config
+2. Stripe secret / publishable / webhook secret
+3. Alchemy / Helius / Moralis provider keys
+4. app/web/api base URL values
+5. Postgres / Neo4j / Redis connection values
+6. raw payload storage 경로
+
+추가 sanity rules:
+
+1. `CLERK_ISSUER_URL`, `CLERK_JWKS_URL`는 example placeholder를 쓰면 안 된다.
+2. `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`의 origin은 `APP_BASE_URL`과 일치해야 한다.
+
+## 2. Preflight Order
+
+1. 환경 변수 확인
+2. infra 및 migrations 확인
+3. evidence 재실행
+4. operator handoff 확인
+5. beta open decision 재확인
+
+권장 명령:
+
+```bash
+corepack pnpm beta:open:prep
+```
+
+단계별 실행이 필요할 때:
+
+```bash
+corepack pnpm beta:prep
+corepack pnpm beta:evidence
+```
+
+## 3. Operator Confirmation
+
+운영자는 아래를 직접 확인한다.
+
+1. `/v1/admin/provider-quotas`
+2. `/v1/admin/observability`
+3. alert delivery failure 여부
+4. billing/account anomaly 여부
+5. audit trail 누락 여부
+
+참고 문서:
+
+- `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-operator-handoff.md`
+- `/Users/kh/Github/WhaleGraph/docs/runbooks/ops-admin.md`
+
+## 4. Final Ready Check
+
+아래가 모두 참이면 ready다.
+
+1. `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-launch-review.md`가 `go`
+2. `corepack pnpm beta:evidence:core`가 통과
+3. 운영자 확인 완료
+4. billing/account mixed flow target environment 재현 가능

@@ -1,38 +1,14 @@
+import { headers } from "next/headers";
+
 import {
-  type WalletDetailRequest,
+  deriveWalletGraphPreviewFromSummary,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
-} from "../../../../lib/api-boundary.js";
+} from "../../../../lib/api-boundary";
+import { buildForwardedAuthHeaders } from "../../../../lib/request-headers";
 
-import { WalletDetailScreen } from "./wallet-detail-screen.js";
-
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-export function resolveWalletDetailRequestFromParams(
-  chain: string,
-  address: string,
-): WalletDetailRequest | null {
-  if (chain !== "evm" && chain !== "solana") {
-    return null;
-  }
-
-  const decodedAddress = safeDecodeURIComponent(address).trim();
-
-  if (!decodedAddress) {
-    return null;
-  }
-
-  return {
-    chain,
-    address: decodedAddress,
-  };
-}
+import { resolveWalletDetailRequestFromParams } from "./wallet-detail-route";
+import { WalletDetailScreen } from "./wallet-detail-screen";
 
 function InvalidWalletRoute() {
   return (
@@ -53,6 +29,7 @@ export default async function WalletDetailPage({
     address: string;
   };
 }>) {
+  const requestHeaders = buildForwardedAuthHeaders(await headers());
   const request = resolveWalletDetailRequestFromParams(
     params.chain,
     params.address,
@@ -62,7 +39,7 @@ export default async function WalletDetailPage({
     return <InvalidWalletRoute />;
   }
 
-  const [summary, graph] = await Promise.all([
+  const [summary, loadedGraph] = await Promise.all([
     loadWalletSummaryPreview({ request }),
     loadWalletGraphPreview({
       request: {
@@ -71,8 +48,24 @@ export default async function WalletDetailPage({
       },
     }),
   ]);
+  const graph =
+    loadedGraph.mode === "unavailable" && summary.topCounterparties.length > 0
+      ? deriveWalletGraphPreviewFromSummary({
+          request: {
+            ...request,
+            depthRequested: 2,
+          },
+          summary,
+          fallback: loadedGraph,
+        })
+      : loadedGraph;
 
   return (
-    <WalletDetailScreen request={request} summary={summary} graph={graph} />
+    <WalletDetailScreen
+      request={request}
+      summary={summary}
+      graph={graph}
+      {...(requestHeaders ? { requestHeaders } : {})}
+    />
   );
 }

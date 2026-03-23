@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/whalegraph/whalegraph/packages/domain"
@@ -21,9 +23,33 @@ WITH root,
        chain: counterparty.chain,
        address: counterparty.address,
        label: coalesce(counterparty.displayName, counterparty.address),
-       observedAt: toString(interaction.lastObservedAt),
-       counterpartyCount: toInteger(coalesce(interaction.counterpartyCount, 0))
+       firstObservedAt: toString(coalesce(interaction.firstObservedAt, interaction.lastObservedAt)),
+       lastObservedAt: toString(coalesce(interaction.lastObservedAt, interaction.firstObservedAt)),
+       interactionCount: toInteger(coalesce(interaction.interactionCount, interaction.counterpartyCount, 0)),
+       inboundCount: toInteger(coalesce(interaction.inboundCount, 0)),
+       outboundCount: toInteger(coalesce(interaction.outboundCount, 0)),
+       lastTxHash: coalesce(interaction.lastTxHash, ''),
+       lastDirection: coalesce(interaction.lastDirection, ''),
+       lastProvider: coalesce(interaction.lastProvider, '')
      }) AS interactions
+OPTIONAL MATCH (funder:Wallet)-[funding:FUNDED_BY]->(root)
+WITH root,
+     clusters,
+     interactions,
+     collect(DISTINCT {
+       id: funder.id,
+       chain: funder.chain,
+       address: funder.address,
+       label: coalesce(funder.displayName, funder.address),
+       firstObservedAt: toString(coalesce(funding.firstObservedAt, funding.lastObservedAt)),
+       lastObservedAt: toString(coalesce(funding.lastObservedAt, funding.firstObservedAt)),
+       interactionCount: toInteger(coalesce(funding.interactionCount, funding.counterpartyCount, 0)),
+       inboundCount: toInteger(coalesce(funding.inboundCount, 0)),
+       outboundCount: toInteger(coalesce(funding.outboundCount, 0)),
+       lastTxHash: coalesce(funding.lastTxHash, ''),
+       lastDirection: coalesce(funding.lastDirection, ''),
+       lastProvider: coalesce(funding.lastProvider, '')
+     }) AS funders
 RETURN {
   id: root.id,
   chain: root.chain,
@@ -36,7 +62,8 @@ RETURN {
   label: coalesce(cluster.clusterKey, cluster.id)
 }] AS clusters,
 [item IN interactions WHERE item.id IS NOT NULL | item][..$maxCounterparties] AS interactions,
-size([item IN interactions WHERE item.id IS NOT NULL | item]) > $maxCounterparties AS densityCapped
+[item IN funders WHERE item.id IS NOT NULL | item][..$maxCounterparties] AS funders,
+size([item IN interactions WHERE item.id IS NOT NULL | item]) > $maxCounterparties OR size([item IN funders WHERE item.id IS NOT NULL | item]) > $maxCounterparties AS densityCapped
 LIMIT 1
 `
 
@@ -93,13 +120,10 @@ func (r *Neo4jWalletGraphReader) ReadWalletGraph(
 	}
 
 	nodes := []domain.WalletGraphNode{
-		{
-			ID:      stringValue(root, "id"),
-			Kind:    domain.WalletGraphNodeWallet,
-			Chain:   domain.Chain(stringValue(root, "chain")),
-			Address: stringValue(root, "address"),
-			Label:   stringValue(root, "label"),
-		},
+		buildWalletGraphNode(root, domain.WalletGraphNodeWallet),
+	}
+	nodeIDs := map[string]struct{}{
+		nodes[0].ID: {},
 	}
 	edges := make([]domain.WalletGraphEdge, 0, 8)
 
@@ -109,38 +133,81 @@ func (r *Neo4jWalletGraphReader) ReadWalletGraph(
 			continue
 		}
 
-		nodes = append(nodes, domain.WalletGraphNode{
+		nodes = appendWalletGraphNode(nodes, nodeIDs, domain.WalletGraphNode{
 			ID:    clusterID,
 			Kind:  domain.WalletGraphNodeCluster,
 			Label: firstNonEmpty(stringValue(cluster, "label"), stringValue(cluster, "clusterKey"), clusterID),
 		})
 		edges = append(edges, domain.WalletGraphEdge{
-			SourceID: nodes[0].ID,
-			TargetID: clusterID,
-			Kind:     domain.WalletGraphEdgeMemberOf,
+			SourceID:       nodes[0].ID,
+			TargetID:       clusterID,
+			Kind:           domain.WalletGraphEdgeMemberOf,
+			Family:         domain.WalletGraphEdgeFamilyForKind(domain.WalletGraphEdgeMemberOf),
+			Directionality: domain.WalletGraphEdgeDirectionalityForKind(domain.WalletGraphEdgeMemberOf, 0, 0, ""),
 		})
 	}
 
 	for _, interaction := range sliceMapValue(values, "interactions") {
-		counterpartyID := stringValue(interaction, "id")
+		record, ok := buildWalletGraphInteractionRecord(interaction)
+		if !ok {
+			continue
+		}
+
+		counterpartyID := record.ID
 		if counterpartyID == "" {
 			continue
 		}
 
-		nodes = append(nodes, domain.WalletGraphNode{
+		nodes = appendWalletGraphNode(nodes, nodeIDs, domain.WalletGraphNode{
 			ID:      counterpartyID,
 			Kind:    domain.WalletGraphNodeWallet,
-			Chain:   domain.Chain(stringValue(interaction, "chain")),
-			Address: stringValue(interaction, "address"),
-			Label:   firstNonEmpty(stringValue(interaction, "label"), stringValue(interaction, "address"), counterpartyID),
+			Chain:   domain.Chain(record.Chain),
+			Address: record.Address,
+			Label:   firstNonEmpty(record.Label, record.Address, counterpartyID),
 		})
 		edges = append(edges, domain.WalletGraphEdge{
 			SourceID:          nodes[0].ID,
 			TargetID:          counterpartyID,
 			Kind:              domain.WalletGraphEdgeInteractedWith,
-			ObservedAt:        stringValue(interaction, "observedAt"),
-			Weight:            int(int64Value(interaction, "counterpartyCount")),
-			CounterpartyCount: int(int64Value(interaction, "counterpartyCount")),
+			Family:            domain.WalletGraphEdgeFamilyForKind(domain.WalletGraphEdgeInteractedWith),
+			Directionality:    domain.WalletGraphEdgeDirectionalityForKind(domain.WalletGraphEdgeInteractedWith, record.InboundCount, record.OutboundCount, record.LastDirection),
+			FirstObservedAt:   record.FirstObservedAt.Format(time.RFC3339),
+			ObservedAt:        record.LastObservedAt.Format(time.RFC3339),
+			Weight:            record.InteractionCount,
+			CounterpartyCount: record.InteractionCount,
+			Evidence:          buildWalletGraphEdgeEvidence(domain.WalletGraphEdgeInteractedWith, record),
+		})
+	}
+
+	for _, funding := range sliceMapValue(values, "funders") {
+		record, ok := buildWalletGraphInteractionRecord(funding)
+		if !ok {
+			continue
+		}
+
+		funderID := record.ID
+		if funderID == "" {
+			continue
+		}
+
+		nodes = appendWalletGraphNode(nodes, nodeIDs, domain.WalletGraphNode{
+			ID:      funderID,
+			Kind:    domain.WalletGraphNodeWallet,
+			Chain:   domain.Chain(record.Chain),
+			Address: record.Address,
+			Label:   firstNonEmpty(record.Label, record.Address, funderID),
+		})
+		edges = append(edges, domain.WalletGraphEdge{
+			SourceID:          funderID,
+			TargetID:          nodes[0].ID,
+			Kind:              domain.WalletGraphEdgeFundedBy,
+			Family:            domain.WalletGraphEdgeFamilyForKind(domain.WalletGraphEdgeFundedBy),
+			Directionality:    domain.WalletGraphEdgeDirectionalityForKind(domain.WalletGraphEdgeFundedBy, record.InboundCount, record.OutboundCount, record.LastDirection),
+			FirstObservedAt:   record.FirstObservedAt.Format(time.RFC3339),
+			ObservedAt:        record.LastObservedAt.Format(time.RFC3339),
+			Weight:            record.InteractionCount,
+			CounterpartyCount: record.InteractionCount,
+			Evidence:          buildWalletGraphEdgeEvidence(domain.WalletGraphEdgeFundedBy, record),
 		})
 	}
 
@@ -161,6 +228,31 @@ func (r *Neo4jWalletGraphReader) ReadWalletGraph(
 	}
 
 	return graph, nil
+}
+
+func buildWalletGraphNode(values map[string]any, kind domain.WalletGraphNodeKind) domain.WalletGraphNode {
+	return domain.WalletGraphNode{
+		ID:      stringValue(values, "id"),
+		Kind:    kind,
+		Chain:   domain.Chain(stringValue(values, "chain")),
+		Address: stringValue(values, "address"),
+		Label:   stringValue(values, "label"),
+	}
+}
+
+func appendWalletGraphNode(
+	nodes []domain.WalletGraphNode,
+	nodeIDs map[string]struct{},
+	node domain.WalletGraphNode,
+) []domain.WalletGraphNode {
+	if node.ID == "" {
+		return nodes
+	}
+	if _, exists := nodeIDs[node.ID]; exists {
+		return nodes
+	}
+	nodeIDs[node.ID] = struct{}{}
+	return append(nodes, node)
 }
 
 func mapValue(values map[string]any, key string) map[string]any {
@@ -193,6 +285,143 @@ func boolValue(values map[string]any, key string) bool {
 	value := values[key]
 	typed, ok := value.(bool)
 	return ok && typed
+}
+
+type walletGraphInteractionRecord struct {
+	ID               string
+	Chain            string
+	Address          string
+	Label            string
+	FirstObservedAt  time.Time
+	LastObservedAt   time.Time
+	InteractionCount int
+	InboundCount     int
+	OutboundCount    int
+	LastTxHash       string
+	LastDirection    string
+	LastProvider     string
+}
+
+func buildWalletGraphInteractionRecord(interaction map[string]any) (walletGraphInteractionRecord, bool) {
+	record := walletGraphInteractionRecord{
+		ID:               stringValue(interaction, "id"),
+		Chain:            stringValue(interaction, "chain"),
+		Address:          stringValue(interaction, "address"),
+		Label:            stringValue(interaction, "label"),
+		InteractionCount: int(int64Value(interaction, "interactionCount")),
+		InboundCount:     int(int64Value(interaction, "inboundCount")),
+		OutboundCount:    int(int64Value(interaction, "outboundCount")),
+		LastTxHash:       stringValue(interaction, "lastTxHash"),
+		LastDirection:    stringValue(interaction, "lastDirection"),
+		LastProvider:     stringValue(interaction, "lastProvider"),
+	}
+	if record.ID == "" {
+		return walletGraphInteractionRecord{}, false
+	}
+	if record.InteractionCount <= 0 {
+		record.InteractionCount = int(int64Value(interaction, "counterpartyCount"))
+	}
+
+	record.FirstObservedAt = parseWalletGraphTimeValue(stringValue(interaction, "firstObservedAt"))
+	if record.FirstObservedAt.IsZero() {
+		record.FirstObservedAt = parseWalletGraphTimeValue(stringValue(interaction, "lastObservedAt"))
+	}
+	record.LastObservedAt = parseWalletGraphTimeValue(stringValue(interaction, "lastObservedAt"))
+	if record.LastObservedAt.IsZero() {
+		record.LastObservedAt = record.FirstObservedAt
+	}
+
+	return record, true
+}
+
+func buildWalletGraphEdgeEvidence(
+	kind domain.WalletGraphEdgeKind,
+	record walletGraphInteractionRecord,
+) *domain.WalletGraphEdgeEvidence {
+	return &domain.WalletGraphEdgeEvidence{
+		Source:        "neo4j-materialized",
+		Confidence:    deriveWalletGraphEvidenceConfidence(kind, record.InteractionCount),
+		Summary:       deriveWalletGraphEvidenceSummary(kind, record),
+		LastTxHash:    record.LastTxHash,
+		LastDirection: record.LastDirection,
+		LastProvider:  record.LastProvider,
+	}
+}
+
+func deriveWalletGraphEvidenceConfidence(
+	kind domain.WalletGraphEdgeKind,
+	interactionCount int,
+) string {
+	if interactionCount <= 0 {
+		return "low"
+	}
+
+	if kind == domain.WalletGraphEdgeFundedBy {
+		if interactionCount >= 3 {
+			return "high"
+		}
+		return "medium"
+	}
+
+	if interactionCount >= 5 {
+		return "high"
+	}
+	if interactionCount >= 2 {
+		return "medium"
+	}
+	return "low"
+}
+
+func deriveWalletGraphEvidenceSummary(
+	kind domain.WalletGraphEdgeKind,
+	record walletGraphInteractionRecord,
+) string {
+	interactionCount := record.InteractionCount
+	switch kind {
+	case domain.WalletGraphEdgeFundedBy:
+		if interactionCount == 1 {
+			return "Observed inbound funding via 1 transfer."
+		}
+		return fmt.Sprintf("Observed inbound funding via %d transfers.", interactionCount)
+	case domain.WalletGraphEdgeInteractedWith:
+		switch {
+		case record.InboundCount > 0 && record.OutboundCount > 0:
+			return fmt.Sprintf(
+				"Observed transfer activity in both directions (IN %d · OUT %d).",
+				record.InboundCount,
+				record.OutboundCount,
+			)
+		case record.OutboundCount > 0:
+			if record.OutboundCount == 1 {
+				return "Observed 1 outbound transfer to this counterparty."
+			}
+			return fmt.Sprintf("Observed %d outbound transfers to this counterparty.", record.OutboundCount)
+		case record.InboundCount > 0:
+			if record.InboundCount == 1 {
+				return "Observed 1 inbound transfer from this counterparty."
+			}
+			return fmt.Sprintf("Observed %d inbound transfers from this counterparty.", record.InboundCount)
+		case interactionCount == 1:
+			return "Observed 1 direct transfer between these wallets."
+		}
+		return fmt.Sprintf("Observed %d direct transfers between these wallets.", interactionCount)
+	default:
+		return "Observed relationship metadata is available."
+	}
+}
+
+func parseWalletGraphTimeValue(value string) time.Time {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}
+	}
+
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return parsed.UTC()
 }
 
 func firstNonEmpty(values ...string) string {
@@ -274,11 +503,13 @@ func walletGraphEdgeKindRank(kind domain.WalletGraphEdgeKind) int {
 	switch kind {
 	case domain.WalletGraphEdgeMemberOf:
 		return 0
-	case domain.WalletGraphEdgeFundedBy:
+	case domain.WalletGraphEdgeEntityLinked:
 		return 1
-	case domain.WalletGraphEdgeInteractedWith:
+	case domain.WalletGraphEdgeFundedBy:
 		return 2
-	default:
+	case domain.WalletGraphEdgeInteractedWith:
 		return 3
+	default:
+		return 4
 	}
 }

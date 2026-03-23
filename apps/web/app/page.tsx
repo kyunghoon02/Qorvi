@@ -1,5 +1,11 @@
-import { HomeScreen } from "./home-screen.js";
+import { headers } from "next/headers";
+
+import { buildForwardedAuthHeaders } from "../lib/request-headers";
+
+import { HomeScreen } from "./home-screen";
 
 export default function Page() {
-  return <HomeScreen />;
+  const requestHeaders = buildForwardedAuthHeaders(headers());
+
+  return <HomeScreen {...(requestHeaders ? { requestHeaders } : {})} />;
 }

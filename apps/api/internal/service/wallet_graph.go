@@ -46,6 +46,9 @@ func (s *WalletGraphService) GetWalletGraph(
 		return domain.WalletGraph{}, err
 	}
 
+	summary := domain.BuildWalletGraphNeighborhoodSummary(graph)
+	graph.NeighborhoodSummary = &summary
+
 	return graph, nil
 }
 

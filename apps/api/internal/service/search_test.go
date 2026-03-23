@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/whalegraph/whalegraph/packages/db"
+	"github.com/whalegraph/whalegraph/packages/domain"
 )
 
 type fakeWalletSummaryLookup struct {
@@ -12,6 +16,24 @@ type fakeWalletSummaryLookup struct {
 	called  bool
 	chain   string
 	address string
+}
+
+type fakeWalletBackfillQueueStore struct {
+	jobs []db.WalletBackfillJob
+	err  error
+}
+
+func (f *fakeWalletBackfillQueueStore) EnqueueWalletBackfill(_ context.Context, job db.WalletBackfillJob) error {
+	if f.err != nil {
+		return f.err
+	}
+
+	f.jobs = append(f.jobs, job)
+	return nil
+}
+
+func (f *fakeWalletBackfillQueueStore) DequeueWalletBackfill(_ context.Context, _ string) (db.WalletBackfillJob, bool, error) {
+	return db.WalletBackfillJob{}, false, nil
 }
 
 func (f *fakeWalletSummaryLookup) GetWalletSummary(_ context.Context, chain, address string) (WalletSummary, error) {
@@ -114,6 +136,209 @@ func TestSearchServiceFallsBackWhenWalletLookupMisses(t *testing.T) {
 	}
 	if got.Explanation != "Recognized as an EVM wallet address." {
 		t.Fatalf("expected fallback explanation, got %s", got.Explanation)
+	}
+}
+
+func TestSearchServiceQueuesWalletBackfillWhenLookupMisses(t *testing.T) {
+	t.Parallel()
+
+	lookup := &fakeWalletSummaryLookup{err: errors.New("wallet summary not found")}
+	queue := &fakeWalletBackfillQueueStore{}
+	svc := NewSearchServiceWithBackfillQueue(lookup, queue)
+	svc.Now = func() time.Time {
+		return time.Date(2026, time.March, 20, 5, 6, 7, 0, time.UTC)
+	}
+
+	result := svc.Search(context.Background(), "0x1234567890abcdef1234567890abcdef12345678")
+
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected 1 queued wallet backfill job, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Chain != domain.ChainEVM {
+		t.Fatalf("unexpected queued chain %q", queue.jobs[0].Chain)
+	}
+	if queue.jobs[0].Source != searchLookupMissSource {
+		t.Fatalf("unexpected queued source %q", queue.jobs[0].Source)
+	}
+	if queue.jobs[0].Metadata["input_kind"] != searchKindEVMAddress {
+		t.Fatalf("unexpected queued metadata %#v", queue.jobs[0].Metadata)
+	}
+	if queue.jobs[0].Metadata["backfill_window_days"] != 90 {
+		t.Fatalf("expected 90-day backfill policy, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	}
+	if queue.jobs[0].Metadata["backfill_limit"] != 500 {
+		t.Fatalf("expected backfill limit 500, got %#v", queue.jobs[0].Metadata["backfill_limit"])
+	}
+	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 1 {
+		t.Fatalf("expected 1-hop search expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
+	}
+	if !result.Results[0].Queued {
+		t.Fatal("expected queued flag for wallet search miss")
+	}
+	if result.Results[0].Explanation != "Wallet not indexed yet. Queued background backfill for EVM." {
+		t.Fatalf("unexpected queued explanation: %s", result.Results[0].Explanation)
+	}
+}
+
+func TestSearchServiceDoesNotQueueBackfillWhenSummaryExists(t *testing.T) {
+	t.Parallel()
+
+	lookup := &fakeWalletSummaryLookup{
+		summary: WalletSummary{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "Indexed Whale",
+		},
+	}
+	queue := &fakeWalletBackfillQueueStore{}
+	svc := NewSearchServiceWithBackfillQueue(lookup, queue)
+
+	result := svc.Search(context.Background(), "0x1234567890abcdef1234567890abcdef12345678")
+
+	if len(queue.jobs) != 0 {
+		t.Fatalf("expected no queue jobs for indexed wallet, got %d", len(queue.jobs))
+	}
+	if result.Results[0].Queued {
+		t.Fatal("expected queued flag to stay false for indexed wallet")
+	}
+}
+
+func TestSearchServiceQueuesWalletBackfillWhenSummaryIsStale(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 22, 4, 5, 6, 0, time.UTC)
+	lookup := &fakeWalletSummaryLookup{
+		summary: WalletSummary{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "Indexed Whale",
+			Indexing: WalletIndexingState{
+				Status:        "ready",
+				LastIndexedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
+			},
+		},
+	}
+	queue := &fakeWalletBackfillQueueStore{}
+	svc := NewSearchServiceWithBackfillQueue(lookup, queue)
+	svc.Now = func() time.Time { return now }
+
+	result := svc.Search(context.Background(), "0x1234567890abcdef1234567890abcdef12345678")
+
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected 1 queued refresh job, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Source != searchStaleRefreshSource {
+		t.Fatalf("unexpected queued source %q", queue.jobs[0].Source)
+	}
+	if queue.jobs[0].Metadata["refresh_reason"] != "stale_summary" {
+		t.Fatalf("unexpected refresh metadata %#v", queue.jobs[0].Metadata)
+	}
+	if queue.jobs[0].Metadata["backfill_window_days"] != searchStaleRefreshWindowDays {
+		t.Fatalf("unexpected refresh window %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	}
+	if queue.jobs[0].Metadata["backfill_limit"] != searchStaleRefreshLimit {
+		t.Fatalf("unexpected refresh limit %#v", queue.jobs[0].Metadata["backfill_limit"])
+	}
+	if !result.Results[0].Queued {
+		t.Fatal("expected stale summary search result to mark queued")
+	}
+	expected := "Found wallet summary for Indexed Whale. Queued a background refresh because the indexed view is stale."
+	if result.Results[0].Explanation != expected {
+		t.Fatalf("unexpected stale refresh explanation: %s", result.Results[0].Explanation)
+	}
+}
+
+func TestSearchServiceQueuesWalletBackfillWhenManualRefreshRequested(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 22, 4, 5, 6, 0, time.UTC)
+	lookup := &fakeWalletSummaryLookup{
+		summary: WalletSummary{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "Indexed Whale",
+			Indexing: WalletIndexingState{
+				Status:        "ready",
+				LastIndexedAt: now.Add(-5 * time.Minute).Format(time.RFC3339),
+			},
+		},
+	}
+	queue := &fakeWalletBackfillQueueStore{}
+	svc := NewSearchServiceWithBackfillQueue(lookup, queue)
+	svc.Now = func() time.Time { return now }
+
+	result := svc.SearchWithOptions(context.Background(), "0x1234567890abcdef1234567890abcdef12345678", SearchOptions{
+		ManualRefresh: true,
+	})
+
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected 1 queued manual refresh job, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Source != searchManualRefreshSource {
+		t.Fatalf("unexpected queued source %q", queue.jobs[0].Source)
+	}
+	if queue.jobs[0].Metadata["refresh_reason"] != "manual" {
+		t.Fatalf("unexpected refresh metadata %#v", queue.jobs[0].Metadata)
+	}
+	if !result.Results[0].Queued {
+		t.Fatal("expected manual refresh search result to mark queued")
+	}
+	expected := "Found wallet summary for Indexed Whale. Queued a background refresh on demand."
+	if result.Results[0].Explanation != expected {
+		t.Fatalf("unexpected manual refresh explanation: %s", result.Results[0].Explanation)
+	}
+}
+
+func TestSearchServiceDoesNotQueueBackfillWhenSummaryIsFresh(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 22, 4, 5, 6, 0, time.UTC)
+	lookup := &fakeWalletSummaryLookup{
+		summary: WalletSummary{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "Indexed Whale",
+			Indexing: WalletIndexingState{
+				Status:        "ready",
+				LastIndexedAt: now.Add(-5 * time.Minute).Format(time.RFC3339),
+			},
+		},
+	}
+	queue := &fakeWalletBackfillQueueStore{}
+	svc := NewSearchServiceWithBackfillQueue(lookup, queue)
+	svc.Now = func() time.Time { return now }
+
+	result := svc.Search(context.Background(), "0x1234567890abcdef1234567890abcdef12345678")
+
+	if len(queue.jobs) != 0 {
+		t.Fatalf("expected no queued refresh job, got %d", len(queue.jobs))
+	}
+	if result.Results[0].Queued {
+		t.Fatal("expected queued flag to stay false for fresh summary")
+	}
+}
+
+func TestShouldRefreshStaleWalletSummaryHandlesMissingOrInvalidTimestamp(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 22, 4, 5, 6, 0, time.UTC)
+
+	if shouldRefreshStaleWalletSummary(WalletSummary{
+		Indexing: WalletIndexingState{Status: "ready"},
+	}, now) {
+		t.Fatal("expected empty timestamp to be treated as non-stale")
+	}
+
+	if shouldRefreshStaleWalletSummary(WalletSummary{
+		Indexing: WalletIndexingState{Status: "ready", LastIndexedAt: "not-a-time"},
+	}, now) {
+		t.Fatal("expected invalid timestamp to be treated as non-stale")
+	}
+
+	if shouldRefreshStaleWalletSummary(WalletSummary{
+		Indexing: WalletIndexingState{Status: "indexing", LastIndexedAt: now.Add(-2 * time.Hour).Format(time.RFC3339)},
+	}, now) {
+		t.Fatal("expected indexing summaries to skip stale refresh queueing")
 	}
 }
 

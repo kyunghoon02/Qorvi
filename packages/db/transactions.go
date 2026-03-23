@@ -37,14 +37,42 @@ INSERT INTO transactions (
   direction,
   counterparty_chain,
   counterparty_address,
+  amount,
+  amount_numeric,
+  token_chain,
+  token_address,
+  token_symbol,
+  token_decimals,
   raw_payload_path,
   schema_version,
   observed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  NULLIF($7, '')::numeric,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14
+)
 ON CONFLICT (chain, tx_hash, wallet_id) DO UPDATE SET
   direction = excluded.direction,
   counterparty_chain = excluded.counterparty_chain,
   counterparty_address = excluded.counterparty_address,
+  amount = excluded.amount,
+  amount_numeric = excluded.amount_numeric,
+  token_chain = excluded.token_chain,
+  token_address = excluded.token_address,
+  token_symbol = excluded.token_symbol,
+  token_decimals = excluded.token_decimals,
   wallet_id = excluded.wallet_id,
   raw_payload_path = excluded.raw_payload_path,
   schema_version = excluded.schema_version,
@@ -84,6 +112,8 @@ func (s *PostgresNormalizedTransactionStore) UpsertNormalizedTransaction(
 		record.ObservedAt = s.now().UTC()
 	}
 
+	amount := sanitizeTransactionAmount(record.Amount)
+
 	if _, err := s.Execer.Exec(
 		ctx,
 		upsertNormalizedTransactionSQL,
@@ -93,6 +123,11 @@ func (s *PostgresNormalizedTransactionStore) UpsertNormalizedTransaction(
 		string(record.Direction),
 		counterpartyChain(record),
 		counterpartyAddress(record),
+		amount,
+		tokenChain(record),
+		tokenAddress(record),
+		tokenSymbol(record),
+		tokenDecimals(record),
 		record.RawPayloadPath,
 		record.SchemaVersion,
 		record.ObservedAt.UTC(),
@@ -101,6 +136,48 @@ func (s *PostgresNormalizedTransactionStore) UpsertNormalizedTransaction(
 	}
 
 	return nil
+}
+
+func sanitizeTransactionAmount(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	switch strings.ToLower(trimmed) {
+	case "", "<nil>", "nil", "null", "<null>":
+		return ""
+	default:
+		return trimmed
+	}
+}
+
+func tokenChain(record domain.NormalizedTransaction) any {
+	if record.Token == nil {
+		return nil
+	}
+
+	return string(record.Token.Chain)
+}
+
+func tokenAddress(record domain.NormalizedTransaction) any {
+	if record.Token == nil {
+		return nil
+	}
+
+	return record.Token.Address
+}
+
+func tokenSymbol(record domain.NormalizedTransaction) any {
+	if record.Token == nil {
+		return nil
+	}
+
+	return record.Token.Symbol
+}
+
+func tokenDecimals(record domain.NormalizedTransaction) any {
+	if record.Token == nil {
+		return nil
+	}
+
+	return record.Token.Decimals
 }
 
 func counterpartyChain(record domain.NormalizedTransaction) string {

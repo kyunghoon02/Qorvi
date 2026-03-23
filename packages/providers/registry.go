@@ -4,7 +4,7 @@ type Registry map[ProviderName]ProviderAdapter
 
 func DefaultRegistry() Registry {
 	return Registry{
-		ProviderDune:    DuneAdapter{},
+		ProviderDune:    NewDuneAdapter(nil),
 		ProviderAlchemy: AlchemyAdapter{},
 		ProviderHelius:  HeliusAdapter{},
 		ProviderMoralis: MoralisAdapter{},
@@ -13,10 +13,22 @@ func DefaultRegistry() Registry {
 
 func NewConfiguredRegistry(env ProviderEnv) Registry {
 	return Registry{
-		ProviderDune:    DuneAdapter{},
-		ProviderAlchemy: NewAlchemyAdapter(ProviderCredentials{Provider: ProviderAlchemy, APIKey: env.AlchemyAPIKey, BaseURL: env.AlchemyBaseURL}),
-		ProviderHelius:  NewHeliusAdapter(ProviderCredentials{Provider: ProviderHelius, APIKey: env.HeliusAPIKey, BaseURL: env.HeliusBaseURL, DataAPIBaseURL: env.HeliusDataAPIBaseURL}),
-		ProviderMoralis: MoralisAdapter{},
+		ProviderDune: NewDuneAdapter(env.DuneSeedExportRows),
+		ProviderAlchemy: NewAlchemyAdapter(ProviderCredentials{
+			Provider:      ProviderAlchemy,
+			APIKey:        env.AlchemyAPIKey,
+			BaseURL:       env.AlchemyBaseURL,
+			SolanaBaseURL: env.AlchemySolanaBaseURL,
+		}),
+		ProviderHelius: NewHeliusAdapter(ProviderCredentials{
+			Provider:        ProviderHelius,
+			APIKey:          env.HeliusAPIKey,
+			BaseURL:         env.HeliusBaseURL,
+			DataAPIBaseURL:  env.HeliusDataAPIBaseURL,
+			FallbackAPIKey:  env.AlchemyAPIKey,
+			FallbackBaseURL: env.AlchemySolanaBaseURL,
+		}),
+		ProviderMoralis: NewMoralisAdapter(ProviderCredentials{Provider: ProviderMoralis, APIKey: env.MoralisAPIKey, BaseURL: env.MoralisBaseURL}),
 	}
 }
 

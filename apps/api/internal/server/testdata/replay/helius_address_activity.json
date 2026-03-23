@@ -1,0 +1,32 @@
+[
+  {
+    "description": "solana replay fixture",
+    "type": "TRANSFER",
+    "source": "SYSTEM_PROGRAM",
+    "fee": 5000,
+    "feePayer": "89HbgWduLwoxcofWpmn1EiF9wEdpgkNDEyPjzZ72mkDi",
+    "signature": "sig_replay_fixture_1",
+    "slot": 1054,
+    "timestamp": 1641038400,
+    "nativeTransfers": [
+      {
+        "fromUserAccount": "FundingWallet11111111111111111111111111111111",
+        "toUserAccount": "89HbgWduLwoxcofWpmn1EiF9wEdpgkNDEyPjzZ72mkDi",
+        "amount": 1
+      }
+    ],
+    "tokenTransfers": [
+      {
+        "fromUserAccount": "89HbgWduLwoxcofWpmn1EiF9wEdpgkNDEyPjzZ72mkDi",
+        "toUserAccount": "Counterparty111111111111111111111111111111111",
+        "mint": "So11111111111111111111111111111111111111112",
+        "tokenAmount": "12.5"
+      }
+    ],
+    "accountData": [
+      {
+        "account": "89HbgWduLwoxcofWpmn1EiF9wEdpgkNDEyPjzZ72mkDi"
+      }
+    ]
+  }
+]

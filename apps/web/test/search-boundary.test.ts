@@ -5,8 +5,8 @@ import {
   getSearchPreview,
   loadSearchPreview,
   searchRoute,
-} from "../lib/api-boundary.js";
-import { resolveWalletRequestFromSearchPreview } from "../app/home-screen.js";
+} from "../lib/api-boundary";
+import { resolveWalletRequestFromSearchPreview } from "../app/home-screen";
 
 test("search route stays aligned with the backend contract", () => {
   assert.equal(searchRoute, "GET /v1/search");
@@ -22,7 +22,7 @@ test("loadSearchPreview falls back to the local wallet resolution", async () => 
   });
 
   assert.equal(preview.route, searchRoute);
-  assert.equal(preview.mode, "fallback");
+  assert.equal(preview.mode, "unavailable");
   assert.equal(preview.source, fallback.source);
   assert.equal(preview.query, "0x8f1d9c72be9f2a8ec6d3b9ac1e5d7c4289a1031f");
   assert.equal(preview.inputKind, "evm_address");
@@ -98,6 +98,58 @@ test("loadSearchPreview maps live backend data when available", async () => {
   assert.equal(preview.navigation, true);
 });
 
+test("loadSearchPreview forwards manual refresh requests to the backend", async () => {
+  let requestedUrl = "";
+
+  await loadSearchPreview({
+    query: "0x1234567890abcdef1234567890abcdef12345678",
+    refreshMode: "manual",
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            query: "0x1234567890abcdef1234567890abcdef12345678",
+            inputKind: "evm_address",
+            explanation: "Found wallet summary for Live Whale. Queued a background refresh on demand.",
+            results: [
+              {
+                type: "wallet",
+                kind: "evm_address",
+                kindLabel: "EVM wallet address",
+                label: "Live Whale",
+                chain: "evm",
+                chainLabel: "EVM",
+                walletRoute:
+                  "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/summary",
+                explanation:
+                  "Found wallet summary for Live Whale. Queued a background refresh on demand.",
+                confidence: 0.98,
+                navigation: true,
+                queued: true,
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.match(
+    requestedUrl,
+    /\/v1\/search\?q=0x1234567890abcdef1234567890abcdef12345678&refresh=manual$/,
+  );
+});
+
 test("resolveWalletRequestFromSearchPreview parses wallet routes", () => {
   const request = resolveWalletRequestFromSearchPreview({
     mode: "live",
@@ -122,15 +174,15 @@ test("resolveWalletRequestFromSearchPreview parses wallet routes", () => {
 
 test("resolveWalletRequestFromSearchPreview returns null for non-navigating results", () => {
   const request = resolveWalletRequestFromSearchPreview({
-    mode: "fallback",
-    source: "mock-api-boundary",
+    mode: "unavailable",
+    source: "boundary-unavailable",
     route: searchRoute,
     query: "infra",
     inputKind: "unknown",
     kindLabel: "Unknown input",
     chainLabel: undefined,
     title: "Unresolved query",
-    explanation: "Fallback search preview is active.",
+    explanation: "Enter an EVM address, Solana address, or ENS-like name to load live intelligence.",
     navigation: false,
   });
 

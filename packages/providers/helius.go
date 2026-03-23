@@ -53,10 +53,12 @@ func (a HeliusAdapter) WithHTTPClient(client *http.Client) HeliusAdapter {
 
 	copy := a
 	copy.client = NewHeliusClient(ProviderCredentials{
-		Provider:       ProviderHelius,
-		APIKey:         a.client.apiKey,
-		BaseURL:        a.client.baseURL,
-		DataAPIBaseURL: a.client.dataAPIBaseURL,
+		Provider:        ProviderHelius,
+		APIKey:          a.client.apiKey,
+		BaseURL:         a.client.baseURL,
+		DataAPIBaseURL:  a.client.dataAPIBaseURL,
+		FallbackAPIKey:  a.client.fallbackAPIKey,
+		FallbackBaseURL: a.client.fallbackBaseURL,
 	}, client)
 	return copy
 }

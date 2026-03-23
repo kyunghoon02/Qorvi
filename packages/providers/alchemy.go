@@ -53,9 +53,10 @@ func (a AlchemyAdapter) WithHTTPClient(client *http.Client) AlchemyAdapter {
 
 	copy := a
 	copy.client = NewAlchemyClient(ProviderCredentials{
-		Provider: ProviderAlchemy,
-		APIKey:   a.client.apiKey,
-		BaseURL:  a.client.baseURL,
+		Provider:      ProviderAlchemy,
+		APIKey:        a.client.apiKey,
+		BaseURL:       a.client.baseURL,
+		SolanaBaseURL: a.client.solanaBaseURL,
 	}, client)
 	return copy
 }

@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +18,8 @@ import (
 
 const workerModeHistoricalBackfillFixture = "historical-backfill-fixture"
 const workerModeHistoricalBackfillIngest = "historical-backfill-ingest"
+const workerModeWalletBackfillDrain = "wallet-backfill-drain"
+const workerModeWalletBackfillDrainBatch = "wallet-backfill-drain-batch"
 
 type WalletEnsurer interface {
 	EnsureWallet(context.Context, db.WalletRef) (db.WalletSummaryIdentity, error)
@@ -23,18 +29,31 @@ type NormalizedTransactionWriter interface {
 	UpsertNormalizedTransactions(context.Context, []db.NormalizedTransactionWrite) error
 }
 
+type HeuristicEntityAssignmentWriter interface {
+	UpsertHeuristicEntityAssignments(context.Context, []db.WalletEntityAssignment) error
+}
+
 type HistoricalBackfillJobRunner struct {
 	Runner providers.HistoricalBackfillRunner
 }
 
 type HistoricalBackfillIngestService struct {
-	Runner        HistoricalBackfillJobRunner
-	Wallets       WalletEnsurer
-	Transactions  NormalizedTransactionWriter
-	RawPayloads   db.RawPayloadStore
-	ProviderUsage db.ProviderUsageLogStore
-	JobRuns       db.JobRunStore
-	Now           func() time.Time
+	Runner         HistoricalBackfillJobRunner
+	Wallets        WalletEnsurer
+	Transactions   NormalizedTransactionWriter
+	DailyStats     db.WalletDailyStatsRefresher
+	Graph          db.TransactionGraphMaterializer
+	GraphCache     db.WalletGraphCache
+	GraphSnapshots db.WalletGraphSnapshotStore
+	Enrichment     WalletSummaryEnrichmentRefresher
+	SummaryCache   db.WalletSummaryCache
+	EntityIndex    HeuristicEntityAssignmentWriter
+	Dedup          db.IngestDedupStore
+	Queue          db.WalletBackfillQueueStore
+	RawPayloads    db.RawPayloadStore
+	ProviderUsage  db.ProviderUsageLogStore
+	JobRuns        db.JobRunStore
+	Now            func() time.Time
 }
 
 type HistoricalBackfillIngestReport struct {
@@ -42,7 +61,52 @@ type HistoricalBackfillIngestReport struct {
 	ActivitiesFetched   int
 	RawPayloadsStored   int
 	TransactionsWritten int
+	TransactionsDeduped int
 	ProvidersSeen       []string
+}
+
+type QueuedWalletBackfillReport struct {
+	Dequeued            bool
+	Provider            string
+	Chain               string
+	Address             string
+	Source              string
+	ActivitiesFetched   int
+	RawPayloadsStored   int
+	TransactionsWritten int
+	TransactionsDeduped int
+	ExpansionEnqueued   int
+}
+
+type QueuedWalletBackfillBatchReport struct {
+	JobsProcessed       int
+	ActivitiesFetched   int
+	RawPayloadsStored   int
+	TransactionsWritten int
+	TransactionsDeduped int
+	ExpansionEnqueued   int
+	ProvidersSeen       []string
+}
+
+const (
+	defaultQueuedBackfillWindowDays     = 90
+	defaultQueuedBackfillLimit          = 500
+	defaultQueuedBackfillExpansionDepth = 1
+	defaultQueuedBackfillStopServices   = true
+	maxQueuedExpansionCounterparties    = 5
+)
+
+type historicalBackfillBatchReport struct {
+	Provider            string
+	ActivitiesFetched   int
+	RawPayloadsStored   int
+	TransactionsWritten int
+	TransactionsDeduped int
+	ExpansionEnqueued   int
+}
+
+type WalletSummaryEnrichmentRefresher interface {
+	EnrichWalletSummary(context.Context, domain.WalletSummary) (domain.WalletSummary, error)
 }
 
 func NewHistoricalBackfillJobRunner(registry providers.Registry) HistoricalBackfillJobRunner {
@@ -126,12 +190,19 @@ func (s HistoricalBackfillIngestService) RunFixtureIngest(ctx context.Context) (
 	}
 
 	for _, batch := range batches {
-		batchStartedAt := s.now()
-		result, err := s.Runner.Runner.Run(batch)
+		batchReport, err := s.runBatchIngest(
+			ctx,
+			batch,
+			"historical_backfill",
+			nil,
+			queuedBackfillPolicy{
+				WindowDays:     defaultQueuedBackfillWindowDays,
+				Limit:          defaultQueuedBackfillLimit,
+				ExpansionDepth: 0,
+				StopServices:   defaultQueuedBackfillStopServices,
+			},
+		)
 		if err != nil {
-			if logErr := s.recordProviderUsage(ctx, batch.Provider, "historical_backfill", 500, s.now().Sub(batchStartedAt)); logErr != nil {
-				return HistoricalBackfillIngestReport{}, logErr
-			}
 			_ = s.recordJobRun(ctx, db.JobRunEntry{
 				JobName:   "historical-backfill-ingest",
 				Status:    db.JobRunStatusFailed,
@@ -148,46 +219,12 @@ func (s HistoricalBackfillIngestService) RunFixtureIngest(ctx context.Context) (
 			return HistoricalBackfillIngestReport{}, err
 		}
 
-		identity, err := s.Wallets.EnsureWallet(ctx, db.WalletRef{
-			Chain:   batch.Request.Chain,
-			Address: batch.Request.WalletAddress,
-		})
-		if err != nil {
-			return HistoricalBackfillIngestReport{}, err
-		}
-
-		activities, storedRawPayloads, err := s.persistRawPayloads(ctx, result.Activities)
-		if err != nil {
-			_ = s.recordProviderUsage(ctx, batch.Provider, "historical_backfill", 500, s.now().Sub(batchStartedAt))
-			return HistoricalBackfillIngestReport{}, err
-		}
-
-		transactions, err := providers.NormalizeProviderActivities(activities)
-		if err != nil {
-			return HistoricalBackfillIngestReport{}, err
-		}
-
-		writes := make([]db.NormalizedTransactionWrite, 0, len(transactions))
-		for _, tx := range transactions {
-			writes = append(writes, db.NormalizedTransactionWrite{
-				WalletID:    identity.WalletID,
-				Transaction: tx,
-			})
-		}
-
-		if err := s.Transactions.UpsertNormalizedTransactions(ctx, writes); err != nil {
-			_ = s.recordProviderUsage(ctx, batch.Provider, "historical_backfill", 500, s.now().Sub(batchStartedAt))
-			return HistoricalBackfillIngestReport{}, err
-		}
-		if err := s.recordProviderUsage(ctx, batch.Provider, "historical_backfill", 200, s.now().Sub(batchStartedAt)); err != nil {
-			return HistoricalBackfillIngestReport{}, err
-		}
-
 		report.BatchesWritten++
-		report.ActivitiesFetched += len(result.Activities)
-		report.RawPayloadsStored += storedRawPayloads
-		report.TransactionsWritten += len(writes)
-		report.ProvidersSeen = append(report.ProvidersSeen, string(batch.Provider))
+		report.ActivitiesFetched += batchReport.ActivitiesFetched
+		report.RawPayloadsStored += batchReport.RawPayloadsStored
+		report.TransactionsWritten += batchReport.TransactionsWritten
+		report.TransactionsDeduped += batchReport.TransactionsDeduped
+		report.ProvidersSeen = append(report.ProvidersSeen, batchReport.Provider)
 	}
 
 	if err := s.recordJobRun(ctx, db.JobRunEntry{
@@ -204,6 +241,7 @@ func (s HistoricalBackfillIngestService) RunFixtureIngest(ctx context.Context) (
 			"activities":   report.ActivitiesFetched,
 			"raw_payloads": report.RawPayloadsStored,
 			"transactions": report.TransactionsWritten,
+			"duplicates":   report.TransactionsDeduped,
 		},
 	}); err != nil {
 		return HistoricalBackfillIngestReport{}, err
@@ -223,13 +261,57 @@ func buildHistoricalBackfillIngestSummary(report HistoricalBackfillIngestReport)
 	)
 }
 
+func buildQueuedWalletBackfillSummary(report QueuedWalletBackfillReport) string {
+	if !report.Dequeued {
+		return "Wallet backfill queue empty (jobs=0)"
+	}
+
+	return fmt.Sprintf(
+		"Wallet backfill queue processed (provider=%s, chain=%s, address=%s, source=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d)",
+		report.Provider,
+		report.Chain,
+		report.Address,
+		report.Source,
+		report.ActivitiesFetched,
+		report.RawPayloadsStored,
+		report.TransactionsWritten,
+		report.TransactionsDeduped,
+		report.ExpansionEnqueued,
+	)
+}
+
+func buildQueuedWalletBackfillBatchSummary(report QueuedWalletBackfillBatchReport) string {
+	return fmt.Sprintf(
+		"Wallet backfill queue batch processed (jobs=%d, providers=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d)",
+		report.JobsProcessed,
+		strings.Join(report.ProvidersSeen, ","),
+		report.ActivitiesFetched,
+		report.RawPayloadsStored,
+		report.TransactionsWritten,
+		report.TransactionsDeduped,
+		report.ExpansionEnqueued,
+	)
+}
+
 func buildWorkerOutput(
 	ctx context.Context,
 	mode string,
 	env config.WorkerEnv,
 	runner HistoricalBackfillJobRunner,
 	ingest HistoricalBackfillIngestService,
+	enrichmentRefresh WalletEnrichmentRefreshService,
+	seedDiscovery SeedDiscoveryJobRunner,
+	watchlistBootstrap WatchlistBootstrapService,
+	clusterScore ClusterScoreSnapshotService,
+	shadowExit ShadowExitSnapshotService,
+	firstConnection FirstConnectionSnapshotService,
+	alertDeliveryRetry AlertDeliveryRetryService,
+	billingSubscriptionSync ...BillingSubscriptionSyncService,
 ) (string, error) {
+	var resolvedBillingSubscriptionSync BillingSubscriptionSyncService
+	if len(billingSubscriptionSync) > 0 {
+		resolvedBillingSubscriptionSync = billingSubscriptionSync[0]
+	}
 	if mode == workerModeHistoricalBackfillFixture {
 		results, err := runner.RunFixtureFlow()
 		if err != nil {
@@ -244,6 +326,123 @@ func buildWorkerOutput(
 		}
 		return buildHistoricalBackfillIngestSummary(report), nil
 	}
+	if mode == workerModeWalletBackfillDrain {
+		report, err := ingest.RunQueuedBackfillOnce(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildQueuedWalletBackfillSummary(report), nil
+	}
+	if mode == workerModeWalletBackfillDrainBatch {
+		report, err := ingest.RunQueuedBackfillBatch(ctx, walletBackfillDrainLimit())
+		if err != nil {
+			return "", err
+		}
+		return buildQueuedWalletBackfillBatchSummary(report), nil
+	}
+	if mode == workerModeMoralisEnrichmentRefresh {
+		report, err := enrichmentRefresh.RunRefresh(ctx, walletEnrichmentRefreshTargetFromEnv())
+		if err != nil {
+			return "", err
+		}
+		return buildWalletEnrichmentRefreshSummary(report), nil
+	}
+	if mode == workerModeSeedDiscoveryFixture {
+		results, err := seedDiscovery.RunFixtureFlow()
+		if err != nil {
+			return "", err
+		}
+		return buildSeedDiscoverySummary(results), nil
+	}
+	if mode == workerModeSeedDiscoveryEnqueue {
+		report, err := seedDiscovery.RunEnqueue(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildSeedDiscoveryEnqueueSummary(report), nil
+	}
+	if mode == workerModeSeedDiscoverySeedWatchlist {
+		report, err := seedDiscovery.RunSeedWatchlist(
+			ctx,
+			seedDiscoveryTopNFromEnv(),
+			seedDiscoveryMinConfidenceFromEnv(),
+		)
+		if err != nil {
+			return "", err
+		}
+		return buildSeedDiscoveryWatchlistSummary(report), nil
+	}
+	if mode == workerModeWatchlistBootstrapEnqueue {
+		report, err := watchlistBootstrap.RunEnqueue(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildWatchlistBootstrapSummary(report), nil
+	}
+	if mode == workerModeClusterScoreSnapshot {
+		report, err := clusterScore.RunSnapshot(
+			ctx,
+			clusterScoreTargetFromEnv(),
+			clusterScoreDepthFromEnv(),
+			clusterScoreObservedAtFromEnv(),
+		)
+		if err != nil {
+			return "", err
+		}
+		return buildClusterScoreSnapshotSummary(report), nil
+	}
+	if mode == workerModeShadowExitSnapshot {
+		var (
+			report ShadowExitSnapshotReport
+			err    error
+		)
+		if shadowExit.canAutoDetect() && shadowExitShouldAutoDetect() {
+			report, err = shadowExit.RunSnapshotForWallet(
+				ctx,
+				shadowExitTargetFromEnv(),
+				shadowExitObservedAtFromEnv(),
+			)
+		} else {
+			report, err = shadowExit.RunSnapshot(ctx, shadowExitSignalFromEnv())
+		}
+		if err != nil {
+			return "", err
+		}
+		return buildShadowExitSnapshotSummary(report), nil
+	}
+	if mode == workerModeFirstConnectionSnapshot {
+		var (
+			report FirstConnectionSnapshotReport
+			err    error
+		)
+		if firstConnection.canAutoDetect() && firstConnectionShouldAutoDetect() {
+			report, err = firstConnection.RunSnapshotForWallet(
+				ctx,
+				firstConnectionTargetFromEnv(),
+				firstConnectionObservedAtFromEnv(),
+			)
+		} else {
+			report, err = firstConnection.RunSnapshot(ctx, firstConnectionSignalFromEnv())
+		}
+		if err != nil {
+			return "", err
+		}
+		return buildFirstConnectionSnapshotSummary(report), nil
+	}
+	if mode == workerModeAlertDeliveryRetryBatch {
+		report, err := alertDeliveryRetry.RunBatch(ctx, alertDeliveryRetryBatchLimitFromEnv())
+		if err != nil {
+			return "", err
+		}
+		return buildAlertDeliveryRetryBatchSummary(report), nil
+	}
+	if mode == workerModeBillingSubscriptionSync {
+		report, err := resolvedBillingSubscriptionSync.RunBatch(ctx, billingSubscriptionSyncLimitFromEnv())
+		if err != nil {
+			return "", err
+		}
+		return buildBillingSubscriptionSyncSummary(report), nil
+	}
 
 	return buildStartupMessage(env), nil
 }
@@ -254,6 +453,291 @@ func (s HistoricalBackfillIngestService) now() time.Time {
 	}
 
 	return time.Now()
+}
+
+func (s HistoricalBackfillIngestService) RunQueuedBackfillOnce(ctx context.Context) (QueuedWalletBackfillReport, error) {
+	if s.Queue == nil {
+		return QueuedWalletBackfillReport{}, fmt.Errorf("wallet backfill queue is required")
+	}
+
+	job, ok, err := s.Queue.DequeueWalletBackfill(ctx, db.DefaultWalletBackfillQueueName)
+	if err != nil {
+		return QueuedWalletBackfillReport{}, err
+	}
+	if !ok {
+		return QueuedWalletBackfillReport{}, nil
+	}
+
+	startedAt := s.now().UTC()
+	batch, policy, err := buildQueuedHistoricalBackfillBatch(job, startedAt)
+	if err != nil {
+		return QueuedWalletBackfillReport{}, err
+	}
+
+	batchReport, err := s.runBatchIngest(ctx, batch, "queued_wallet_backfill", &job, policy)
+	if err != nil {
+		_ = s.recordJobRun(ctx, db.JobRunEntry{
+			JobName:    "wallet-backfill-drain",
+			Status:     db.JobRunStatusFailed,
+			StartedAt:  startedAt,
+			FinishedAt: pointerToTime(s.now().UTC()),
+			Details: map[string]any{
+				"chain":   string(job.Chain),
+				"address": job.Address,
+				"source":  job.Source,
+				"error":   err.Error(),
+			},
+		})
+		return QueuedWalletBackfillReport{}, err
+	}
+
+	if err := s.recordJobRun(ctx, db.JobRunEntry{
+		JobName:    "wallet-backfill-drain",
+		Status:     db.JobRunStatusSucceeded,
+		StartedAt:  startedAt,
+		FinishedAt: pointerToTime(s.now().UTC()),
+		Details: map[string]any{
+			"chain":        string(job.Chain),
+			"address":      job.Address,
+			"source":       job.Source,
+			"provider":     batchReport.Provider,
+			"activities":   batchReport.ActivitiesFetched,
+			"raw_payloads": batchReport.RawPayloadsStored,
+			"transactions": batchReport.TransactionsWritten,
+			"duplicates":   batchReport.TransactionsDeduped,
+			"expansions":   batchReport.ExpansionEnqueued,
+		},
+	}); err != nil {
+		return QueuedWalletBackfillReport{}, err
+	}
+
+	return QueuedWalletBackfillReport{
+		Dequeued:            true,
+		Provider:            batchReport.Provider,
+		Chain:               string(job.Chain),
+		Address:             job.Address,
+		Source:              job.Source,
+		ActivitiesFetched:   batchReport.ActivitiesFetched,
+		RawPayloadsStored:   batchReport.RawPayloadsStored,
+		TransactionsWritten: batchReport.TransactionsWritten,
+		TransactionsDeduped: batchReport.TransactionsDeduped,
+		ExpansionEnqueued:   batchReport.ExpansionEnqueued,
+	}, nil
+}
+
+func (s HistoricalBackfillIngestService) RunQueuedBackfillBatch(
+	ctx context.Context,
+	limit int,
+) (QueuedWalletBackfillBatchReport, error) {
+	if limit <= 0 {
+		return QueuedWalletBackfillBatchReport{}, fmt.Errorf("wallet backfill drain limit must be positive")
+	}
+
+	report := QueuedWalletBackfillBatchReport{
+		ProvidersSeen: make([]string, 0, limit),
+	}
+	for i := 0; i < limit; i++ {
+		item, err := s.RunQueuedBackfillOnce(ctx)
+		if err != nil {
+			return QueuedWalletBackfillBatchReport{}, err
+		}
+		if !item.Dequeued {
+			break
+		}
+
+		report.JobsProcessed++
+		report.ActivitiesFetched += item.ActivitiesFetched
+		report.RawPayloadsStored += item.RawPayloadsStored
+		report.TransactionsWritten += item.TransactionsWritten
+		report.TransactionsDeduped += item.TransactionsDeduped
+		report.ExpansionEnqueued += item.ExpansionEnqueued
+		report.ProvidersSeen = append(report.ProvidersSeen, item.Provider)
+	}
+
+	return report, nil
+}
+
+func buildQueuedHistoricalBackfillBatch(job db.WalletBackfillJob, now time.Time) (providers.HistoricalBackfillBatch, queuedBackfillPolicy, error) {
+	provider, err := historicalBackfillProviderForChain(job.Chain)
+	if err != nil {
+		return providers.HistoricalBackfillBatch{}, queuedBackfillPolicy{}, err
+	}
+
+	policy := queuedBackfillPolicyForJob(job)
+	windowEnd := now.UTC()
+	return providers.HistoricalBackfillBatch{
+		Provider: provider,
+		Request: providers.ProviderRequestContext{
+			Chain:         job.Chain,
+			WalletAddress: job.Address,
+			Access: domain.AccessContext{
+				Role: domain.RoleOperator,
+				Plan: domain.PlanPro,
+			},
+		},
+		WindowStart: windowEnd.Add(-time.Duration(policy.WindowDays) * 24 * time.Hour),
+		WindowEnd:   windowEnd,
+		Limit:       policy.Limit,
+	}, policy, nil
+}
+
+type queuedBackfillPolicy struct {
+	WindowDays     int
+	Limit          int
+	ExpansionDepth int
+	StopServices   bool
+}
+
+func queuedBackfillPolicyForJob(job db.WalletBackfillJob) queuedBackfillPolicy {
+	policy := queuedBackfillPolicy{
+		WindowDays:     defaultQueuedBackfillWindowDays,
+		Limit:          defaultQueuedBackfillLimit,
+		ExpansionDepth: defaultQueuedBackfillExpansionDepth,
+		StopServices:   defaultQueuedBackfillStopServices,
+	}
+
+	switch strings.TrimSpace(job.Source) {
+	case "watchlist_bootstrap", "seed_discovery":
+		policy.ExpansionDepth = 2
+		policy.Limit = 750
+	}
+
+	policy.WindowDays = clampQueuedBackfillWindowDays(intMetadataValue(job.Metadata, "backfill_window_days", policy.WindowDays))
+	policy.Limit = clampQueuedBackfillLimit(intMetadataValue(job.Metadata, "backfill_limit", policy.Limit))
+	policy.ExpansionDepth = clampQueuedBackfillExpansionDepth(intMetadataValue(job.Metadata, "backfill_expansion_depth", policy.ExpansionDepth))
+	policy.StopServices = boolMetadataValue(job.Metadata, "backfill_stop_service_addresses", policy.StopServices)
+
+	return policy
+}
+
+func intMetadataValue(metadata map[string]any, key string, fallback int) int {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	default:
+		return fallback
+	}
+}
+
+func boolMetadataValue(metadata map[string]any, key string, fallback bool) bool {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes":
+			return true
+		case "false", "0", "no":
+			return false
+		default:
+			return fallback
+		}
+	default:
+		return fallback
+	}
+}
+
+func clampQueuedBackfillWindowDays(value int) int {
+	if value <= 0 {
+		return defaultQueuedBackfillWindowDays
+	}
+	if value > 365 {
+		return 365
+	}
+
+	return value
+}
+
+func clampQueuedBackfillLimit(value int) int {
+	if value <= 0 {
+		return defaultQueuedBackfillLimit
+	}
+	if value > 1000 {
+		return 1000
+	}
+
+	return value
+}
+
+func clampQueuedBackfillExpansionDepth(value int) int {
+	if value <= 0 {
+		return defaultQueuedBackfillExpansionDepth
+	}
+	if value > 2 {
+		return 2
+	}
+
+	return value
+}
+
+func historicalBackfillProviderForChain(chain domain.Chain) (providers.ProviderName, error) {
+	switch chain {
+	case domain.ChainEVM:
+		return providers.ProviderAlchemy, nil
+	case domain.ChainSolana:
+		return providers.ProviderHelius, nil
+	default:
+		return "", fmt.Errorf("unsupported historical backfill chain %q", chain)
+	}
+}
+
+func pointerToTime(value time.Time) *time.Time {
+	return &value
+}
+
+func clusterScoreTargetFromEnv() db.WalletRef {
+	return db.WalletRef{
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_ADDRESS")),
+	}
+}
+
+func clusterScoreDepthFromEnv() int {
+	value := strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_DEPTH"))
+	if value == "" {
+		return 1
+	}
+
+	depth, err := strconv.Atoi(value)
+	if err != nil || depth <= 0 {
+		return 1
+	}
+
+	return depth
+}
+
+func clusterScoreObservedAtFromEnv() string {
+	return strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_OBSERVED_AT"))
 }
 
 func (s HistoricalBackfillIngestService) recordProviderUsage(
@@ -281,6 +765,337 @@ func (s HistoricalBackfillIngestService) recordJobRun(ctx context.Context, entry
 	}
 
 	return s.JobRuns.RecordJobRun(ctx, entry)
+}
+
+func (s HistoricalBackfillIngestService) runBatchIngest(
+	ctx context.Context,
+	batch providers.HistoricalBackfillBatch,
+	operation string,
+	job *db.WalletBackfillJob,
+	policy queuedBackfillPolicy,
+) (historicalBackfillBatchReport, error) {
+	if s.Wallets == nil {
+		return historicalBackfillBatchReport{}, fmt.Errorf("wallet store is required")
+	}
+	if s.Transactions == nil {
+		return historicalBackfillBatchReport{}, fmt.Errorf("transaction store is required")
+	}
+
+	batchStartedAt := s.now()
+	log.Printf(
+		"wallet backfill starting (provider=%s, chain=%s, address=%s, operation=%s)",
+		batch.Provider,
+		batch.Request.Chain,
+		batch.Request.WalletAddress,
+		operation,
+	)
+	result, err := s.Runner.Runner.Run(batch)
+	if err != nil {
+		if logErr := s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt)); logErr != nil {
+			return historicalBackfillBatchReport{}, logErr
+		}
+		return historicalBackfillBatchReport{}, err
+	}
+
+	identity, err := s.Wallets.EnsureWallet(ctx, db.WalletRef{
+		Chain:   batch.Request.Chain,
+		Address: batch.Request.WalletAddress,
+	})
+	if err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+
+	activities, storedRawPayloads, err := s.persistRawPayloads(ctx, result.Activities)
+	if err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+
+	transactions, err := providers.NormalizeProviderActivities(activities)
+	if err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.upsertHeuristicEntityAssignments(ctx, activities); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	transactions, duplicates, claimedKeys, err := s.filterDuplicateTransactions(ctx, transactions)
+	if err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+
+	writes := make([]db.NormalizedTransactionWrite, 0, len(transactions))
+	for _, tx := range transactions {
+		writes = append(writes, db.NormalizedTransactionWrite{
+			WalletID:    identity.WalletID,
+			Transaction: tx,
+		})
+	}
+
+	if len(writes) > 0 {
+		if err := s.Transactions.UpsertNormalizedTransactions(ctx, writes); err != nil {
+			_ = s.releaseDedupKeys(ctx, claimedKeys)
+			_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+			return historicalBackfillBatchReport{}, err
+		}
+	}
+	if len(writes) > 0 && s.DailyStats != nil {
+		if err := s.DailyStats.RefreshWalletDailyStats(ctx, identity.WalletID); err != nil {
+			_ = s.releaseDedupKeys(ctx, claimedKeys)
+			_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+			return historicalBackfillBatchReport{}, err
+		}
+	}
+	if len(writes) > 0 && s.Graph != nil {
+		if err := s.Graph.MaterializeNormalizedTransactions(ctx, writes); err != nil {
+			_ = s.releaseDedupKeys(ctx, claimedKeys)
+			_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+			return historicalBackfillBatchReport{}, err
+		}
+	}
+	expansionEnqueued, err := s.enqueueCounterpartyExpansion(ctx, batch, job, policy, transactions)
+	if err != nil {
+		_ = s.releaseDedupKeys(ctx, claimedKeys)
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.refreshWalletEnrichment(ctx, batch.Request.Chain, batch.Request.WalletAddress); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.invalidateWalletSummary(ctx, db.WalletRef{
+		Chain:   batch.Request.Chain,
+		Address: batch.Request.WalletAddress,
+	}); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.invalidateWalletGraph(ctx, db.WalletRef{
+		Chain:   batch.Request.Chain,
+		Address: batch.Request.WalletAddress,
+	}); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.recordProviderUsage(ctx, batch.Provider, operation, 200, s.now().Sub(batchStartedAt)); err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+
+	return historicalBackfillBatchReport{
+		Provider:            string(batch.Provider),
+		ActivitiesFetched:   len(result.Activities),
+		RawPayloadsStored:   storedRawPayloads,
+		TransactionsWritten: len(writes),
+		TransactionsDeduped: duplicates,
+		ExpansionEnqueued:   expansionEnqueued,
+	}, nil
+}
+
+func (s HistoricalBackfillIngestService) upsertHeuristicEntityAssignments(
+	ctx context.Context,
+	activities []providers.ProviderWalletActivity,
+) error {
+	if s.EntityIndex == nil {
+		return nil
+	}
+
+	assignments := providers.DeriveHeuristicEntityAssignments(activities)
+	if len(assignments) == 0 {
+		return nil
+	}
+
+	writes := make([]db.WalletEntityAssignment, 0, len(assignments))
+	for _, assignment := range assignments {
+		writes = append(writes, db.WalletEntityAssignment{
+			Chain:       assignment.Chain,
+			Address:     assignment.Address,
+			EntityKey:   assignment.EntityKey,
+			EntityType:  assignment.EntityType,
+			EntityLabel: assignment.EntityLabel,
+			Source:      assignment.Source,
+		})
+	}
+
+	return s.EntityIndex.UpsertHeuristicEntityAssignments(ctx, writes)
+}
+
+func (s HistoricalBackfillIngestService) refreshWalletEnrichment(
+	ctx context.Context,
+	chain domain.Chain,
+	address string,
+) error {
+	if s.Enrichment == nil || chain != domain.ChainEVM || strings.TrimSpace(address) == "" {
+		return nil
+	}
+
+	_, err := s.Enrichment.EnrichWalletSummary(ctx, domain.WalletSummary{
+		Chain:   chain,
+		Address: address,
+	})
+	return err
+}
+
+func (s HistoricalBackfillIngestService) invalidateWalletSummary(
+	ctx context.Context,
+	ref db.WalletRef,
+) error {
+	return db.InvalidateWalletSummaryCache(ctx, s.SummaryCache, ref)
+}
+
+func (s HistoricalBackfillIngestService) invalidateWalletGraph(
+	ctx context.Context,
+	ref db.WalletRef,
+) error {
+	return db.InvalidateWalletGraphSnapshot(ctx, s.GraphCache, s.GraphSnapshots, ref)
+}
+
+func (s HistoricalBackfillIngestService) enqueueCounterpartyExpansion(
+	ctx context.Context,
+	batch providers.HistoricalBackfillBatch,
+	job *db.WalletBackfillJob,
+	policy queuedBackfillPolicy,
+	transactions []domain.NormalizedTransaction,
+) (int, error) {
+	if job == nil || s.Queue == nil || policy.ExpansionDepth <= 1 {
+		return 0, nil
+	}
+
+	rootChain := batch.Request.Chain
+	rootAddress := strings.TrimSpace(batch.Request.WalletAddress)
+	if rootChain == "" || rootAddress == "" {
+		return 0, nil
+	}
+
+	type candidate struct {
+		ref   db.WalletRef
+		count int
+	}
+
+	counterpartyCounts := make(map[string]candidate)
+	for _, tx := range transactions {
+		if tx.Counterparty == nil {
+			continue
+		}
+
+		ref := db.WalletRef{
+			Chain:   tx.Counterparty.Chain,
+			Address: strings.TrimSpace(tx.Counterparty.Address),
+		}
+		if shouldSkipBackfillExpansionCounterparty(rootChain, rootAddress, ref, policy.StopServices) {
+			continue
+		}
+
+		key := domain.BuildWalletCanonicalKey(ref.Chain, ref.Address)
+		current := counterpartyCounts[key]
+		current.ref = ref
+		current.count++
+		counterpartyCounts[key] = current
+	}
+
+	if len(counterpartyCounts) == 0 {
+		return 0, nil
+	}
+
+	candidates := make([]candidate, 0, len(counterpartyCounts))
+	for _, item := range counterpartyCounts {
+		candidates = append(candidates, item)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].count == candidates[j].count {
+			return domain.BuildWalletCanonicalKey(candidates[i].ref.Chain, candidates[i].ref.Address) <
+				domain.BuildWalletCanonicalKey(candidates[j].ref.Chain, candidates[j].ref.Address)
+		}
+		return candidates[i].count > candidates[j].count
+	})
+	if len(candidates) > maxQueuedExpansionCounterparties {
+		candidates = candidates[:maxQueuedExpansionCounterparties]
+	}
+
+	enqueued := 0
+	for _, item := range candidates {
+		metadata := cloneWalletBackfillMetadata(job.Metadata)
+		metadata["backfill_window_days"] = policy.WindowDays
+		metadata["backfill_limit"] = policy.Limit
+		metadata["backfill_expansion_depth"] = policy.ExpansionDepth - 1
+		metadata["backfill_stop_service_addresses"] = policy.StopServices
+		metadata["backfill_root_chain"] = string(rootChain)
+		metadata["backfill_root_address"] = rootAddress
+		metadata["backfill_parent_chain"] = string(batch.Request.Chain)
+		metadata["backfill_parent_address"] = rootAddress
+		metadata["backfill_expansion_hits"] = item.count
+
+		expansionKey := ""
+		if s.Dedup != nil {
+			expansionKey = db.BuildIngestDedupKey(
+				"wallet-backfill-expansion",
+				domain.BuildWalletCanonicalKey(item.ref.Chain, item.ref.Address),
+				domain.BuildWalletCanonicalKey(rootChain, rootAddress),
+			)
+			claimed, err := s.Dedup.Claim(ctx, expansionKey, 24*time.Hour)
+			if err != nil {
+				return 0, err
+			}
+			if !claimed {
+				continue
+			}
+		}
+
+		if err := s.Queue.EnqueueWalletBackfill(ctx, db.WalletBackfillJob{
+			Chain:       item.ref.Chain,
+			Address:     item.ref.Address,
+			Source:      "wallet_backfill_expansion",
+			RequestedAt: s.now().UTC(),
+			Metadata:    metadata,
+		}); err != nil {
+			if expansionKey != "" {
+				_ = s.Dedup.Release(ctx, expansionKey)
+			}
+			return 0, err
+		}
+		enqueued++
+	}
+
+	return enqueued, nil
+}
+
+func shouldSkipBackfillExpansionCounterparty(
+	rootChain domain.Chain,
+	rootAddress string,
+	ref db.WalletRef,
+	stopServices bool,
+) bool {
+	if ref.Chain == "" || strings.TrimSpace(ref.Address) == "" {
+		return true
+	}
+	if ref.Chain == rootChain && strings.EqualFold(strings.TrimSpace(ref.Address), strings.TrimSpace(rootAddress)) {
+		return true
+	}
+	if !stopServices {
+		return false
+	}
+
+	normalizedAddress := strings.TrimSpace(ref.Address)
+	if strings.EqualFold(normalizedAddress, "0x0000000000000000000000000000000000000000") {
+		return true
+	}
+	if normalizedAddress == "11111111111111111111111111111111" {
+		return true
+	}
+
+	return false
+}
+
+func cloneWalletBackfillMetadata(metadata map[string]any) map[string]any {
+	if metadata == nil {
+		return map[string]any{}
+	}
+
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+
+	return cloned
 }
 
 func (s HistoricalBackfillIngestService) persistRawPayloads(
@@ -370,4 +1185,44 @@ func cloneActivityMetadata(metadata map[string]any) map[string]any {
 	}
 
 	return cloned
+}
+
+func (s HistoricalBackfillIngestService) filterDuplicateTransactions(
+	ctx context.Context,
+	transactions []domain.NormalizedTransaction,
+) ([]domain.NormalizedTransaction, int, []string, error) {
+	if s.Dedup == nil {
+		return append([]domain.NormalizedTransaction(nil), transactions...), 0, nil, nil
+	}
+
+	filtered := make([]domain.NormalizedTransaction, 0, len(transactions))
+	claimedKeys := make([]string, 0, len(transactions))
+	duplicates := 0
+	for _, tx := range transactions {
+		key := db.BuildIngestDedupKey("normalized-transaction", domain.BuildTransactionCanonicalKey(tx))
+		claimed, err := s.Dedup.Claim(ctx, key, 90*24*time.Hour)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		if !claimed {
+			duplicates++
+			continue
+		}
+		filtered = append(filtered, tx)
+		claimedKeys = append(claimedKeys, key)
+	}
+
+	return filtered, duplicates, claimedKeys, nil
+}
+
+func (s HistoricalBackfillIngestService) releaseDedupKeys(ctx context.Context, keys []string) error {
+	if s.Dedup == nil {
+		return nil
+	}
+	for _, key := range keys {
+		if err := s.Dedup.Release(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -5,20 +5,35 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/whalegraph/whalegraph/packages/db"
 	"github.com/whalegraph/whalegraph/packages/domain"
 )
 
 var evmAddressPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
 const (
-	searchKindEVMAddress    = "evm_address"
-	searchKindSolanaAddress = "solana_address"
-	searchKindENSName       = "ens_name"
-	searchKindUnknown       = "unknown"
-	searchTypeWallet        = "wallet"
-	searchTypeIdentity      = "identity"
-	searchTypeUnknown       = "unknown"
+	searchKindEVMAddress      = "evm_address"
+	searchKindSolanaAddress   = "solana_address"
+	searchKindENSName         = "ens_name"
+	searchKindUnknown         = "unknown"
+	searchTypeWallet          = "wallet"
+	searchTypeIdentity        = "identity"
+	searchTypeUnknown         = "unknown"
+	searchLookupMissSource    = "search_lookup_miss"
+	searchStaleRefreshSource  = "search_stale_refresh"
+	searchManualRefreshSource = "search_manual_refresh"
+)
+
+const (
+	searchStaleRefreshAfter      = 30 * time.Minute
+	searchStaleRefreshWindowDays = 30
+	searchStaleRefreshLimit      = 250
+	searchStaleRefreshDepth      = 1
+	searchLookupMissWindowDays   = 90
+	searchLookupMissLimit        = 500
+	searchLookupMissDepth        = 1
 )
 
 type SearchResult struct {
@@ -29,6 +44,7 @@ type SearchResult struct {
 	Chain       string  `json:"chain,omitempty"`
 	ChainLabel  string  `json:"chainLabel,omitempty"`
 	WalletRoute string  `json:"walletRoute,omitempty"`
+	Queued      bool    `json:"queued,omitempty"`
 	Explanation string  `json:"explanation"`
 	Confidence  float64 `json:"confidence"`
 	Navigation  bool    `json:"navigation"`
@@ -41,19 +57,44 @@ type SearchResponse struct {
 	Results     []SearchResult `json:"results"`
 }
 
+type SearchOptions struct {
+	ManualRefresh bool
+}
+
 type WalletSummaryLookup interface {
 	GetWalletSummary(context.Context, string, string) (WalletSummary, error)
 }
 
 type SearchService struct {
 	wallets WalletSummaryLookup
+	queue   db.WalletBackfillQueueStore
+	Now     func() time.Time
 }
 
 func NewSearchService(wallets WalletSummaryLookup) *SearchService {
-	return &SearchService{wallets: wallets}
+	return &SearchService{wallets: wallets, Now: time.Now}
+}
+
+func NewSearchServiceWithBackfillQueue(
+	wallets WalletSummaryLookup,
+	queue db.WalletBackfillQueueStore,
+) *SearchService {
+	return &SearchService{
+		wallets: wallets,
+		queue:   queue,
+		Now:     time.Now,
+	}
 }
 
 func (s *SearchService) Search(ctx context.Context, query string) SearchResponse {
+	return s.SearchWithOptions(ctx, query, SearchOptions{})
+}
+
+func (s *SearchService) SearchWithOptions(
+	ctx context.Context,
+	query string,
+	options SearchOptions,
+) SearchResponse {
 	trimmed := strings.TrimSpace(query)
 	classification := classifySearchQuery(trimmed)
 
@@ -74,6 +115,76 @@ func (s *SearchService) Search(ctx context.Context, query string) SearchResponse
 		if summary, err := s.wallets.GetWalletSummary(ctx, classification.chain, trimmed); err == nil {
 			result = enrichSearchResult(result, summary)
 			result.Explanation = fmt.Sprintf("Found wallet summary for %s.", result.Label)
+			if s.queue != nil {
+				if options.ManualRefresh && shouldQueueManualRefresh(summary) {
+					job := db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+						Chain:       domain.Chain(classification.chain),
+						Address:     trimmed,
+						Source:      searchManualRefreshSource,
+						RequestedAt: s.now().UTC(),
+						Metadata: map[string]any{
+							"input_kind":                      classification.kind,
+							"query":                           trimmed,
+							"refresh_reason":                  "manual",
+							"last_indexed_at":                 strings.TrimSpace(summary.Indexing.LastIndexedAt),
+							"backfill_window_days":            searchStaleRefreshWindowDays,
+							"backfill_limit":                  searchStaleRefreshLimit,
+							"backfill_expansion_depth":        searchStaleRefreshDepth,
+							"backfill_stop_service_addresses": true,
+						},
+					})
+					if enqueueErr := s.queue.EnqueueWalletBackfill(ctx, job); enqueueErr == nil {
+						result.Queued = true
+						result.Explanation = fmt.Sprintf(
+							"Found wallet summary for %s. Queued a background refresh on demand.",
+							result.Label,
+						)
+					}
+				} else if shouldRefreshStaleWalletSummary(summary, s.now()) {
+					job := db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+						Chain:       domain.Chain(classification.chain),
+						Address:     trimmed,
+						Source:      searchStaleRefreshSource,
+						RequestedAt: s.now().UTC(),
+						Metadata: map[string]any{
+							"input_kind":                      classification.kind,
+							"query":                           trimmed,
+							"refresh_reason":                  "stale_summary",
+							"last_indexed_at":                 strings.TrimSpace(summary.Indexing.LastIndexedAt),
+							"backfill_window_days":            searchStaleRefreshWindowDays,
+							"backfill_limit":                  searchStaleRefreshLimit,
+							"backfill_expansion_depth":        searchStaleRefreshDepth,
+							"backfill_stop_service_addresses": true,
+						},
+					})
+					if enqueueErr := s.queue.EnqueueWalletBackfill(ctx, job); enqueueErr == nil {
+						result.Queued = true
+						result.Explanation = fmt.Sprintf(
+							"Found wallet summary for %s. Queued a background refresh because the indexed view is stale.",
+							result.Label,
+						)
+					}
+				}
+			}
+		} else if s.queue != nil {
+			job := db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.Chain(classification.chain),
+				Address:     trimmed,
+				Source:      searchLookupMissSource,
+				RequestedAt: s.now().UTC(),
+				Metadata: map[string]any{
+					"input_kind":                      classification.kind,
+					"query":                           trimmed,
+					"backfill_window_days":            searchLookupMissWindowDays,
+					"backfill_limit":                  searchLookupMissLimit,
+					"backfill_expansion_depth":        searchLookupMissDepth,
+					"backfill_stop_service_addresses": true,
+				},
+			})
+			if enqueueErr := s.queue.EnqueueWalletBackfill(ctx, job); enqueueErr == nil {
+				result.Queued = true
+				result.Explanation = fmt.Sprintf("Wallet not indexed yet. Queued background backfill for %s.", result.ChainLabel)
+			}
 		}
 	}
 
@@ -83,6 +194,47 @@ func (s *SearchService) Search(ctx context.Context, query string) SearchResponse
 		Explanation: result.Explanation,
 		Results:     []SearchResult{result},
 	}
+}
+
+func shouldQueueManualRefresh(summary WalletSummary) bool {
+	return !strings.EqualFold(strings.TrimSpace(summary.Indexing.Status), "indexing")
+}
+
+func (s *SearchService) now() time.Time {
+	if s != nil && s.Now != nil {
+		return s.Now()
+	}
+
+	return time.Now()
+}
+
+func shouldRefreshStaleWalletSummary(summary WalletSummary, now time.Time) bool {
+	if strings.EqualFold(strings.TrimSpace(summary.Indexing.Status), "indexing") {
+		return false
+	}
+
+	lastIndexedAt, ok := parseIndexedAt(summary.Indexing.LastIndexedAt)
+	if !ok {
+		return false
+	}
+
+	return now.UTC().Sub(lastIndexedAt) >= searchStaleRefreshAfter
+}
+
+func parseIndexedAt(value string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		parsed, err := time.Parse(layout, trimmed)
+		if err == nil {
+			return parsed.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 type searchClassification struct {

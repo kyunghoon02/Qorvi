@@ -11,11 +11,13 @@ func TestBuildWalletSummaryScores(t *testing.T) {
 
 	scores := BuildWalletSummaryScores(WalletSummarySignals{
 		Cluster: ClusterSignal{
-			Chain:                domain.ChainEVM,
-			ObservedAt:           "2026-03-19T00:00:00Z",
-			OverlappingWallets:   4,
-			SharedCounterparties: 3,
-			MutualTransferCount:  2,
+			Chain:                          domain.ChainEVM,
+			ObservedAt:                     "2026-03-19T00:00:00Z",
+			OverlappingWallets:             4,
+			SharedCounterparties:           3,
+			MutualTransferCount:            2,
+			SharedCounterpartiesStrength:   0,
+			InteractionPersistenceStrength: 0,
 		},
 		ShadowExit: ShadowExitSignal{
 			Chain:             domain.ChainEVM,

@@ -7,20 +7,27 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "biome check app lib package.json tsconfig.json next.config.ts",
+    "lint": "biome check app lib package.json next.config.mjs",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "tsx --test test/**/*.test.ts"
+    "test": "tsx --test test/**/*.test.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "@whalegraph/ui": "workspace:*",
+    "@xyflow/react": "^12.10.1",
     "next": "14.2.20",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "three": "^0.183.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "22.13.10",
     "@types/react": "18.3.18",
     "@types/react-dom": "18.3.5",
+    "@types/three": "^0.183.1",
     "tsx": "4.20.5",
     "typescript": "5.8.2"
   }

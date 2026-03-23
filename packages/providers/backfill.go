@@ -86,6 +86,12 @@ func (r HistoricalBackfillRunner) Run(batch HistoricalBackfillBatch) (Historical
 
 	activities, err := historicalAdapter.FetchHistoricalWalletActivity(batch)
 	if err != nil {
+		if fallbackResult, handled, fallbackErr := r.runHeliusHistoricalFallback(batch, err); handled {
+			if fallbackErr != nil {
+				return HistoricalBackfillResult{}, fallbackErr
+			}
+			return fallbackResult, nil
+		}
 		return HistoricalBackfillResult{}, err
 	}
 
@@ -93,6 +99,41 @@ func (r HistoricalBackfillRunner) Run(batch HistoricalBackfillBatch) (Historical
 		Batch:      batch,
 		Activities: append([]ProviderWalletActivity(nil), activities...),
 	}, nil
+}
+
+func (r HistoricalBackfillRunner) runHeliusHistoricalFallback(
+	batch HistoricalBackfillBatch,
+	cause error,
+) (HistoricalBackfillResult, bool, error) {
+	if batch.Provider != ProviderHelius || batch.Request.Chain != domain.ChainSolana {
+		return HistoricalBackfillResult{}, false, nil
+	}
+	if !shouldFallbackHeliusHistorical(cause) {
+		return HistoricalBackfillResult{}, false, nil
+	}
+
+	adapter, ok := r.Registry[ProviderAlchemy]
+	if !ok {
+		return HistoricalBackfillResult{}, true, fmt.Errorf("helius paid-plan historical runner fallback unavailable: alchemy adapter not registered after %w", cause)
+	}
+
+	historicalAdapter, ok := adapter.(HistoricalBackfillAdapter)
+	if !ok {
+		return HistoricalBackfillResult{}, true, fmt.Errorf("helius paid-plan historical runner fallback unavailable: alchemy adapter has no historical contract after %w", cause)
+	}
+
+	fallbackBatch := batch
+	fallbackBatch.Provider = ProviderAlchemy
+
+	activities, err := historicalAdapter.FetchHistoricalWalletActivity(fallbackBatch)
+	if err != nil {
+		return HistoricalBackfillResult{}, true, fmt.Errorf("helius paid-plan historical runner fallback to alchemy failed: %w", err)
+	}
+
+	return HistoricalBackfillResult{
+		Batch:      fallbackBatch,
+		Activities: append([]ProviderWalletActivity(nil), activities...),
+	}, true, nil
 }
 
 func CreateHistoricalBackfillBatchFixture(provider ProviderName, chain domain.Chain, walletAddress string) HistoricalBackfillBatch {

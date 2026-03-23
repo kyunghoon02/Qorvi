@@ -1,0 +1,16 @@
+{
+  "result": [
+    {
+      "chain": "eth",
+      "chain_name": "Ethereum"
+    },
+    {
+      "chain": "base",
+      "chain_name": "Base"
+    },
+    {
+      "chain": "arb",
+      "chain_name": "Arbitrum"
+    }
+  ]
+}

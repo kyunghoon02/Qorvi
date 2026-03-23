@@ -54,6 +54,12 @@ func TestWalletGraphServiceDefaultsDepthToOne(t *testing.T) {
 	if graph.DepthRequested != 1 {
 		t.Fatalf("expected depth requested 1, got %d", graph.DepthRequested)
 	}
+	if graph.NeighborhoodSummary == nil {
+		t.Fatal("expected neighborhood summary to be attached")
+	}
+	if graph.NeighborhoodSummary.WalletNodeCount != 1 {
+		t.Fatalf("unexpected summary %#v", graph.NeighborhoodSummary)
+	}
 }
 
 func TestWalletGraphServiceBlocksFreeTierTwoHop(t *testing.T) {
@@ -99,6 +105,9 @@ func TestWalletGraphServiceAllowsProTwoHopRequest(t *testing.T) {
 	}
 	if graph.DepthRequested != 2 || !graph.DensityCapped {
 		t.Fatalf("unexpected graph response %#v", graph)
+	}
+	if graph.NeighborhoodSummary == nil {
+		t.Fatal("expected neighborhood summary")
 	}
 }
 

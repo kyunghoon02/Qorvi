@@ -56,7 +56,7 @@ func TestNeo4jWalletGraphReaderBuildsGraph(t *testing.T) {
 	t.Parallel()
 
 	record := &neo4j.Record{
-		Keys: []string{"root", "clusters", "interactions", "densityCapped"},
+		Keys: []string{"root", "clusters", "interactions", "funders", "densityCapped"},
 		Values: []any{
 			map[string]any{
 				"id":      "wallet_root",
@@ -78,20 +78,62 @@ func TestNeo4jWalletGraphReaderBuildsGraph(t *testing.T) {
 			},
 			[]any{
 				map[string]any{
-					"id":                "wallet_counterparty_b",
-					"chain":             "evm",
-					"address":           "0xabcdefabcdefabcdefabcdefabcdefabcdefabce",
-					"label":             "Counterparty B",
-					"observedAt":        "2026-03-19T01:02:03Z",
-					"counterpartyCount": int64(11),
+					"id":               "wallet_counterparty_b",
+					"chain":            "evm",
+					"address":          "0xabcdefabcdefabcdefabcdefabcdefabcdefabce",
+					"label":            "Counterparty B",
+					"firstObservedAt":  "2026-03-18T01:02:03Z",
+					"lastObservedAt":   "2026-03-19T01:02:03Z",
+					"interactionCount": int64(11),
+					"inboundCount":     int64(3),
+					"outboundCount":    int64(8),
+					"lastTxHash":       "0xtxb",
+					"lastDirection":    "outbound",
+					"lastProvider":     "alchemy",
 				},
 				map[string]any{
-					"id":                "wallet_counterparty_a",
-					"chain":             "evm",
-					"address":           "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-					"label":             "Counterparty A",
-					"observedAt":        "2026-03-19T01:02:02Z",
-					"counterpartyCount": int64(7),
+					"id":               "wallet_counterparty_a",
+					"chain":            "evm",
+					"address":          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+					"label":            "Counterparty A",
+					"firstObservedAt":  "2026-03-18T01:02:02Z",
+					"lastObservedAt":   "2026-03-19T01:02:02Z",
+					"interactionCount": int64(7),
+					"inboundCount":     int64(7),
+					"outboundCount":    int64(0),
+					"lastTxHash":       "0xtxa",
+					"lastDirection":    "inbound",
+					"lastProvider":     "alchemy",
+				},
+			},
+			[]any{
+				map[string]any{
+					"id":               "wallet_funder_a",
+					"chain":            "evm",
+					"address":          "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					"label":            "Funder A",
+					"firstObservedAt":  "2026-03-17T01:02:01Z",
+					"lastObservedAt":   "2026-03-18T01:02:01Z",
+					"interactionCount": int64(3),
+					"inboundCount":     int64(3),
+					"outboundCount":    int64(0),
+					"lastTxHash":       "0xfundera",
+					"lastDirection":    "inbound",
+					"lastProvider":     "alchemy",
+				},
+				map[string]any{
+					"id":               "wallet_counterparty_a",
+					"chain":            "evm",
+					"address":          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+					"label":            "Counterparty A",
+					"firstObservedAt":  "2026-03-16T01:02:02Z",
+					"lastObservedAt":   "2026-03-17T01:02:02Z",
+					"interactionCount": int64(1),
+					"inboundCount":     int64(1),
+					"outboundCount":    int64(0),
+					"lastTxHash":       "0xfundera2",
+					"lastDirection":    "inbound",
+					"lastProvider":     "alchemy",
 				},
 			},
 			true,
@@ -108,11 +150,11 @@ func TestNeo4jWalletGraphReaderBuildsGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected graph, got %v", err)
 	}
-	if len(graph.Nodes) != 5 {
-		t.Fatalf("expected 5 nodes, got %d", len(graph.Nodes))
+	if len(graph.Nodes) != 6 {
+		t.Fatalf("expected 6 nodes, got %d", len(graph.Nodes))
 	}
-	if len(graph.Edges) != 4 {
-		t.Fatalf("expected 4 edges, got %d", len(graph.Edges))
+	if len(graph.Edges) != 6 {
+		t.Fatalf("expected 6 edges, got %d", len(graph.Edges))
 	}
 	if !graph.DensityCapped {
 		t.Fatal("expected density capped to be true")
@@ -126,14 +168,41 @@ func TestNeo4jWalletGraphReaderBuildsGraph(t *testing.T) {
 	if graph.Nodes[1].ID != "cluster_alpha" || graph.Nodes[2].ID != "cluster_zeta" {
 		t.Fatalf("expected cluster nodes to be sorted, got %#v", graph.Nodes)
 	}
-	if graph.Nodes[3].ID != "wallet_counterparty_a" || graph.Nodes[4].ID != "wallet_counterparty_b" {
+	if graph.Nodes[3].ID != "wallet_counterparty_a" || graph.Nodes[4].ID != "wallet_counterparty_b" || graph.Nodes[5].ID != "wallet_funder_a" {
 		t.Fatalf("expected counterparty nodes to be sorted, got %#v", graph.Nodes)
 	}
 	if graph.Edges[0].Kind != domain.WalletGraphEdgeMemberOf || graph.Edges[1].TargetID != "cluster_zeta" {
 		t.Fatalf("expected member-of edges first, got %#v", graph.Edges)
 	}
-	if graph.Edges[2].TargetID != "wallet_counterparty_a" || graph.Edges[3].TargetID != "wallet_counterparty_b" {
-		t.Fatalf("expected interaction edges to be sorted, got %#v", graph.Edges)
+	if graph.Edges[2].Kind != domain.WalletGraphEdgeFundedBy || graph.Edges[3].Kind != domain.WalletGraphEdgeFundedBy {
+		t.Fatalf("expected funded-by edges before interactions, got %#v", graph.Edges)
+	}
+	if graph.Edges[2].Family != domain.WalletGraphEdgeFamilyDerived || graph.Edges[2].SourceID != "wallet_counterparty_a" || graph.Edges[2].TargetID != "wallet_root" {
+		t.Fatalf("unexpected funded-by edge %#v", graph.Edges[2])
+	}
+	if graph.Edges[2].Directionality != domain.WalletGraphEdgeDirectionalityReceived {
+		t.Fatalf("expected received funded-by directionality, got %#v", graph.Edges[2].Directionality)
+	}
+	if graph.Edges[2].Evidence == nil || graph.Edges[2].Evidence.LastTxHash != "0xfundera2" || graph.Edges[2].Evidence.Confidence != "medium" {
+		t.Fatalf("unexpected funded-by evidence %#v", graph.Edges[2].Evidence)
+	}
+	if graph.Edges[4].TargetID != "wallet_counterparty_a" || graph.Edges[5].TargetID != "wallet_counterparty_b" {
+		t.Fatalf("expected interaction edges after funded-by edges, got %#v", graph.Edges)
+	}
+	if graph.Edges[4].Family != domain.WalletGraphEdgeFamilyBase || graph.Edges[4].FirstObservedAt != "2026-03-18T01:02:02Z" || graph.Edges[4].ObservedAt != "2026-03-19T01:02:02Z" || graph.Edges[4].CounterpartyCount != 7 {
+		t.Fatalf("unexpected interaction edge metadata %#v", graph.Edges[4])
+	}
+	if graph.Edges[5].Evidence == nil || graph.Edges[5].Evidence.LastTxHash != "0xtxb" || graph.Edges[5].Evidence.LastProvider != "alchemy" || graph.Edges[5].Evidence.Confidence != "high" {
+		t.Fatalf("unexpected interaction evidence %#v", graph.Edges[5].Evidence)
+	}
+	if graph.Edges[5].Evidence == nil || graph.Edges[5].Evidence.Summary != "Observed transfer activity in both directions (IN 3 · OUT 8)." {
+		t.Fatalf("unexpected directional interaction summary %#v", graph.Edges[5].Evidence)
+	}
+	if graph.Edges[5].Directionality != domain.WalletGraphEdgeDirectionalityMixed {
+		t.Fatalf("expected mixed interaction directionality, got %#v", graph.Edges[5].Directionality)
+	}
+	if graph.Edges[5].Family != domain.WalletGraphEdgeFamilyBase || graph.Edges[5].FirstObservedAt != "2026-03-18T01:02:03Z" || graph.Edges[5].ObservedAt != "2026-03-19T01:02:03Z" || graph.Edges[5].CounterpartyCount != 11 {
+		t.Fatalf("unexpected interaction edge metadata %#v", graph.Edges[5])
 	}
 }
 

@@ -79,6 +79,10 @@ func (a *clerkAudiences) UnmarshalJSON(data []byte) error {
 }
 
 func buildClerkVerifier(cfg config.Config) (auth.ClerkVerifier, error) {
+	if shouldUseLegacyClerkVerifier(cfg) {
+		return auth.NewHeaderClerkVerifier(), nil
+	}
+
 	verifier := &clerkJWTVerifier{
 		issuerURL:     strings.TrimSpace(cfg.API.ClerkVerification.IssuerURL),
 		jwksURL:       strings.TrimSpace(cfg.API.ClerkVerification.JWKSURL),
@@ -92,10 +96,25 @@ func buildClerkVerifier(cfg config.Config) (auth.ClerkVerifier, error) {
 	}
 
 	if err := verifier.refreshJWKS(); err != nil {
+		if strings.EqualFold(strings.TrimSpace(cfg.API.NodeEnv), "development") {
+			return auth.NewHeaderClerkVerifier(), nil
+		}
 		return nil, err
 	}
 
 	return verifier, nil
+}
+
+func shouldUseLegacyClerkVerifier(cfg config.Config) bool {
+	if !strings.EqualFold(strings.TrimSpace(cfg.API.NodeEnv), "development") {
+		return false
+	}
+
+	issuerURL := strings.TrimSpace(cfg.API.ClerkVerification.IssuerURL)
+	jwksURL := strings.TrimSpace(cfg.API.ClerkVerification.JWKSURL)
+
+	return strings.Contains(issuerURL, "example.clerk.accounts.dev") ||
+		strings.Contains(jwksURL, "example.clerk.accounts.dev")
 }
 
 func (v *clerkJWTVerifier) Verify(r *http.Request) (auth.ClerkPrincipal, error) {

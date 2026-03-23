@@ -76,14 +76,29 @@ func TestPostgresNormalizedTransactionStoreUpsertNormalizedTransaction(t *testin
 	if got := call.args[5]; got != "" {
 		t.Fatalf("unexpected counterparty address arg %#v", got)
 	}
-	if got := call.args[6]; got != "s3://whalegraph/raw/2026/03/19/tx.json" {
+	if got := call.args[6]; got != "" {
+		t.Fatalf("unexpected amount arg %#v", got)
+	}
+	if got := call.args[7]; got != nil {
+		t.Fatalf("unexpected token chain arg %#v", got)
+	}
+	if got := call.args[8]; got != nil {
+		t.Fatalf("unexpected token address arg %#v", got)
+	}
+	if got := call.args[9]; got != nil {
+		t.Fatalf("unexpected token symbol arg %#v", got)
+	}
+	if got := call.args[10]; got != nil {
+		t.Fatalf("unexpected token decimals arg %#v", got)
+	}
+	if got := call.args[11]; got != "s3://whalegraph/raw/2026/03/19/tx.json" {
 		t.Fatalf("unexpected raw payload path arg %#v", got)
 	}
-	if got := call.args[7]; got != 1 {
+	if got := call.args[12]; got != 1 {
 		t.Fatalf("unexpected schema version arg %#v", got)
 	}
-	if got, ok := call.args[8].(time.Time); !ok || !got.Equal(observedAt.UTC()) {
-		t.Fatalf("unexpected observed at arg %#v", call.args[8])
+	if got, ok := call.args[13].(time.Time); !ok || !got.Equal(observedAt.UTC()) {
+		t.Fatalf("unexpected observed at arg %#v", call.args[13])
 	}
 }
 
@@ -123,5 +138,34 @@ func TestPostgresNormalizedTransactionStoreUpsertNormalizedTransactions(t *testi
 
 	if len(exec.calls) != 2 {
 		t.Fatalf("expected 2 exec calls, got %d", len(exec.calls))
+	}
+}
+
+func TestPostgresNormalizedTransactionStoreSanitizesNilLikeAmount(t *testing.T) {
+	t.Parallel()
+
+	exec := &capturedExec{}
+	store := NewPostgresNormalizedTransactionStore(exec)
+
+	err := store.UpsertNormalizedTransaction(context.Background(), NormalizedTransactionWrite{
+		WalletID: "wallet_1",
+		Transaction: domain.NormalizedTransaction{
+			Chain:          domain.ChainEVM,
+			TxHash:         "0xdeadbeef",
+			Wallet:         domain.WalletRef{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
+			ObservedAt:     time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC),
+			RawPayloadPath: "s3://whalegraph/raw/2026/03/19/tx.json",
+			Amount:         "<nil>",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected upsert to succeed, got %v", err)
+	}
+
+	if len(exec.calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(exec.calls))
+	}
+	if got := exec.calls[0].args[6]; got != "" {
+		t.Fatalf("expected nil-like amount arg to be sanitized, got %#v", got)
 	}
 }

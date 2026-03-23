@@ -41,6 +41,7 @@ type Plan struct {
 }
 
 type StripeConfig struct {
+	BaseURL        string
 	SecretKey      string
 	WebhookSecret  string
 	SuccessURL     string

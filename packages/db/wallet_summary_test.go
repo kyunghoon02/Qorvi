@@ -37,6 +37,58 @@ func (f *fakeWalletSignalReader) ReadWalletGraphSignals(context.Context, WalletS
 	return WalletGraphSignals{}, errors.New("unexpected signal lookup")
 }
 
+type fakeWalletEnrichmentReader struct {
+	called     bool
+	enrichment *domain.WalletEnrichment
+}
+
+func (f *fakeWalletEnrichmentReader) ReadWalletEnrichmentSnapshot(context.Context, WalletRef) (*domain.WalletEnrichment, error) {
+	f.called = true
+	return f.enrichment, nil
+}
+
+type fakeClusterScoreSnapshotReader struct {
+	called   bool
+	snapshot *ClusterScoreSnapshot
+}
+
+func (f *fakeClusterScoreSnapshotReader) ReadLatestClusterScoreSnapshot(context.Context, string) (*ClusterScoreSnapshot, error) {
+	f.called = true
+	return f.snapshot, nil
+}
+
+type fakeShadowExitSnapshotReader struct {
+	called   bool
+	snapshot *ShadowExitSnapshot
+}
+
+func (f *fakeShadowExitSnapshotReader) ReadLatestShadowExitSnapshot(context.Context, string) (*ShadowExitSnapshot, error) {
+	f.called = true
+	return f.snapshot, nil
+}
+
+type fakeFirstConnectionSnapshotReader struct {
+	called   bool
+	snapshot *FirstConnectionSnapshot
+}
+
+func (f *fakeFirstConnectionSnapshotReader) ReadLatestFirstConnectionSnapshot(context.Context, string) (*FirstConnectionSnapshot, error) {
+	f.called = true
+	return f.snapshot, nil
+}
+
+type fakeWalletLatestSignalsReader struct {
+	called  bool
+	signals []domain.WalletLatestSignal
+}
+
+func (f *fakeWalletLatestSignalsReader) ReadLatestWalletSignals(context.Context, string) ([]domain.WalletLatestSignal, error) {
+	f.called = true
+	items := make([]domain.WalletLatestSignal, len(f.signals))
+	copy(items, f.signals)
+	return items, nil
+}
+
 type fakeWalletCache struct {
 	getInputs WalletSummaryInputs
 	getOK     bool
@@ -44,6 +96,7 @@ type fakeWalletCache struct {
 	setKey    string
 	setInputs WalletSummaryInputs
 	setTTL    time.Duration
+	deleteKey string
 }
 
 func (f *fakeWalletCache) GetWalletSummaryInputs(_ context.Context, key string) (WalletSummaryInputs, bool, error) {
@@ -55,6 +108,11 @@ func (f *fakeWalletCache) SetWalletSummaryInputs(_ context.Context, key string, 
 	f.setKey = key
 	f.setInputs = inputs
 	f.setTTL = ttl
+	return nil
+}
+
+func (f *fakeWalletCache) DeleteWalletSummaryInputs(_ context.Context, key string) error {
+	f.deleteKey = key
 	return nil
 }
 
@@ -80,11 +138,20 @@ func TestBuildWalletSummaryQueryPlan(t *testing.T) {
 	if plan.SignalsParams["address"] != "0x1234567890abcdef1234567890abcdef12345678" {
 		t.Fatalf("unexpected graph params %#v", plan.SignalsParams)
 	}
-	if !contains(plan.StatsSQL, "LEFT JOIN transactions") {
+	if !contains(plan.StatsSQL, "FROM transactions") {
 		t.Fatalf("expected stats SQL to aggregate transactions")
+	}
+	if !contains(plan.StatsSQL, "jsonb_agg") {
+		t.Fatalf("expected stats SQL to aggregate top counterparties")
+	}
+	if !contains(plan.StatsSQL, "interval '7 days'") {
+		t.Fatalf("expected stats SQL to aggregate recent flow windows")
 	}
 	if !contains(plan.StatsSQL, "counterparty_address") {
 		t.Fatalf("expected stats SQL to use counterparty aggregation")
+	}
+	if !contains(plan.StatsSQL, "FROM wallet_daily_stats") {
+		t.Fatalf("expected stats SQL to use wallet_daily_stats aggregate")
 	}
 	if !contains(plan.SignalsCypher, "INTERACTED_WITH") {
 		t.Fatalf("expected graph cypher to reference graph signals")
@@ -110,6 +177,11 @@ func TestLoadWalletSummaryInputsUsesCacheHitFirst(t *testing.T) {
 		identityReader,
 		statsReader,
 		signalReader,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
 		cache,
 		5*time.Minute,
 	)
@@ -153,12 +225,28 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 		},
 		&stubWalletStatsReader{
 			stats: WalletSummaryStats{
-				AsOfDate:          latest,
-				TransactionCount:  42,
-				CounterpartyCount: 18,
-				LatestActivityAt:  &latest,
-				IncomingTxCount:   13,
-				OutgoingTxCount:   29,
+				AsOfDate:           latest,
+				TransactionCount:   42,
+				CounterpartyCount:  18,
+				LatestActivityAt:   &latest,
+				IncomingTxCount:    13,
+				OutgoingTxCount:    29,
+				IncomingTxCount7d:  4,
+				OutgoingTxCount7d:  9,
+				IncomingTxCount30d: 13,
+				OutgoingTxCount30d: 29,
+				TopCounterparties: []WalletSummaryCounterparty{
+					{
+						Chain:            domain.ChainSolana,
+						Address:          "8h7z6y5x4w3v2u1t9s8r7q6p5o4n3m2l1k0j9h8g7f6d",
+						InteractionCount: 9,
+						InboundCount:     3,
+						OutboundCount:    6,
+						DirectionLabel:   "outbound",
+						FirstSeenAt:      ptrWalletSummaryTime(latest.Add(-7 * 24 * time.Hour)),
+						LatestActivityAt: &latest,
+					},
+				},
 			},
 		},
 		&stubWalletSignalReader{
@@ -170,6 +258,33 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 				InteractedWalletCount: 11,
 				BridgeTransferCount:   1,
 				CEXProximityCount:     2,
+			},
+		},
+		&fakeWalletEnrichmentReader{
+			enrichment: &domain.WalletEnrichment{
+				Provider:               "moralis",
+				NetWorthUSD:            "157.00",
+				NativeBalanceFormatted: "0.00402 ETH",
+				ActiveChains:           []string{"Ethereum", "Base"},
+				ActiveChainCount:       2,
+				HoldingCount:           1,
+				Source:                 "snapshot",
+				UpdatedAt:              latest.Format(time.RFC3339),
+			},
+		},
+		nil,
+		nil,
+		nil,
+		&fakeWalletLatestSignalsReader{
+			signals: []domain.WalletLatestSignal{
+				{
+					Name:       domain.ScoreCluster,
+					Value:      82,
+					Rating:     domain.RatingHigh,
+					Label:      "latest cluster score snapshot",
+					Source:     "cluster-score-snapshot",
+					ObservedAt: latest.Format(time.RFC3339),
+				},
 			},
 		},
 		cache,
@@ -194,6 +309,15 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 	if inputs.Signals.ClusterKey != "cluster_seed_whales" {
 		t.Fatalf("unexpected signals %#v", inputs.Signals)
 	}
+	if len(inputs.LatestSignals) != 1 || inputs.LatestSignals[0].Source != "cluster-score-snapshot" {
+		t.Fatalf("unexpected latest signals %#v", inputs.LatestSignals)
+	}
+	if inputs.Enrichment == nil || inputs.Enrichment.Source != "snapshot" {
+		t.Fatalf("expected enrichment snapshot, got %#v", inputs.Enrichment)
+	}
+	if len(inputs.Stats.TopCounterparties) != 1 {
+		t.Fatalf("unexpected top counterparties %#v", inputs.Stats.TopCounterparties)
+	}
 	if inputs.Cache.Hit {
 		t.Fatalf("expected aggregate path, got cache hit %#v", inputs.Cache)
 	}
@@ -205,8 +329,90 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 	}
 }
 
+func TestLoadWalletSummaryInputsIncludesClusterScoreSnapshot(t *testing.T) {
+	t.Parallel()
+
+	latest := time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC)
+	repo := NewWalletSummaryRepository(
+		&stubWalletIdentityReader{
+			identity: WalletSummaryIdentity{
+				WalletID:    "wallet_1",
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				DisplayName: "Seed Whale",
+				CreatedAt:   latest.Add(-time.Hour),
+				UpdatedAt:   latest,
+			},
+		},
+		&stubWalletStatsReader{
+			stats: WalletSummaryStats{
+				AsOfDate: latest,
+			},
+		},
+		&stubWalletSignalReader{},
+		nil,
+		&fakeClusterScoreSnapshotReader{
+			snapshot: &ClusterScoreSnapshot{
+				SignalType:  "cluster_score_snapshot",
+				ScoreValue:  82,
+				ScoreRating: domain.RatingHigh,
+				ObservedAt:  latest,
+			},
+		},
+		&fakeShadowExitSnapshotReader{
+			snapshot: &ShadowExitSnapshot{
+				SignalType:  "shadow_exit_snapshot",
+				ScoreValue:  34,
+				ScoreRating: domain.RatingMedium,
+				ObservedAt:  latest,
+			},
+		},
+		&fakeFirstConnectionSnapshotReader{
+			snapshot: &FirstConnectionSnapshot{
+				SignalType:  "first_connection_snapshot",
+				ScoreValue:  61,
+				ScoreRating: domain.RatingHigh,
+				ObservedAt:  latest,
+			},
+		},
+		nil,
+		nil,
+		5*time.Minute,
+	)
+
+	inputs, err := repo.LoadWalletSummaryInputs(context.Background(), WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	})
+	if err != nil {
+		t.Fatalf("expected load to succeed, got %v", err)
+	}
+	if inputs.ClusterScoreSnapshot == nil {
+		t.Fatal("expected cluster score snapshot")
+	}
+	if inputs.ClusterScoreSnapshot.ScoreValue != 82 {
+		t.Fatalf("unexpected snapshot %#v", inputs.ClusterScoreSnapshot)
+	}
+	if inputs.ShadowExitSnapshot == nil {
+		t.Fatal("expected shadow exit snapshot")
+	}
+	if inputs.ShadowExitSnapshot.ScoreValue != 34 {
+		t.Fatalf("unexpected shadow exit snapshot %#v", inputs.ShadowExitSnapshot)
+	}
+	if inputs.FirstConnectionSnapshot == nil {
+		t.Fatal("expected first connection snapshot")
+	}
+	if inputs.FirstConnectionSnapshot.ScoreValue != 61 {
+		t.Fatalf("unexpected first connection snapshot %#v", inputs.FirstConnectionSnapshot)
+	}
+}
+
 func contains(value, fragment string) bool {
 	return strings.Contains(value, fragment)
+}
+
+func ptrWalletSummaryTime(value time.Time) *time.Time {
+	return &value
 }
 
 type stubWalletIdentityReader struct {

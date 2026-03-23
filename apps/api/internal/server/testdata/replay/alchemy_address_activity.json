@@ -1,0 +1,39 @@
+{
+  "webhookId": "wh_replay_fixture",
+  "id": "evt_replay_fixture",
+  "createdAt": "2026-03-20T09:10:11Z",
+  "type": "ADDRESS_ACTIVITY",
+  "event": {
+    "network": "ETH_MAINNET",
+    "activity": [
+      {
+        "hash": "0xaaa1",
+        "fromAddress": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toAddress": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "category": "external",
+        "asset": "ETH"
+      },
+      {
+        "hash": "0xaaa2",
+        "fromAddress": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toAddress": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "category": "external",
+        "asset": "ETH"
+      },
+      {
+        "hash": "0xaaa3",
+        "fromAddress": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
+        "category": "token",
+        "asset": "USDC"
+      },
+      {
+        "hash": "0xaaa4",
+        "fromAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "toAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
+        "category": "token",
+        "asset": "USDC"
+      }
+    ]
+  }
+}

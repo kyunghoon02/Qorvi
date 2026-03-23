@@ -14,6 +14,8 @@ type WalletGraphQuery struct {
 	MaxCounterparties int
 }
 
+const DefaultWalletGraphMaxCounterparties = 25
+
 type WalletGraphReader interface {
 	ReadWalletGraph(context.Context, WalletGraphQuery) (domain.WalletGraph, error)
 }
@@ -46,7 +48,7 @@ func BuildWalletGraphQuery(
 		depthResolved = 1
 	}
 	if maxCounterparties <= 0 {
-		maxCounterparties = 25
+		maxCounterparties = DefaultWalletGraphMaxCounterparties
 	}
 
 	return WalletGraphQuery{

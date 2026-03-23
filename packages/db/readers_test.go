@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/redis/go-redis/v9"
 	"github.com/whalegraph/whalegraph/packages/domain"
@@ -25,12 +26,90 @@ func (r fakeRow) Scan(dest ...any) error {
 }
 
 type fakePostgresQuerier struct {
-	row fakeRow
+	row  fakeRow
+	rows pgx.Rows
 }
 
 func (q fakePostgresQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
 	return q.row
 }
+
+func (q fakePostgresQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	if q.rows != nil {
+		return q.rows, nil
+	}
+	return &fakeWatchlistRows{}, nil
+}
+
+type fakeSignalEventRows struct {
+	values [][]any
+	index  int
+	err    error
+}
+
+func (r *fakeSignalEventRows) Close() {}
+
+func (r *fakeSignalEventRows) Err() error { return r.err }
+
+func (r *fakeSignalEventRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+
+func (r *fakeSignalEventRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+
+func (r *fakeSignalEventRows) Next() bool {
+	if r.index >= len(r.values) {
+		return false
+	}
+	r.index++
+	return true
+}
+
+func (r *fakeSignalEventRows) Scan(dest ...any) error {
+	if r.index == 0 || r.index > len(r.values) {
+		return errors.New("scan called out of range")
+	}
+	row := r.values[r.index-1]
+	if len(dest) != len(row) {
+		return errors.New("unexpected scan destination count")
+	}
+
+	for index := range dest {
+		switch target := dest[index].(type) {
+		case *string:
+			value, ok := row[index].(string)
+			if !ok {
+				return errors.New("unexpected string scan type")
+			}
+			*target = value
+		case *[]byte:
+			value, ok := row[index].([]byte)
+			if !ok {
+				return errors.New("unexpected bytes scan type")
+			}
+			*target = append([]byte(nil), value...)
+		case *time.Time:
+			value, ok := row[index].(time.Time)
+			if !ok {
+				return errors.New("unexpected time scan type")
+			}
+			*target = value
+		default:
+			return errors.New("unexpected scan destination type")
+		}
+	}
+
+	return nil
+}
+
+func (r *fakeSignalEventRows) Values() ([]any, error) {
+	if r.index == 0 || r.index > len(r.values) {
+		return nil, errors.New("values called out of range")
+	}
+	return r.values[r.index-1], nil
+}
+
+func (r *fakeSignalEventRows) RawValues() [][]byte { return nil }
+
+func (r *fakeSignalEventRows) Conn() *pgx.Conn { return nil }
 
 type fakeNeo4jDriver struct {
 	session fakeNeo4jSession
@@ -76,9 +155,13 @@ type fakeRedisClient struct {
 	value []byte
 	err   error
 	set   []byte
+	del   []string
 }
 
 func (c *fakeRedisClient) Get(context.Context, string) *redis.StringCmd {
+	if c.value == nil && c.err == nil {
+		return redis.NewStringResult("", redis.Nil)
+	}
 	return redis.NewStringResult(string(c.value), c.err)
 }
 
@@ -94,10 +177,16 @@ func (c *fakeRedisClient) Set(_ context.Context, _ string, value any, _ time.Dur
 	return redis.NewStatusResult("OK", nil)
 }
 
+func (c *fakeRedisClient) Del(_ context.Context, keys ...string) *redis.IntCmd {
+	c.del = append(c.del, keys...)
+	return redis.NewIntResult(int64(len(keys)), nil)
+}
+
 func TestPostgresReaders(t *testing.T) {
 	t.Parallel()
 
 	latest := time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC)
+	earliest := time.Date(2026, time.March, 12, 1, 2, 3, 0, time.UTC)
 	identityQuerier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
 		*(dest[0].(*string)) = "wallet_1"
 		*(dest[1].(*domain.Chain)) = domain.ChainEVM
@@ -122,9 +211,15 @@ func TestPostgresReaders(t *testing.T) {
 		*(dest[1].(*time.Time)) = latest
 		*(dest[2].(*int64)) = 42
 		*(dest[3].(*int64)) = 18
-		*(dest[4].(*sql.NullTime)) = sql.NullTime{Time: latest, Valid: true}
-		*(dest[5].(*int64)) = 13
-		*(dest[6].(*int64)) = 29
+		*(dest[4].(*sql.NullTime)) = sql.NullTime{Time: earliest, Valid: true}
+		*(dest[5].(*sql.NullTime)) = sql.NullTime{Time: latest, Valid: true}
+		*(dest[6].(*int64)) = 13
+		*(dest[7].(*int64)) = 29
+		*(dest[8].(*int64)) = 4
+		*(dest[9].(*int64)) = 9
+		*(dest[10].(*int64)) = 13
+		*(dest[11].(*int64)) = 29
+		*(dest[12].(*[]byte)) = []byte(`[{"chain":"evm","address":"0xabc","interaction_count":9,"inbound_count":3,"outbound_count":6,"direction_label":"outbound","first_seen_at":"2026-03-12T01:02:03Z","latest_activity_at":"2026-03-19T01:02:03Z"}]`)
 		return nil
 	}}}
 
@@ -134,6 +229,225 @@ func TestPostgresReaders(t *testing.T) {
 	}
 	if stats.CounterpartyCount != 18 {
 		t.Fatalf("unexpected counterparty count %d", stats.CounterpartyCount)
+	}
+	if stats.IncomingTxCount7d != 4 || stats.OutgoingTxCount30d != 29 {
+		t.Fatalf("unexpected flow stats %#v", stats)
+	}
+	if stats.EarliestActivityAt == nil || !stats.EarliestActivityAt.Equal(earliest) {
+		t.Fatalf("unexpected earliest activity %#v", stats.EarliestActivityAt)
+	}
+	if len(stats.TopCounterparties) != 1 || stats.TopCounterparties[0].Address != "0xabc" {
+		t.Fatalf("unexpected top counterparties %#v", stats.TopCounterparties)
+	}
+	if stats.TopCounterparties[0].DirectionLabel != "outbound" || stats.TopCounterparties[0].InboundCount != 3 {
+		t.Fatalf("unexpected counterparty detail %#v", stats.TopCounterparties[0])
+	}
+}
+
+func TestPostgresClusterScoreSnapshotReader(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.March, 20, 2, 3, 4, 0, time.UTC)
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		*(dest[0].(*string)) = clusterScoreSnapshotSignalType
+		*(dest[1].(*[]byte)) = []byte(`{"score_value":82,"score_rating":"high","observed_at":"2026-03-20T02:03:04Z"}`)
+		*(dest[2].(*time.Time)) = observedAt
+		return nil
+	}}}
+
+	snapshot, err := NewPostgresClusterScoreSnapshotReader(querier).ReadLatestClusterScoreSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("snapshot reader failed: %v", err)
+	}
+	if snapshot == nil {
+		t.Fatal("expected snapshot")
+	}
+	if snapshot.ScoreValue != 82 {
+		t.Fatalf("unexpected score value %d", snapshot.ScoreValue)
+	}
+	if snapshot.ScoreRating != domain.RatingHigh {
+		t.Fatalf("unexpected score rating %q", snapshot.ScoreRating)
+	}
+	if !snapshot.ObservedAt.Equal(observedAt) {
+		t.Fatalf("unexpected observed at %s", snapshot.ObservedAt)
+	}
+}
+
+func TestPostgresClusterScoreSnapshotReaderReturnsNilOnNoRows(t *testing.T) {
+	t.Parallel()
+
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		return pgx.ErrNoRows
+	}}}
+
+	snapshot, err := NewPostgresClusterScoreSnapshotReader(querier).ReadLatestClusterScoreSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("expected nil error on no rows, got %v", err)
+	}
+	if snapshot != nil {
+		t.Fatalf("expected nil snapshot, got %#v", snapshot)
+	}
+}
+
+func TestPostgresShadowExitSnapshotReader(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.March, 20, 3, 4, 5, 0, time.UTC)
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		*(dest[0].(*string)) = shadowExitSnapshotSignalType
+		*(dest[1].(*[]byte)) = []byte(`{"score_value":34,"score_rating":"medium","observed_at":"2026-03-20T03:04:05Z"}`)
+		*(dest[2].(*time.Time)) = observedAt
+		return nil
+	}}}
+
+	snapshot, err := NewPostgresShadowExitSnapshotReader(querier).ReadLatestShadowExitSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("snapshot reader failed: %v", err)
+	}
+	if snapshot == nil {
+		t.Fatal("expected snapshot")
+	}
+	if snapshot.ScoreValue != 34 {
+		t.Fatalf("unexpected score value %d", snapshot.ScoreValue)
+	}
+	if snapshot.ScoreRating != domain.RatingMedium {
+		t.Fatalf("unexpected score rating %q", snapshot.ScoreRating)
+	}
+	if !snapshot.ObservedAt.Equal(observedAt) {
+		t.Fatalf("unexpected observed at %s", snapshot.ObservedAt)
+	}
+}
+
+func TestPostgresShadowExitSnapshotReaderReturnsNilOnNoRows(t *testing.T) {
+	t.Parallel()
+
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		return pgx.ErrNoRows
+	}}}
+
+	snapshot, err := NewPostgresShadowExitSnapshotReader(querier).ReadLatestShadowExitSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("expected nil error on no rows, got %v", err)
+	}
+	if snapshot != nil {
+		t.Fatalf("expected nil snapshot, got %#v", snapshot)
+	}
+}
+
+func TestPostgresFirstConnectionSnapshotReader(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.March, 20, 4, 5, 6, 0, time.UTC)
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		*(dest[0].(*string)) = firstConnectionSnapshotSignalType
+		*(dest[1].(*[]byte)) = []byte(`{"score_value":61,"score_rating":"high","observed_at":"2026-03-20T04:05:06Z"}`)
+		*(dest[2].(*time.Time)) = observedAt
+		return nil
+	}}}
+
+	snapshot, err := NewPostgresFirstConnectionSnapshotReader(querier).ReadLatestFirstConnectionSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("snapshot reader failed: %v", err)
+	}
+	if snapshot == nil {
+		t.Fatal("expected snapshot")
+	}
+	if snapshot.ScoreValue != 61 {
+		t.Fatalf("unexpected score value %d", snapshot.ScoreValue)
+	}
+	if snapshot.ScoreRating != domain.RatingHigh {
+		t.Fatalf("unexpected score rating %q", snapshot.ScoreRating)
+	}
+	if !snapshot.ObservedAt.Equal(observedAt) {
+		t.Fatalf("unexpected observed at %s", snapshot.ObservedAt)
+	}
+}
+
+func TestPostgresFirstConnectionSnapshotReaderReturnsNilOnNoRows(t *testing.T) {
+	t.Parallel()
+
+	querier := fakePostgresQuerier{row: fakeRow{scan: func(dest ...any) error {
+		return pgx.ErrNoRows
+	}}}
+
+	snapshot, err := NewPostgresFirstConnectionSnapshotReader(querier).ReadLatestFirstConnectionSnapshot(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("expected nil error on no rows, got %v", err)
+	}
+	if snapshot != nil {
+		t.Fatalf("expected nil snapshot, got %#v", snapshot)
+	}
+}
+
+func TestPostgresWalletLatestSignalsReader(t *testing.T) {
+	t.Parallel()
+
+	latest := time.Date(2026, time.March, 20, 4, 5, 6, 0, time.UTC)
+	rows := &fakeSignalEventRows{
+		values: [][]any{
+			{
+				shadowExitSnapshotSignalType,
+				[]byte(`{"score_name":"shadow_exit_risk","score_value":91,"score_rating":"high","observed_at":"2026-03-20T04:05:06Z","shadow_exit_evidence":[{"label":"bridge movement","source":"shadow-exit-engine","observed_at":"2026-03-20T04:05:05Z"},{"label":"exchange proximity","source":"shadow-exit-engine","observed_at":"2026-03-20T04:05:06Z"}]}`),
+				latest,
+			},
+			{
+				clusterScoreSnapshotSignalType,
+				[]byte(`{"score_name":"cluster_score","score_value":82,"score_rating":"medium","observed_at":"2026-03-20T03:05:06Z","cluster_score_evidence":[{"label":"shared counterparties","source":"cluster-engine","observed_at":"2026-03-20T03:05:06Z"}]}`),
+				latest.Add(-time.Hour),
+			},
+		},
+	}
+
+	signals, err := NewPostgresWalletLatestSignalsReader(fakePostgresQuerier{rows: rows}).ReadLatestWalletSignals(
+		context.Background(),
+		"wallet_1",
+	)
+	if err != nil {
+		t.Fatalf("latest signals reader failed: %v", err)
+	}
+	if len(signals) != 2 {
+		t.Fatalf("expected 2 latest signals, got %#v", signals)
+	}
+	if signals[0].Name != domain.ScoreShadowExit || signals[0].Label != "exchange proximity" {
+		t.Fatalf("unexpected latest signal %#v", signals[0])
+	}
+	if signals[0].Source != "shadow-exit-engine" {
+		t.Fatalf("unexpected latest signal source %#v", signals[0])
+	}
+	if signals[1].Name != domain.ScoreCluster || signals[1].Label != "shared counterparties" {
+		t.Fatalf("unexpected cluster signal %#v", signals[1])
+	}
+}
+
+func TestPostgresWalletLatestSignalsReaderReturnsEmptySliceWhenNoRows(t *testing.T) {
+	t.Parallel()
+
+	signals, err := NewPostgresWalletLatestSignalsReader(
+		fakePostgresQuerier{rows: &fakeSignalEventRows{}},
+	).ReadLatestWalletSignals(context.Background(), "wallet_1")
+	if err != nil {
+		t.Fatalf("expected empty latest signals, got error: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Fatalf("expected no signals, got %#v", signals)
 	}
 }
 
@@ -220,5 +534,12 @@ func TestRedisCache(t *testing.T) {
 	}
 	if loaded.Ref.Address != "0x123" {
 		t.Fatalf("unexpected loaded ref %#v", loaded.Ref)
+	}
+
+	if err := cache.DeleteWalletSummaryInputs(context.Background(), "wallet-summary:evm:0x123"); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	if len(client.del) != 1 || client.del[0] != "wallet-summary:evm:0x123" {
+		t.Fatalf("expected cache delete key, got %#v", client.del)
 	}
 }

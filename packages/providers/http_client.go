@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+const defaultProviderHTTPTimeout = 15 * time.Second
 
 type jsonHTTPClient struct {
 	client *http.Client
@@ -14,7 +17,7 @@ type jsonHTTPClient struct {
 
 func newJSONHTTPClient(client *http.Client) jsonHTTPClient {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: defaultProviderHTTPTimeout}
 	}
 
 	return jsonHTTPClient{client: client}

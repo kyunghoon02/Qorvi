@@ -47,12 +47,11 @@ const toneTokens: Record<Tone, ToneTokens> = {
 };
 
 const cardBase: CSSProperties = {
-  borderRadius: 24,
+  borderRadius: 8,
   border: "1px solid transparent",
-  background:
-    "linear-gradient(180deg, rgba(17, 25, 42, 0.96) 0%, rgba(10, 15, 27, 0.94) 100%)",
-  boxShadow: "0 20px 50px rgba(0, 0, 0, 0.22)",
-  padding: 20,
+  background: "#27272a",
+  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+  padding: 24,
 };
 
 function getTone(tone: Tone): ToneTokens {
@@ -74,15 +73,13 @@ export function Pill({
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
-        padding: "8px 12px",
-        borderRadius: 999,
+        padding: "4px 8px",
+        borderRadius: 6,
         border: `1px solid ${palette.border}`,
         background: palette.badgeBg,
         color: palette.badgeText,
-        fontSize: 12,
-        fontWeight: 700,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
+        fontSize: 13,
+        fontWeight: 500,
       }}
     >
       {children}
@@ -117,17 +114,16 @@ export function MetricCard({
     <article
       style={{
         ...cardBase,
-        background: `linear-gradient(180deg, ${palette.glow} 0%, rgba(10, 15, 27, 0.94) 42%)`,
+        background: "#27272a",
         borderColor: palette.border,
         minHeight: 132,
       }}
     >
       <div
         style={{
-          color: palette.badgeText,
-          fontSize: 12,
-          textTransform: "uppercase",
-          letterSpacing: "0.18em",
+          color: "rgba(233, 240, 255, 0.8)",
+          fontSize: 14,
+          fontWeight: 500,
         }}
       >
         {label}
@@ -182,7 +178,7 @@ export function StatusCard({
       style={{
         ...cardBase,
         borderColor: palette.border,
-        background: `linear-gradient(180deg, ${palette.glow} 0%, rgba(10, 15, 27, 0.94) 48%)`,
+        background: "#27272a",
       }}
     >
       <div
@@ -197,9 +193,7 @@ export function StatusCard({
         <span
           style={{
             color: "rgba(233, 240, 255, 0.66)",
-            fontSize: 12,
-            textTransform: "uppercase",
-            letterSpacing: "0.2em",
+            fontSize: 14,
           }}
         >
           {eyebrow}
@@ -276,14 +270,12 @@ export function StatusCard({
           <span
             key={tag}
             style={{
-              padding: "6px 10px",
-              borderRadius: 999,
+              padding: "4px 8px",
+              borderRadius: 6,
               border: "1px solid rgba(148, 163, 184, 0.16)",
-              background: "rgba(255, 255, 255, 0.02)",
+              background: "rgba(255, 255, 255, 0.04)",
               color: "rgba(233, 240, 255, 0.72)",
-              fontSize: 12,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
+              fontSize: 13,
             }}
           >
             {tag}

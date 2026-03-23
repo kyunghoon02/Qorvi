@@ -10,41 +10,60 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
 	"github.com/whalegraph/whalegraph/apps/api/internal/config"
 	"github.com/whalegraph/whalegraph/apps/api/internal/server"
+	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
+	"github.com/whalegraph/whalegraph/packages/db"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("api config load failed: %v", err)
-	}
+	cfg, minimalDevMode := loadRuntimeConfig()
 
 	appCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	clients, err := openStorageClients(appCtx, cfg)
-	if err != nil {
-		log.Fatalf("api storage init failed: %v", err)
+	clients := openStorageClientsOrNil(appCtx, cfg)
+	if clients != nil {
+		defer func() {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer closeCancel()
+			if err := clients.Close(closeCtx); err != nil {
+				log.Printf("storage close error: %v", err)
+			}
+		}()
 	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer closeCancel()
-		if err := clients.Close(closeCtx); err != nil {
-			log.Printf("storage close error: %v", err)
-		}
-	}()
 
-	clerkVerifier, err := buildClerkVerifier(cfg)
-	if err != nil {
-		log.Fatalf("api clerk verifier init failed: %v", err)
-	}
+	clerkVerifier := buildClerkVerifierOrFallback(cfg, minimalDevMode)
+
+	wallets := buildWalletSummaryService(clients, cfg.WalletSummaryCacheTTL)
+	search := buildSearchService(clients, wallets)
+	graphs := buildWalletGraphService(clients, cfg.WalletSummaryCacheTTL)
+	clusters := buildClusterDetailService(clients)
+	shadowExits := buildShadowExitFeedService(clients)
+	firstConnections := buildFirstConnectionFeedService(clients)
+	alertRules := buildAlertRuleService(clients)
+	alertDelivery := buildAlertDeliveryService(clients)
+	watchlists := buildWatchlistService(clients)
+	adminConsole := buildAdminConsoleService(clients)
+	billingService := buildBillingService(clients)
+	accountService := buildAccountService(billingService)
 
 	srv := server.NewWithDependencies(server.Dependencies{
-		Wallets:       buildWalletSummaryService(clients, cfg.WalletSummaryCacheTTL),
-		Graphs:        buildWalletGraphService(clients, cfg.WalletSummaryCacheTTL),
-		WebhookIngest: buildWebhookIngestService(clients),
-		ClerkVerifier: clerkVerifier,
+		Wallets:          wallets,
+		Graphs:           graphs,
+		Clusters:         clusters,
+		ShadowExits:      shadowExits,
+		FirstConnections: firstConnections,
+		AlertRules:       alertRules,
+		AlertDelivery:    alertDelivery,
+		Watchlists:       watchlists,
+		AdminConsole:     adminConsole,
+		Account:          accountService,
+		Billing:          billingService,
+		Search:           search,
+		WebhookIngest:    buildWebhookIngestService(clients),
+		ClerkVerifier:    clerkVerifier,
 	})
 
 	httpServer := &http.Server{
@@ -81,4 +100,46 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("shutdown error: %v", err)
 	}
+}
+
+func loadRuntimeConfig() (config.Config, bool) {
+	cfg, err := config.Load()
+	if err == nil {
+		return cfg, false
+	}
+
+	log.Printf("api config load failed, starting minimal dev mode: %v", err)
+	return config.Config{
+		Host: "127.0.0.1",
+		Port: "3000",
+		API: sharedconfig.APIEnv{
+			NodeEnv: "development",
+			APIHost: "127.0.0.1",
+			APIPort: 3000,
+		},
+		WalletSummaryCacheTTL: 5 * time.Minute,
+	}, true
+}
+
+func openStorageClientsOrNil(ctx context.Context, cfg config.Config) *db.StorageClients {
+	clients, err := openStorageClients(ctx, cfg)
+	if err != nil {
+		log.Printf("api storage init skipped: %v", err)
+		return nil
+	}
+	return clients
+}
+
+func buildClerkVerifierOrFallback(cfg config.Config, minimalDevMode bool) auth.ClerkVerifier {
+	if minimalDevMode {
+		return auth.NewHeaderClerkVerifier()
+	}
+
+	verifier, err := buildClerkVerifier(cfg)
+	if err != nil {
+		log.Printf("api clerk verifier init skipped, falling back to header auth: %v", err)
+		return auth.NewHeaderClerkVerifier()
+	}
+
+	return verifier
 }

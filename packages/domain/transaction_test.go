@@ -43,3 +43,19 @@ func TestValidateNormalizedTransactionRejectsMissingFields(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 }
+
+func TestNormalizeNormalizedTransactionSanitizesNilLikeAmount(t *testing.T) {
+	t.Parallel()
+
+	tx := NormalizeNormalizedTransaction(NormalizedTransaction{
+		Chain:      ChainEVM,
+		TxHash:     "0xdeadbeef",
+		Wallet:     WalletRef{Chain: ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
+		ObservedAt: time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC),
+		Amount:     " <nil> ",
+	})
+
+	if tx.Amount != "" {
+		t.Fatalf("expected nil-like amount to be cleared, got %q", tx.Amount)
+	}
+}

@@ -51,6 +51,10 @@ func (q *capturedWalletQuerier) QueryRow(_ context.Context, query string, args .
 	return q.row
 }
 
+func (q *capturedWalletQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return &fakeWatchlistRows{}, nil
+}
+
 func TestPostgresWalletStoreEnsureWallet(t *testing.T) {
 	t.Parallel()
 

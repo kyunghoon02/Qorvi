@@ -13,6 +13,7 @@ import (
 type redisKVClient interface {
 	Get(context.Context, string) *redis.StringCmd
 	Set(context.Context, string, any, time.Duration) *redis.StatusCmd
+	Del(context.Context, ...string) *redis.IntCmd
 }
 
 type RedisWalletSummaryCache struct {
@@ -65,6 +66,21 @@ func (c *RedisWalletSummaryCache) SetWalletSummaryInputs(
 
 	if err := c.Client.Set(ctx, key, raw, ttl).Err(); err != nil {
 		return fmt.Errorf("store wallet summary cache: %w", err)
+	}
+
+	return nil
+}
+
+func (c *RedisWalletSummaryCache) DeleteWalletSummaryInputs(
+	ctx context.Context,
+	key string,
+) error {
+	if c == nil || c.Client == nil {
+		return fmt.Errorf("redis cache client is nil")
+	}
+
+	if err := c.Client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("delete wallet summary cache: %w", err)
 	}
 
 	return nil

@@ -60,7 +60,7 @@ func NormalizeNormalizedTransaction(tx NormalizedTransaction) NormalizedTransact
 	tx.Wallet.Address = strings.TrimSpace(tx.Wallet.Address)
 	tx.RawPayloadPath = strings.TrimSpace(tx.RawPayloadPath)
 	tx.Provider = strings.TrimSpace(tx.Provider)
-	tx.Amount = strings.TrimSpace(tx.Amount)
+	tx.Amount = normalizeTransactionAmount(tx.Amount)
 	if tx.Direction == "" {
 		tx.Direction = TransactionDirectionUnknown
 	}
@@ -88,6 +88,16 @@ func NormalizeNormalizedTransaction(tx NormalizedTransaction) NormalizedTransact
 	}
 
 	return tx
+}
+
+func normalizeTransactionAmount(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	switch strings.ToLower(trimmed) {
+	case "", "<nil>", "nil", "null", "<null>":
+		return ""
+	default:
+		return trimmed
+	}
 }
 
 func ValidateNormalizedTransaction(tx NormalizedTransaction) error {

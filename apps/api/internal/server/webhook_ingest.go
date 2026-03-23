@@ -27,14 +27,28 @@ func newCountingWebhookIngestService() WebhookIngestService {
 
 func NewWebhookIngestService(
 	wallets webhookWalletEnsurer,
+	entityAssign webhookWalletEntityAssignmentWriter,
 	transactions db.NormalizedTransactionStore,
+	dailyStats db.WalletDailyStatsRefresher,
+	graph db.TransactionGraphMaterializer,
+	graphCache db.WalletGraphCache,
+	graphSnapshots db.WalletGraphSnapshotStore,
+	summaryCache db.WalletSummaryCache,
+	dedup db.IngestDedupStore,
 	rawPayloads db.RawPayloadStore,
 	providerUsage db.ProviderUsageLogStore,
 	jobRuns db.JobRunStore,
 ) WebhookIngestService {
 	return newProviderWebhookPersistingService(
 		wallets,
+		entityAssign,
 		transactions,
+		dailyStats,
+		graph,
+		graphCache,
+		graphSnapshots,
+		summaryCache,
+		dedup,
 		rawPayloads,
 		providerUsage,
 		jobRuns,
