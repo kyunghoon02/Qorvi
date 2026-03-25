@@ -3,7 +3,7 @@ package providers
 import (
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestCreateSeedDiscoveryBatchFixture(t *testing.T) {

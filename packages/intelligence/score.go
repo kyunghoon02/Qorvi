@@ -3,7 +3,7 @@ package intelligence
 import (
 	"fmt"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func clampScore(value int) int {

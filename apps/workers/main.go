@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 func main() {
-	mode := os.Getenv("WHALEGRAPH_WORKER_MODE")
+	mode := os.Getenv("FLOWINTEL_WORKER_MODE")
 	env := workerEnvFromOS()
 	appCtx := context.Background()
 	registry := providers.DefaultRegistry()
@@ -39,6 +39,7 @@ func main() {
 	alerts := &WalletSignalAlertDispatcher{}
 	deliveries := &WalletSignalDeliveryDispatcher{}
 	alertDeliveryRetry := AlertDeliveryRetryService{}
+	trackingSubscriptionSync := TrackingSubscriptionSyncService{}
 	billingSubscriptionSync := BillingSubscriptionSyncService{}
 
 	var clients *db.StorageClients
@@ -71,17 +72,21 @@ func main() {
 		ingest.Enrichment = buildMoralisWalletSummaryEnricher(clients)
 		ingest.SummaryCache = db.NewRedisWalletSummaryCache(clients.Redis)
 		ingest.EntityIndex = db.NewHeuristicEntityAssignmentStoreFromClients(clients)
+		ingest.Labeling = db.NewWalletLabelingStoreFromClients(clients)
+		ingest.Tracking = db.NewWalletTrackingStateStoreFromClients(clients)
 		enrichmentRefresh = WalletEnrichmentRefreshService{
 			Enrichment: buildMoralisWalletSummaryEnricher(clients),
 		}
 
 		watchlistBootstrap = WatchlistBootstrapService{
 			Watchlists: db.NewWatchlistWalletSeedReaderFromClients(clients),
+			Tracking:   db.NewWalletTrackingStateStoreFromClients(clients),
 			Queue:      db.NewWalletBackfillQueueStoreFromClients(clients),
 			Dedup:      db.NewIngestDedupStoreFromClients(clients),
 			JobRuns:    db.NewJobRunStoreFromClients(clients),
 		}
 		seedDiscovery.Queue = db.NewWalletBackfillQueueStoreFromClients(clients)
+		seedDiscovery.Tracking = db.NewWalletTrackingStateStoreFromClients(clients)
 		seedDiscovery.Dedup = db.NewIngestDedupStoreFromClients(clients)
 		seedDiscovery.JobRuns = db.NewJobRunStoreFromClients(clients)
 		seedDiscovery.Watchlists = db.NewPostgresWatchlistStoreFromPool(clients.Postgres)
@@ -97,17 +102,21 @@ func main() {
 			Deliveries: deliveries,
 		}
 		clusterScore = ClusterScoreSnapshotService{
-			Wallets: db.NewWalletStoreFromClients(clients),
-			Graphs:  db.NewWalletGraphRepositoryFromClients(clients, 2*time.Minute),
-			Signals: db.NewSignalEventStoreFromClients(clients),
-			Cache:   db.NewRedisWalletSummaryCache(clients.Redis),
-			Alerts:  alerts,
-			JobRuns: db.NewJobRunStoreFromClients(clients),
+			Wallets:  db.NewWalletStoreFromClients(clients),
+			Graphs:   db.NewWalletGraphRepositoryFromClients(clients, 2*time.Minute),
+			Signals:  db.NewSignalEventStoreFromClients(clients),
+			Labels:   db.NewWalletLabelingStoreFromClients(clients),
+			Findings: db.NewFindingStoreFromClients(clients),
+			Cache:    db.NewRedisWalletSummaryCache(clients.Redis),
+			Alerts:   alerts,
+			JobRuns:  db.NewJobRunStoreFromClients(clients),
 		}
 		shadowExit = ShadowExitSnapshotService{
 			Wallets:    db.NewWalletStoreFromClients(clients),
 			Candidates: db.NewShadowExitCandidateReaderFromClients(clients),
 			Signals:    db.NewSignalEventStoreFromClients(clients),
+			Labels:     db.NewWalletLabelingStoreFromClients(clients),
+			Findings:   db.NewFindingStoreFromClients(clients),
 			Cache:      db.NewRedisWalletSummaryCache(clients.Redis),
 			Alerts:     alerts,
 			JobRuns:    db.NewJobRunStoreFromClients(clients),
@@ -116,9 +125,18 @@ func main() {
 			Wallets:    db.NewWalletStoreFromClients(clients),
 			Candidates: db.NewFirstConnectionCandidateReaderFromClients(clients),
 			Signals:    db.NewSignalEventStoreFromClients(clients),
+			Labels:     db.NewWalletLabelingStoreFromClients(clients),
+			Findings:   db.NewFindingStoreFromClients(clients),
 			Cache:      db.NewRedisWalletSummaryCache(clients.Redis),
 			Alerts:     alerts,
 			JobRuns:    db.NewJobRunStoreFromClients(clients),
+		}
+		trackingSubscriptionSync = TrackingSubscriptionSyncService{
+			Registry:          db.NewPostgresWalletTrackingRegistryReaderFromPool(clients.Postgres),
+			Tracking:          db.NewWalletTrackingStateStoreFromClients(clients),
+			JobRuns:           db.NewJobRunStoreFromClients(clients),
+			AlchemyReconciler: buildAlchemyWebhookReconcilerFromOS(),
+			HeliusReconciler:  buildHeliusWebhookReconcilerFromOS(),
 		}
 		billingSubscriptionSync = BillingSubscriptionSyncService{
 			Accounts:        db.NewBillingStoreFromClients(clients),
@@ -150,6 +168,7 @@ func main() {
 		shadowExit,
 		firstConnection,
 		alertDeliveryRetry,
+		trackingSubscriptionSync,
 		billingSubscriptionSync,
 	)
 	if err != nil {
@@ -185,9 +204,9 @@ func buildAlertDeliveryDispatcher(clients *db.StorageClients) *WalletSignalDeliv
 }
 
 func buildSMTPAlertEmailSenderFromOS() AlertEmailSender {
-	host := strings.TrimSpace(os.Getenv("WHALEGRAPH_ALERT_SMTP_HOST"))
-	port := strings.TrimSpace(os.Getenv("WHALEGRAPH_ALERT_SMTP_PORT"))
-	from := strings.TrimSpace(os.Getenv("WHALEGRAPH_ALERT_SMTP_FROM"))
+	host := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_HOST"))
+	port := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_PORT"))
+	from := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_FROM"))
 	if host == "" || port == "" || from == "" {
 		return nil
 	}
@@ -195,15 +214,15 @@ func buildSMTPAlertEmailSenderFromOS() AlertEmailSender {
 	return SMTPAlertEmailSender{
 		Addr:     net.JoinHostPort(host, port),
 		Host:     host,
-		Username: strings.TrimSpace(os.Getenv("WHALEGRAPH_ALERT_SMTP_USERNAME")),
-		Password: strings.TrimSpace(os.Getenv("WHALEGRAPH_ALERT_SMTP_PASSWORD")),
+		Username: strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_USERNAME")),
+		Password: strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_PASSWORD")),
 		From:     from,
 	}
 }
 
 func buildStartupMessage(env config.WorkerEnv) string {
 	return fmt.Sprintf(
-		"WhaleGraph workers ready (env=%s, postgres=%s, redis=%s)",
+		"FlowIntel workers ready (env=%s, postgres=%s, redis=%s)",
 		env.NodeEnv,
 		env.PostgresURL,
 		env.RedisURL,
@@ -211,12 +230,12 @@ func buildStartupMessage(env config.WorkerEnv) string {
 }
 
 func rawPayloadRoot() string {
-	root := strings.TrimSpace(os.Getenv("WHALEGRAPH_RAW_PAYLOAD_ROOT"))
+	root := strings.TrimSpace(os.Getenv("FLOWINTEL_RAW_PAYLOAD_ROOT"))
 	if root != "" {
 		return root
 	}
 
-	return ".whalegraph/raw-payloads"
+	return ".flowintel/raw-payloads"
 }
 
 func buildMoralisWalletSummaryEnricher(clients *db.StorageClients) WalletSummaryEnrichmentRefresher {
@@ -245,6 +264,30 @@ func buildMoralisWalletSummaryEnricher(clients *db.StorageClients) WalletSummary
 		db.NewRedisWalletSummaryCache(clients.Redis),
 		15*time.Minute,
 	)
+}
+
+func buildAlchemyWebhookReconcilerFromOS() providerAddressReconciler {
+	authToken := strings.TrimSpace(os.Getenv("ALCHEMY_NOTIFY_AUTH_TOKEN"))
+	if authToken == "" {
+		return nil
+	}
+	baseURL := strings.TrimSpace(os.Getenv("ALCHEMY_NOTIFY_BASE_URL"))
+	if baseURL == "" {
+		baseURL = "https://dashboard.alchemy.com"
+	}
+	return providers.NewAlchemyWebhookClient(baseURL, authToken, &http.Client{Timeout: 15 * time.Second})
+}
+
+func buildHeliusWebhookReconcilerFromOS() providerAddressReconciler {
+	apiKey := strings.TrimSpace(os.Getenv("HELIUS_API_KEY"))
+	if apiKey == "" {
+		return nil
+	}
+	baseURL := strings.TrimSpace(os.Getenv("HELIUS_DATA_API_BASE_URL"))
+	if baseURL == "" {
+		baseURL = "https://api-mainnet.helius-rpc.com/v0"
+	}
+	return providers.NewHeliusWebhookClient(baseURL, apiKey, &http.Client{Timeout: 15 * time.Second})
 }
 
 func workerEnvFromOS() config.WorkerEnv {
@@ -279,5 +322,6 @@ func requiresWorkerStorage(mode string) bool {
 		mode == workerModeShadowExitSnapshot ||
 		mode == workerModeFirstConnectionSnapshot ||
 		mode == workerModeAlertDeliveryRetryBatch ||
+		mode == workerModeWalletTrackingSubscriptionSync ||
 		mode == workerModeBillingSubscriptionSync
 }

@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 const workerModeMoralisEnrichmentRefresh = "moralis-enrichment-refresh"
@@ -62,7 +62,7 @@ func buildWalletEnrichmentRefreshSummary(report WalletEnrichmentRefreshReport) s
 
 func walletEnrichmentRefreshTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_ENRICHMENT_REFRESH_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("WHALEGRAPH_ENRICHMENT_REFRESH_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_ENRICHMENT_REFRESH_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_ENRICHMENT_REFRESH_ADDRESS")),
 	}
 }

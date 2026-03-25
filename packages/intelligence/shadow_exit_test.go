@@ -3,7 +3,7 @@ package intelligence
 import (
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestBuildShadowExitRiskScore(t *testing.T) {

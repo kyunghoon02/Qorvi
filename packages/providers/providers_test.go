@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestProviderAdaptersEmitSchemaCompliantFixtures(t *testing.T) {
@@ -77,7 +77,7 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 		"ALCHEMY_BASE_URL":                  "https://eth-mainnet.g.alchemy.com",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "whalegraph",
+		"CLERK_AUDIENCE":                    "flowintel",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -92,7 +92,7 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/whalegraph",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -137,7 +137,7 @@ func TestParseProviderEnvNormalizesHeliusURLs(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "whalegraph",
+		"CLERK_AUDIENCE":                    "flowintel",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -152,7 +152,7 @@ func TestParseProviderEnvNormalizesHeliusURLs(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/whalegraph",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -176,7 +176,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromJSON(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "whalegraph",
+		"CLERK_AUDIENCE":                    "flowintel",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -190,7 +190,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromJSON(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/whalegraph",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -220,7 +220,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromFile(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "whalegraph",
+		"CLERK_AUDIENCE":                    "flowintel",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -234,7 +234,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromFile(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/whalegraph",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})

@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/config"
-	"github.com/whalegraph/whalegraph/apps/api/internal/server"
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/config"
+	"github.com/flowintel/flowintel/apps/api/internal/server"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
 )
 
 func main() {
@@ -37,8 +37,13 @@ func main() {
 	clerkVerifier := buildClerkVerifierOrFallback(cfg, minimalDevMode)
 
 	wallets := buildWalletSummaryService(clients, cfg.WalletSummaryCacheTTL)
+	findings := buildFindingsFeedService(clients)
 	search := buildSearchService(clients, wallets)
 	graphs := buildWalletGraphService(clients, cfg.WalletSummaryCacheTTL)
+	walletBriefs := buildWalletBriefService(clients, wallets)
+	entities := buildEntityInterpretationService(clients)
+	analystTools := buildAnalystToolsService(wallets, walletBriefs, graphs)
+	analystFindings := buildAnalystFindingDrilldownService(clients, wallets)
 	clusters := buildClusterDetailService(clients)
 	shadowExits := buildShadowExitFeedService(clients)
 	firstConnections := buildFirstConnectionFeedService(clients)
@@ -51,7 +56,12 @@ func main() {
 
 	srv := server.NewWithDependencies(server.Dependencies{
 		Wallets:          wallets,
+		WalletBriefs:     walletBriefs,
 		Graphs:           graphs,
+		AnalystTools:     analystTools,
+		AnalystFindings:  analystFindings,
+		Findings:         findings,
+		Entities:         entities,
 		Clusters:         clusters,
 		ShadowExits:      shadowExits,
 		FirstConnections: firstConnections,

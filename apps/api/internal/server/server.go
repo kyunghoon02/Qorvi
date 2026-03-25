@@ -8,16 +8,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type Envelope[T any] struct {
@@ -67,7 +68,12 @@ type ProviderWebhookAcceptancePayload struct {
 type Server struct {
 	mux              *http.ServeMux
 	wallets          *service.WalletSummaryService
+	walletBriefs     *service.WalletBriefService
 	graphs           *service.WalletGraphService
+	analystTools     *service.AnalystToolsService
+	analystFindings  *service.AnalystFindingDrilldownService
+	findings         *service.FindingsFeedService
+	entities         *service.EntityInterpretationService
 	clusters         *service.ClusterDetailService
 	shadowExits      *service.ShadowExitFeedService
 	firstConnections *service.FirstConnectionFeedService
@@ -83,7 +89,12 @@ type Server struct {
 
 type Dependencies struct {
 	Wallets          *service.WalletSummaryService
+	WalletBriefs     *service.WalletBriefService
 	Graphs           *service.WalletGraphService
+	AnalystTools     *service.AnalystToolsService
+	AnalystFindings  *service.AnalystFindingDrilldownService
+	Findings         *service.FindingsFeedService
+	Entities         *service.EntityInterpretationService
 	Clusters         *service.ClusterDetailService
 	ShadowExits      *service.ShadowExitFeedService
 	FirstConnections *service.FirstConnectionFeedService
@@ -114,8 +125,38 @@ func NewWithDependencies(deps Dependencies) *Server {
 			repository.NewQueryBackedWalletGraphRepository(notFoundWalletGraphLoader{}),
 		)
 	}
+	if deps.Findings == nil {
+		deps.Findings = service.NewFindingsFeedService(
+			repository.NewQueryBackedFindingsRepository(nil),
+		)
+	}
+	if deps.WalletBriefs == nil {
+		deps.WalletBriefs = service.NewWalletBriefService(
+			repository.NewQueryBackedWalletSummaryRepository(notFoundWalletSummaryLoader{}),
+			nil,
+			repository.NewQueryBackedFindingsRepository(nil),
+		)
+	}
+	if deps.Entities == nil {
+		deps.Entities = service.NewEntityInterpretationService(
+			repository.NewQueryBackedEntityInterpretationRepository(nil),
+		)
+	}
 	if deps.Search == nil {
 		deps.Search = service.NewSearchService(deps.Wallets)
+	}
+	if deps.AnalystTools == nil {
+		deps.AnalystTools = service.NewAnalystToolsService(
+			deps.Wallets,
+			deps.WalletBriefs,
+			deps.Graphs,
+		)
+	}
+	if deps.AnalystFindings == nil {
+		deps.AnalystFindings = service.NewAnalystFindingDrilldownService(
+			repository.NewQueryBackedFindingsRepository(nil),
+			deps.Wallets,
+		)
 	}
 	if deps.Clusters == nil {
 		deps.Clusters = service.NewClusterDetailService(
@@ -161,7 +202,12 @@ func NewWithDependencies(deps Dependencies) *Server {
 	s := &Server{
 		mux:              mux,
 		wallets:          deps.Wallets,
+		walletBriefs:     deps.WalletBriefs,
 		graphs:           deps.Graphs,
+		analystTools:     deps.AnalystTools,
+		analystFindings:  deps.AnalystFindings,
+		findings:         deps.Findings,
+		entities:         deps.Entities,
 		clusters:         deps.Clusters,
 		shadowExits:      deps.ShadowExits,
 		firstConnections: deps.FirstConnections,
@@ -177,6 +223,12 @@ func NewWithDependencies(deps Dependencies) *Server {
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
+	mux.HandleFunc("GET /v1/findings", s.handleFindingsFeed)
+	mux.HandleFunc("GET /v1/analyst/findings", s.handleAnalystFindingsFeed)
+	mux.HandleFunc("GET /v1/analyst/findings/", s.handleAnalystFindingRoute)
+	mux.HandleFunc("GET /v1/entity/", s.handleEntityRoute)
+	mux.HandleFunc("GET /v1/analyst/entity/", s.handleAnalystEntityRoute)
+	mux.HandleFunc("GET /v1/analyst/tools/wallets/", s.handleAnalystToolWalletRoute)
 	mux.HandleFunc("GET /v1/billing/plans", s.handleBillingPlans)
 	mux.HandleFunc("GET /v1/clusters/", s.handleClusterRoute)
 	mux.HandleFunc("GET /v1/signals/shadow-exits", s.handleShadowExitFeed)
@@ -204,6 +256,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 	mux.HandleFunc("POST /v1/webhooks/providers/alchemy/address-activity", s.handleAlchemyAddressActivityWebhook)
 	mux.HandleFunc("POST /v1/providers/", s.handleProviderRoute)
 	mux.HandleFunc("GET /v1/wallets/", s.handleWalletRoute)
+	mux.HandleFunc("GET /v1/analyst/wallets/", s.handleAnalystWalletRoute)
 	mux.Handle(
 		"GET /v1/admin/status",
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminStatus)),
@@ -318,10 +371,109 @@ func (s *Server) handleWalletRoute(w http.ResponseWriter, r *http.Request) {
 	switch resource {
 	case "summary":
 		s.handleWalletSummary(w, r, chain, address)
+	case "brief":
+		s.handleWalletBrief(w, r, chain, address)
 	case "graph":
 		s.handleWalletGraph(w, r, chain, address)
 	default:
 		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "wallet route not found", chain, tierFromHeader(r)))
+	}
+}
+
+func (s *Server) handleAnalystWalletRoute(w http.ResponseWriter, r *http.Request) {
+	chain, address, resource, ok := parseAnalystWalletRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst wallet route not found", "", ""))
+		return
+	}
+
+	switch resource {
+	case "brief":
+		s.handleWalletBrief(w, r, chain, address)
+	default:
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst wallet route not found", chain, tierFromHeader(r)))
+	}
+}
+
+func (s *Server) handleAnalystToolWalletRoute(w http.ResponseWriter, r *http.Request) {
+	chain, address, resource, ok := parseAnalystToolWalletRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst tool wallet route not found", "", ""))
+		return
+	}
+
+	switch resource {
+	case "counterparties":
+		s.handleAnalystWalletCounterparties(w, r, chain, address)
+	case "graph":
+		s.handleAnalystWalletGraph(w, r, chain, address)
+	case "behavior-patterns":
+		s.handleAnalystBehaviorPatterns(w, r, chain, address)
+	default:
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst tool wallet route not found", chain, tierFromHeader(r)))
+	}
+}
+
+func (s *Server) handleFindingsFeed(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseFindingsFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid findings feed limit", "", tierFromHeader(r)))
+		return
+	}
+
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	types := parseFindingsTypesFromQuery(r.URL.Query())
+	feed, err := s.findings.ListFindings(r.Context(), cursor, limit, types)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "findings feed lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.FindingsFeedResponse]{
+		Success: true,
+		Data:    feed,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleAnalystFindingsFeed(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseFindingsFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst findings feed limit", "", tierFromHeader(r)))
+		return
+	}
+
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	types := parseFindingsTypesFromQuery(r.URL.Query())
+	feed, err := s.findings.ListFindings(r.Context(), cursor, limit, types)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "analyst findings feed lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.FindingsFeedResponse]{
+		Success: true,
+		Data:    feed,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-snapshot", 300)),
+	})
+}
+
+func (s *Server) handleAnalystFindingRoute(w http.ResponseWriter, r *http.Request) {
+	findingID, resource, ok := parseAnalystFindingRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	switch resource {
+	case "":
+		s.handleAnalystFindingDetail(w, r, findingID)
+	case "evidence-timeline":
+		s.handleAnalystFindingEvidenceTimeline(w, r, findingID)
+	case "historical-analogs":
+		s.handleAnalystFindingHistoricalAnalogs(w, r, findingID)
+	default:
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding route not found", "", tierFromHeader(r)))
 	}
 }
 
@@ -361,6 +513,218 @@ func (s *Server) handleClusterRoute(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Data:    detail,
 		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleEntityRoute(w http.ResponseWriter, r *http.Request) {
+	entityKey, ok := parseEntityRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "entity route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	detail, err := s.entities.GetEntityInterpretation(r.Context(), entityKey)
+	if err != nil {
+		if errors.Is(err, service.ErrEntityInterpretationNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), "", tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "entity interpretation lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.EntityInterpretation]{
+		Success: true,
+		Data:    detail,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleAnalystEntityRoute(w http.ResponseWriter, r *http.Request) {
+	entityKey, ok := parseAnalystEntityRoutePath(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst entity route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	detail, err := s.entities.GetEntityInterpretation(r.Context(), entityKey)
+	if err != nil {
+		if errors.Is(err, service.ErrEntityInterpretationNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), "", tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "analyst entity interpretation lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.EntityInterpretation]{
+		Success: true,
+		Data:    detail,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-snapshot", 300)),
+	})
+}
+
+func (s *Server) handleAnalystWalletCounterparties(w http.ResponseWriter, r *http.Request, chain string, address string) {
+	if s.analystTools == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst tools unavailable", chain, tierFromHeader(r)))
+		return
+	}
+
+	limit, err := parseFindingsFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst counterparty limit", chain, tierFromHeader(r)))
+		return
+	}
+	minInteractions, err := parseOptionalPositiveInt(r.URL.Query().Get("min_interactions"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst counterparty minimum interactions", chain, tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.analystTools.GetWalletCounterparties(r.Context(), chain, address, limit, minInteractions)
+	if err != nil {
+		if errors.Is(err, service.ErrWalletSummaryNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), chain, tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "analyst counterparties lookup failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystCounterpartiesResponse]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystWalletGraph(w http.ResponseWriter, r *http.Request, chain string, address string) {
+	if s.analystTools == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst tools unavailable", chain, tierFromHeader(r)))
+		return
+	}
+
+	depth, err := parseWalletGraphDepth(r.URL.Query().Get("depth"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst graph depth", chain, tierFromHeader(r)))
+		return
+	}
+
+	graph, err := s.analystTools.GetWalletGraphEvidence(r.Context(), chain, address, depth, tierFromHeader(r))
+	if err != nil {
+		if errors.Is(err, service.ErrWalletGraphNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), chain, tierFromHeader(r)))
+			return
+		}
+		if errors.Is(err, service.ErrWalletGraphDepthNotAllowed) {
+			writeJSON(w, http.StatusForbidden, errorEnvelope("FORBIDDEN", err.Error(), chain, tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "analyst graph lookup failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[domain.WalletGraph]{
+		Success: true,
+		Data:    graph,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystBehaviorPatterns(w http.ResponseWriter, r *http.Request, chain string, address string) {
+	if s.analystTools == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst tools unavailable", chain, tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.analystTools.DetectBehaviorPatterns(r.Context(), chain, address)
+	if err != nil {
+		if errors.Is(err, service.ErrWalletSummaryNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), chain, tierFromHeader(r)))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "analyst behavior pattern lookup failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystBehaviorPatternsResponse]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystFindingDetail(w http.ResponseWriter, r *http.Request, findingID string) {
+	if s.analystFindings == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding drilldown unavailable", "", tierFromHeader(r)))
+		return
+	}
+	payload, err := s.analystFindings.GetFindingDetail(r.Context(), findingID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		if errors.Is(err, service.ErrFindingNotFound) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+		writeJSON(w, status, errorEnvelope(code, "analyst finding detail lookup failed", "", tierFromHeader(r)))
+		return
+	}
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystFindingDetail]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystFindingEvidenceTimeline(w http.ResponseWriter, r *http.Request, findingID string) {
+	if s.analystFindings == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding drilldown unavailable", "", tierFromHeader(r)))
+		return
+	}
+	payload, err := s.analystFindings.GetEvidenceTimeline(r.Context(), findingID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		if errors.Is(err, service.ErrFindingNotFound) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+		writeJSON(w, status, errorEnvelope(code, "analyst finding evidence timeline lookup failed", "", tierFromHeader(r)))
+		return
+	}
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystFindingEvidenceTimeline]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta(payload.Chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystFindingHistoricalAnalogs(w http.ResponseWriter, r *http.Request, findingID string) {
+	if s.analystFindings == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding drilldown unavailable", "", tierFromHeader(r)))
+		return
+	}
+	limit, err := parseFindingsFeedLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst historical analog limit", "", tierFromHeader(r)))
+		return
+	}
+	payload, err := s.analystFindings.GetHistoricalAnalogs(r.Context(), findingID, limit)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		if errors.Is(err, service.ErrFindingNotFound) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+		writeJSON(w, status, errorEnvelope(code, "analyst historical analog lookup failed", "", tierFromHeader(r)))
+		return
+	}
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystHistoricalAnalogs]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-tool", 180)),
 	})
 }
 
@@ -442,6 +806,30 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request, cha
 	writeJSON(w, http.StatusOK, Envelope[service.WalletSummary]{
 		Success: true,
 		Data:    summary,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleWalletBrief(w http.ResponseWriter, r *http.Request, chain string, address string) {
+	if !domain.IsSupportedChain(domain.Chain(chain)) || len(address) < 16 {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid wallet brief request", chain, tierFromHeader(r)))
+		return
+	}
+
+	brief, err := s.walletBriefs.GetWalletBrief(r.Context(), chain, address)
+	if err != nil {
+		if errors.Is(err, service.ErrWalletSummaryNotFound) {
+			writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", err.Error(), chain, tierFromHeader(r)))
+			return
+		}
+
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "wallet brief lookup failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.WalletBrief]{
+		Success: true,
+		Data:    brief,
 		Meta:    newMeta(chain, tierFromHeader(r), freshness("snapshot", 300)),
 	})
 }
@@ -536,11 +924,136 @@ func parseWalletRoutePath(path string) (string, string, string, bool) {
 		return "", "", "", false
 	}
 
-	if resource != "summary" && resource != "graph" {
+	if resource != "summary" && resource != "brief" && resource != "graph" {
 		return "", "", "", false
 	}
 
 	return chain, address, resource, true
+}
+
+func parseAnalystWalletRoutePath(path string) (string, string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1/analyst/wallets/")
+	if !ok {
+		return "", "", "", false
+	}
+
+	chain, rest, ok := strings.Cut(rest, "/")
+	if !ok {
+		return "", "", "", false
+	}
+
+	address, resource, ok := strings.Cut(rest, "/")
+	if !ok || chain == "" || address == "" {
+		return "", "", "", false
+	}
+
+	if resource != "brief" {
+		return "", "", "", false
+	}
+
+	return chain, address, resource, true
+}
+
+func parseAnalystToolWalletRoutePath(path string) (string, string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1/analyst/tools/wallets/")
+	if !ok {
+		return "", "", "", false
+	}
+
+	chain, rest, ok := strings.Cut(rest, "/")
+	if !ok {
+		return "", "", "", false
+	}
+
+	address, resource, ok := strings.Cut(rest, "/")
+	if !ok || chain == "" || address == "" {
+		return "", "", "", false
+	}
+
+	switch resource {
+	case "counterparties", "graph", "behavior-patterns":
+		return chain, address, resource, true
+	default:
+		return "", "", "", false
+	}
+}
+
+func parseAnalystFindingRoutePath(path string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1/analyst/findings/")
+	if !ok {
+		return "", "", false
+	}
+	findingID, resource, hasResource := strings.Cut(strings.TrimSpace(rest), "/")
+	if strings.TrimSpace(findingID) == "" {
+		return "", "", false
+	}
+	if !hasResource {
+		return strings.TrimSpace(findingID), "", true
+	}
+	resource = strings.TrimSpace(resource)
+	switch resource {
+	case "evidence-timeline", "historical-analogs":
+		return strings.TrimSpace(findingID), resource, true
+	default:
+		return "", "", false
+	}
+}
+
+func parseFindingsFeedLimit(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 20, nil
+	}
+
+	limit, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || limit <= 0 {
+		return 0, errors.New("findings feed limit must be positive")
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	return limit, nil
+}
+
+func parseFindingsTypes(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseFindingsTypesFromQuery(values url.Values) []string {
+	repeated := values["type"]
+	if len(repeated) > 0 {
+		out := make([]string, 0, len(repeated))
+		for _, value := range repeated {
+			out = append(out, parseFindingsTypes(value)...)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+
+	return parseFindingsTypes(values.Get("types"))
+}
+
+func parseOptionalPositiveInt(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 {
+		return 0, errors.New("value must be zero or positive")
+	}
+	return value, nil
 }
 
 func parseProviderRoutePath(path string) (string, string, bool) {
@@ -567,6 +1080,30 @@ func parseClusterRoutePath(path string) (string, bool) {
 		return "", false
 	}
 	return clusterID, true
+}
+
+func parseEntityRoutePath(path string) (string, bool) {
+	entityKey, ok := strings.CutPrefix(path, "/v1/entity/")
+	if !ok {
+		return "", false
+	}
+	entityKey = strings.TrimSpace(entityKey)
+	if entityKey == "" || strings.Contains(entityKey, "/") {
+		return "", false
+	}
+	return entityKey, true
+}
+
+func parseAnalystEntityRoutePath(path string) (string, bool) {
+	entityKey, ok := strings.CutPrefix(path, "/v1/analyst/entity/")
+	if !ok {
+		return "", false
+	}
+	entityKey = strings.TrimSpace(entityKey)
+	if entityKey == "" || strings.Contains(entityKey, "/") {
+		return "", false
+	}
+	return entityKey, true
 }
 
 func parseWalletGraphDepth(raw string) (int, error) {

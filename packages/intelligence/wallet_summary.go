@@ -1,6 +1,6 @@
 package intelligence
 
-import "github.com/whalegraph/whalegraph/packages/domain"
+import "github.com/flowintel/flowintel/packages/domain"
 
 type WalletSummarySignals struct {
 	Cluster         ClusterSignal

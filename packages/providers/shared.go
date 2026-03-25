@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 var fixedObservedAt = time.Date(2026, time.March, 19, 0, 0, 0, 0, time.UTC)
@@ -51,7 +51,7 @@ func applyProviderActivityFixtureDefaults(input ProviderActivityFixtureInput, me
 	}
 	if _, ok := metadata["raw_payload_path"]; !ok {
 		metadata["raw_payload_path"] = fmt.Sprintf(
-			"s3://whalegraph/raw/%s/%s/%s/%s.json",
+			"s3://flowintel/raw/%s/%s/%s/%s.json",
 			input.Provider,
 			strings.ToLower(strings.TrimSpace(string(input.Chain))),
 			sanitizeWalletAddress(input.WalletAddress),

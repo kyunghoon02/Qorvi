@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestMoralisEnrichmentContractFixture(t *testing.T) {

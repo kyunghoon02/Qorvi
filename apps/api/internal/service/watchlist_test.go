@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestWatchlistServiceForbidsFreePlan(t *testing.T) {

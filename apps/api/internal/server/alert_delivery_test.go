@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestAlertDeliveryRoutesRequireAuthAndPlan(t *testing.T) {

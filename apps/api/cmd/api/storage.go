@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/config"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/apps/api/internal/server"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/apps/api/internal/config"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/apps/api/internal/server"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 func openStorageClients(ctx context.Context, cfg config.Config) (*db.StorageClients, error) {
@@ -42,6 +42,84 @@ func buildWalletGraphService(clients *db.StorageClients, cacheTTL time.Duration)
 		repository.NewQueryBackedWalletGraphRepository(
 			db.NewWalletGraphRepositoryFromClients(clients, cacheTTL),
 		),
+	)
+}
+
+func buildFindingsFeedService(clients *db.StorageClients) *service.FindingsFeedService {
+	if clients == nil {
+		return service.NewFindingsFeedService(repository.NewQueryBackedFindingsRepository(nil))
+	}
+
+	return service.NewFindingsFeedService(
+		repository.NewQueryBackedFindingsRepository(
+			db.NewFindingStoreFromClients(clients),
+		),
+	)
+}
+
+func buildWalletBriefService(
+	clients *db.StorageClients,
+	wallets *service.WalletSummaryService,
+) *service.WalletBriefService {
+	if clients == nil {
+		return service.NewWalletBriefService(
+			repository.NewQueryBackedWalletSummaryRepository(nil),
+			nil,
+			repository.NewQueryBackedFindingsRepository(nil),
+		)
+	}
+
+	var enricher service.WalletSummaryEnricher
+	if wallets != nil {
+		enricher = buildMoralisWalletSummaryEnricher(clients)
+	}
+
+	return service.NewWalletBriefService(
+		repository.NewQueryBackedWalletSummaryRepository(
+			db.NewWalletSummaryRepositoryFromClients(clients, 5*time.Minute),
+		),
+		enricher,
+		repository.NewQueryBackedFindingsRepository(
+			db.NewFindingStoreFromClients(clients),
+		),
+	)
+}
+
+func buildEntityInterpretationService(clients *db.StorageClients) *service.EntityInterpretationService {
+	if clients == nil {
+		return service.NewEntityInterpretationService(repository.NewQueryBackedEntityInterpretationRepository(nil))
+	}
+
+	return service.NewEntityInterpretationService(
+		repository.NewQueryBackedEntityInterpretationRepository(
+			db.NewEntityInterpretationReaderFromClients(clients),
+		),
+	)
+}
+
+func buildAnalystToolsService(
+	wallets *service.WalletSummaryService,
+	walletBriefs *service.WalletBriefService,
+	graphs *service.WalletGraphService,
+) *service.AnalystToolsService {
+	return service.NewAnalystToolsService(wallets, walletBriefs, graphs)
+}
+
+func buildAnalystFindingDrilldownService(
+	clients *db.StorageClients,
+	wallets *service.WalletSummaryService,
+) *service.AnalystFindingDrilldownService {
+	if clients == nil {
+		return service.NewAnalystFindingDrilldownService(
+			repository.NewQueryBackedFindingsRepository(nil),
+			wallets,
+		)
+	}
+	return service.NewAnalystFindingDrilldownService(
+		repository.NewQueryBackedFindingsRepository(
+			db.NewFindingStoreFromClients(clients),
+		),
+		wallets,
 	)
 }
 
@@ -180,9 +258,10 @@ func buildSearchService(
 		return service.NewSearchService(wallets)
 	}
 
-	return service.NewSearchServiceWithBackfillQueue(
+	return service.NewSearchServiceWithBackfillQueueAndTracking(
 		wallets,
 		db.NewWalletBackfillQueueStoreFromClients(clients),
+		db.NewWalletTrackingStateStoreFromClients(clients),
 	)
 }
 
@@ -194,6 +273,7 @@ func buildWebhookIngestService(clients *db.StorageClients) server.WebhookIngestS
 	return server.NewWebhookIngestService(
 		db.NewWalletStoreFromClients(clients),
 		db.NewHeuristicEntityAssignmentStoreFromClients(clients),
+		db.NewWalletLabelingStoreFromClients(clients),
 		db.NewNormalizedTransactionStoreFromClients(clients),
 		db.NewWalletDailyStatsStoreFromClients(clients),
 		db.NewTransactionGraphMaterializerFromClients(clients),
@@ -204,16 +284,17 @@ func buildWebhookIngestService(clients *db.StorageClients) server.WebhookIngestS
 		db.NewFilesystemRawPayloadStore(apiRawPayloadRoot()),
 		db.NewProviderUsageLogStoreFromClients(clients),
 		db.NewJobRunStoreFromClients(clients),
+		db.NewWalletTrackingStateStoreFromClients(clients),
 	)
 }
 
 func apiRawPayloadRoot() string {
-	root := strings.TrimSpace(os.Getenv("WHALEGRAPH_RAW_PAYLOAD_ROOT"))
+	root := strings.TrimSpace(os.Getenv("FLOWINTEL_RAW_PAYLOAD_ROOT"))
 	if root != "" {
 		return root
 	}
 
-	return ".whalegraph/raw-payloads"
+	return ".flowintel/raw-payloads"
 }
 
 func buildMoralisWalletSummaryEnricher(clients *db.StorageClients) service.WalletSummaryEnricher {

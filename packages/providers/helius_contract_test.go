@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestHeliusHistoricalContractFixture(t *testing.T) {

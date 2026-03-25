@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestInMemoryAlertRuleRepositoryOwnerScopedAndSorted(t *testing.T) {

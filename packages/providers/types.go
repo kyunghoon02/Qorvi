@@ -3,7 +3,7 @@ package providers
 import (
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type ProviderName string

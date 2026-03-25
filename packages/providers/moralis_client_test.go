@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

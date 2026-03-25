@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestNeo4jTransactionGraphMaterializerMaterializesInteraction(t *testing.T) {
@@ -27,7 +27,7 @@ func TestNeo4jTransactionGraphMaterializerMaterializesInteraction(t *testing.T) 
 		},
 		Direction:      domain.TransactionDirectionOutbound,
 		ObservedAt:     observedAt,
-		RawPayloadPath: " s3://whalegraph/raw/2026/03/19/tx.json ",
+		RawPayloadPath: " s3://flowintel/raw/2026/03/19/tx.json ",
 		Provider:       " alchemy ",
 	})
 
@@ -106,7 +106,7 @@ func TestNeo4jTransactionGraphMaterializerMaterializesFundedByForInboundInteract
 		},
 		Direction:      domain.TransactionDirectionInbound,
 		ObservedAt:     observedAt,
-		RawPayloadPath: "s3://whalegraph/raw/2026/03/19/inbound.json",
+		RawPayloadPath: "s3://flowintel/raw/2026/03/19/inbound.json",
 		Provider:       "alchemy",
 	})
 
@@ -140,7 +140,7 @@ func TestNeo4jTransactionGraphMaterializerMaterializesWalletOnly(t *testing.T) {
 		TxHash:         "0xfeedface",
 		Wallet:         domain.WalletRef{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
 		ObservedAt:     observedAt,
-		RawPayloadPath: "s3://whalegraph/raw/2026/03/19/tx.json",
+		RawPayloadPath: "s3://flowintel/raw/2026/03/19/tx.json",
 		Provider:       "alchemy",
 	})
 
@@ -171,7 +171,7 @@ func TestNeo4jTransactionGraphMaterializerMaterializeNormalizedTransactions(t *t
 		TxHash:         "0xfeedface",
 		Wallet:         domain.WalletRef{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
 		ObservedAt:     observedAt,
-		RawPayloadPath: "s3://whalegraph/raw/2026/03/19/tx.json",
+		RawPayloadPath: "s3://flowintel/raw/2026/03/19/tx.json",
 		Provider:       "alchemy",
 	})
 	second := domain.NormalizeNormalizedTransaction(domain.NormalizedTransaction{
@@ -179,7 +179,7 @@ func TestNeo4jTransactionGraphMaterializerMaterializeNormalizedTransactions(t *t
 		TxHash:         "9Q1z8F7a6B5c4D3e2F1g0h9j8k7l6m5n4o3p2q1r0s9t8u7v6w5x4y3z2a1b0c9d8",
 		Wallet:         domain.WalletRef{Chain: domain.ChainSolana, Address: "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq"},
 		ObservedAt:     observedAt,
-		RawPayloadPath: "s3://whalegraph/raw/2026/03/19/tx-2.json",
+		RawPayloadPath: "s3://flowintel/raw/2026/03/19/tx-2.json",
 		Provider:       "helius",
 	})
 

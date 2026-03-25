@@ -7,11 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestAlertRuleRoutesRequireAuthAndPlan(t *testing.T) {

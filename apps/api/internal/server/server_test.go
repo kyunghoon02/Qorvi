@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestHealthRoute(t *testing.T) {
@@ -108,6 +109,370 @@ func TestWalletSummaryRouteRejectsUnsupportedChain(t *testing.T) {
 	}
 }
 
+func TestWalletBriefRouteReturnsAIBrief(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		WalletBriefs: service.NewWalletBriefService(
+			&testWalletSummaryRepository{summary: walletSummaryFixture()},
+			nil,
+			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/brief", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.WalletBrief]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.AISummary == "" {
+		t.Fatal("expected ai summary")
+	}
+	if len(body.Data.KeyFindings) != 1 {
+		t.Fatalf("expected 1 key finding, got %d", len(body.Data.KeyFindings))
+	}
+}
+
+func TestAnalystWalletBriefRouteReturnsAIBrief(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		WalletBriefs: service.NewWalletBriefService(
+			&testWalletSummaryRepository{summary: walletSummaryFixture()},
+			nil,
+			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/brief", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.WalletBrief]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.AISummary == "" {
+		t.Fatal("expected ai summary")
+	}
+	if body.Meta.Freshness.Source != "snapshot" {
+		t.Fatalf("expected snapshot freshness for brief handler, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestAnalystFindingsRouteReturnsFeedAndParsesRepeatedTypeQuery(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Findings: service.NewFindingsFeedService(
+			&testFindingsRepository{feed: domain.FindingsFeedPage{Items: []domain.Finding{findingFixture()}}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/findings?cursor=cursor_1&type=smart_money_convergence&type=exit_preparation", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.FindingsFeedResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(body.Data.Items))
+	}
+	if body.Meta.Freshness.Source != "analyst-snapshot" {
+		t.Fatalf("expected analyst freshness source, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestEntityRouteReturnsInterpretation(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Entities:      service.NewEntityInterpretationService(&testEntityInterpretationRepository{detail: entityInterpretationFixture()}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/entity/curated:binance", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.EntityInterpretation]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.EntityKey != "curated:binance" {
+		t.Fatalf("unexpected entity key %q", body.Data.EntityKey)
+	}
+	if len(body.Data.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(body.Data.Findings))
+	}
+}
+
+func TestAnalystEntityRouteReturnsInterpretation(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Entities:      service.NewEntityInterpretationService(&testEntityInterpretationRepository{detail: entityInterpretationFixture()}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/entity/curated:binance", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.EntityInterpretation]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.EntityKey != "curated:binance" {
+		t.Fatalf("unexpected entity key %q", body.Data.EntityKey)
+	}
+	if body.Meta.Freshness.Source != "analyst-snapshot" {
+		t.Fatalf("expected analyst freshness source, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestAnalystWalletCounterpartiesRouteReturnsFilteredItems(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Wallets:       service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/tools/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/counterparties?limit=1&min_interactions=5", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystCounterpartiesResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Counterparties) != 1 {
+		t.Fatalf("expected 1 counterparty, got %d", len(body.Data.Counterparties))
+	}
+	if body.Data.TotalAvailable == 0 {
+		t.Fatal("expected total available counterparties")
+	}
+	if body.Meta.Freshness.Source != "analyst-tool" {
+		t.Fatalf("expected analyst-tool freshness source, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestAnalystWalletGraphRouteReturnsEvidenceGraph(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Graphs:        service.NewWalletGraphService(&testWalletGraphRepository{graph: walletGraphFixture()}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/tools/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/graph?depth=1", nil)
+	req.Header.Set("X-Whalegraph-Plan", "pro")
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[domain.WalletGraph]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Nodes) == 0 {
+		t.Fatal("expected graph nodes")
+	}
+	if body.Meta.Freshness.Source != "analyst-tool" {
+		t.Fatalf("expected analyst-tool freshness source, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestAnalystBehaviorPatternsRouteReturnsLabelAndFindingContext(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		WalletBriefs: service.NewWalletBriefService(
+			&testWalletSummaryRepository{summary: walletSummaryFixture()},
+			nil,
+			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/tools/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/behavior-patterns", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystBehaviorPatternsResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Patterns) == 0 {
+		t.Fatal("expected analyst patterns")
+	}
+	if len(body.Data.Patterns[0].SupportingFindingTypes) == 0 {
+		t.Fatal("expected supporting finding types")
+	}
+	if body.Meta.Freshness.Source != "analyst-tool" {
+		t.Fatalf("expected analyst-tool freshness source, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestAnalystFindingDetailRouteReturnsCanonicalFinding(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystFindings: service.NewAnalystFindingDrilldownService(
+			&testFindingsRepository{finding: findingFixture()},
+			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/findings/finding_123", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystFindingDetail]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.Finding.ID != "finding_123" {
+		t.Fatalf("unexpected finding id %q", body.Data.Finding.ID)
+	}
+}
+
+func TestAnalystFindingEvidenceTimelineRouteReturnsTimeline(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystFindings: service.NewAnalystFindingDrilldownService(
+			&testFindingsRepository{finding: findingFixture()},
+			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/findings/finding_123/evidence-timeline", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystFindingEvidenceTimeline]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) == 0 {
+		t.Fatal("expected timeline items")
+	}
+}
+
+func TestAnalystHistoricalAnalogsRouteReturnsSameTypeFindings(t *testing.T) {
+	t.Parallel()
+
+	finding := findingFixture()
+	analog := findingFixture()
+	analog.ID = "finding_analog_1"
+	analog.Subject.Address = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	analog.Subject.Key = "evm:0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	analog.ObservedAt = "2026-03-24T00:00:00Z"
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystFindings: service.NewAnalystFindingDrilldownService(
+			&testFindingsRepository{
+				finding: finding,
+				feed:    domain.FindingsFeedPage{Items: []domain.Finding{finding, analog}},
+			},
+			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/analyst/findings/finding_123/historical-analogs?limit=3", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystHistoricalAnalogs]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected 1 analog, got %d", len(body.Data.Items))
+	}
+	if body.Data.Items[0].ID != "finding_analog_1" {
+		t.Fatalf("unexpected analog id %q", body.Data.Items[0].ID)
+	}
+}
+
 func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
 	t.Parallel()
 
@@ -117,7 +482,7 @@ func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
 		"tier":"pro",
 		"successUrl":"http://localhost:3000/account?checkout=success",
 		"cancelUrl":"http://localhost:3000/account?checkout=cancel",
-		"customerEmail":"ops@whalegraph.test"
+		"customerEmail":"ops@flowintel.test"
 	}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Clerk-User-Id", "user_123")
@@ -650,8 +1015,32 @@ func TestParseWalletRoutePath(t *testing.T) {
 		t.Fatalf("expected summary resource, got %s", resource)
 	}
 
+	_, _, resource, ok = parseWalletRoutePath("/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/brief")
+	if !ok {
+		t.Fatal("expected brief wallet route path")
+	}
+	if resource != "brief" {
+		t.Fatalf("expected brief resource, got %s", resource)
+	}
+
 	if _, _, _, ok := parseWalletRoutePath("/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/profile"); ok {
 		t.Fatal("expected unsupported resource to be rejected")
+	}
+}
+
+func TestParseEntityRoutePath(t *testing.T) {
+	t.Parallel()
+
+	entityKey, ok := parseEntityRoutePath("/v1/entity/curated:binance")
+	if !ok {
+		t.Fatal("expected valid entity route path")
+	}
+	if entityKey != "curated:binance" {
+		t.Fatalf("unexpected entity key %q", entityKey)
+	}
+
+	if _, ok := parseEntityRoutePath("/v1/entity/curated:binance/details"); ok {
+		t.Fatal("expected nested entity route to be rejected")
 	}
 }
 
@@ -700,6 +1089,36 @@ func TestSearchRouteRejectsEmptyQuery(t *testing.T) {
 
 	if body.Error == nil || body.Error.Code != "INVALID_ARGUMENT" {
 		t.Fatalf("expected invalid argument error, got %#v", body.Error)
+	}
+}
+
+func TestFindingsFeedRouteReturnsItems(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		Findings:      service.NewFindingsFeedService(&testFindingsRepository{feed: domain.FindingsFeedPage{Items: []domain.Finding{findingFixture()}}}),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/findings?limit=10", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.FindingsFeedResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if len(body.Data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(body.Data.Items))
+	}
+	if body.Data.Items[0].Type != string(domain.FindingTypeSmartMoneyConvergence) {
+		t.Fatalf("unexpected finding type %q", body.Data.Items[0].Type)
 	}
 }
 
@@ -890,6 +1309,41 @@ func (r *testWalletGraphRepository) FindWalletGraph(_ context.Context, _ string,
 	return graph, nil
 }
 
+type testFindingsRepository struct {
+	feed           domain.FindingsFeedPage
+	walletFindings []domain.Finding
+	finding        domain.Finding
+}
+
+func (r *testFindingsRepository) FindFindings(_ context.Context, _ string, _ int, _ []string) (domain.FindingsFeedPage, error) {
+	return r.feed, nil
+}
+
+func (r *testFindingsRepository) FindWalletFindings(_ context.Context, _, _ string, _ int) ([]domain.Finding, error) {
+	return r.walletFindings, nil
+}
+
+func (r *testFindingsRepository) FindFindingByID(_ context.Context, _ string) (domain.Finding, error) {
+	if strings.TrimSpace(r.finding.ID) != "" {
+		return r.finding, nil
+	}
+	if len(r.feed.Items) > 0 {
+		return r.feed.Items[0], nil
+	}
+	if len(r.walletFindings) > 0 {
+		return r.walletFindings[0], nil
+	}
+	return domain.Finding{}, nil
+}
+
+type testEntityInterpretationRepository struct {
+	detail domain.EntityInterpretation
+}
+
+func (r *testEntityInterpretationRepository) FindEntityInterpretation(_ context.Context, _ string) (domain.EntityInterpretation, error) {
+	return r.detail, nil
+}
+
 type testClusterDetailRepository struct {
 	detail domain.ClusterDetail
 	err    error
@@ -962,9 +1416,59 @@ func walletSummaryFixture() domain.WalletSummary {
 		Chain:            domain.ChainEVM,
 		Address:          "0x1234567890abcdef1234567890abcdef12345678",
 		DisplayName:      "Seed Whale",
+		Labels: domain.WalletLabelSet{
+			Inferred: []domain.WalletLabel{
+				{
+					Key:             "inferred:fund_adjacent",
+					Name:            "Fund-adjacent",
+					Class:           domain.WalletLabelClassInferred,
+					EntityType:      "fund",
+					Source:          "heuristic",
+					Confidence:      0.74,
+					EvidenceSummary: "Repeated overlap with fund-adjacent flows.",
+					ObservedAt:      latest.Format(time.RFC3339),
+				},
+			},
+			Behavioral: []domain.WalletLabel{
+				{
+					Key:             "behavioral:early_rotator",
+					Name:            "Early rotator",
+					Class:           domain.WalletLabelClassBehavioral,
+					Source:          "rule-engine",
+					Confidence:      0.81,
+					EvidenceSummary: "Repeated early entries inside the indexed window.",
+					ObservedAt:      latest.Format(time.RFC3339),
+				},
+			},
+		},
 		ClusterID:        &clusterID,
 		Counterparties:   18,
 		LatestActivityAt: latest.Format(time.RFC3339),
+		TopCounterparties: []domain.WalletCounterparty{
+			{
+				Chain:            domain.ChainEVM,
+				Address:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+				EntityKey:        "heuristic:market_maker:seed",
+				EntityType:       "market_maker",
+				EntityLabel:      "Seed MM",
+				InteractionCount: 9,
+				InboundCount:     2,
+				OutboundCount:    7,
+				InboundAmount:    "1250",
+				OutboundAmount:   "6200",
+				PrimaryToken:     "USDC",
+				TokenBreakdowns: []domain.WalletCounterpartyTokenSummary{
+					{
+						Symbol:         "USDC",
+						InboundAmount:  "1250",
+						OutboundAmount: "6200",
+					},
+				},
+				DirectionLabel:   "outbound",
+				FirstSeenAt:      latest.Add(-72 * time.Hour).Format(time.RFC3339),
+				LatestActivityAt: latest.Format(time.RFC3339),
+			},
+		},
 		Tags:             []string{"wallet-summary", "evm"},
 		Scores: []domain.Score{
 			{
@@ -1013,6 +1517,65 @@ func walletSummaryFixture() domain.WalletSummary {
 				},
 			},
 		},
+	}
+}
+
+func findingFixture() domain.Finding {
+	return domain.Finding{
+		ID:              "finding_123",
+		Type:            domain.FindingTypeSmartMoneyConvergence,
+		Confidence:      0.82,
+		ImportanceScore: 0.84,
+		Summary:         "Early convergence is forming around this wallet through newly shared counterparties.",
+		ImportanceReason: []string{
+			"Multiple new overlaps appeared inside the indexed coverage window.",
+		},
+		ObservedFacts: []string{
+			"First-connection score rated high.",
+		},
+		InferredInterpretation: []string{
+			"This wallet may be converging with other quality wallets around a new opportunity.",
+		},
+		ObservedAt: "2026-03-25T00:00:00Z",
+		Subject: domain.FindingSubject{
+			SubjectType: domain.FindingSubjectWallet,
+			Chain:       domain.ChainEVM,
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			Key:         "evm:0x1234567890abcdef1234567890abcdef12345678",
+			Label:       "Wallet",
+		},
+		Coverage: domain.FindingCoverage{
+			CoverageStartAt:    "2026-02-24T00:00:00Z",
+			CoverageEndAt:      "2026-03-25T00:00:00Z",
+			CoverageWindowDays: 30,
+		},
+		Evidence: []domain.FindingEvidenceItem{
+			{
+				Type:       "cluster_overlap",
+				Value:      "Repeated overlap with new counterparties",
+				Confidence: 0.82,
+				ObservedAt: "2026-03-25T00:00:00Z",
+			},
+		},
+	}
+}
+
+func entityInterpretationFixture() domain.EntityInterpretation {
+	return domain.EntityInterpretation{
+		EntityKey:        "curated:binance",
+		EntityType:       "exchange",
+		DisplayName:      "Binance",
+		WalletCount:      2,
+		LatestActivityAt: "2026-03-25T00:00:00Z",
+		Members: []domain.EntityMember{
+			{
+				Chain:            domain.ChainEVM,
+				Address:          "0x1234567890abcdef1234567890abcdef12345678",
+				DisplayName:      "Binance Hot Wallet 1",
+				LatestActivityAt: "2026-03-25T00:00:00Z",
+			},
+		},
+		Findings: []domain.Finding{findingFixture()},
 	}
 }
 
