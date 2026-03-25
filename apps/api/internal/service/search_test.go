@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeWalletSummaryLookup struct {
@@ -163,11 +163,20 @@ func TestSearchServiceQueuesWalletBackfillWhenLookupMisses(t *testing.T) {
 	if queue.jobs[0].Metadata["input_kind"] != searchKindEVMAddress {
 		t.Fatalf("unexpected queued metadata %#v", queue.jobs[0].Metadata)
 	}
-	if queue.jobs[0].Metadata["backfill_window_days"] != 90 {
-		t.Fatalf("expected 90-day backfill policy, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	if queue.jobs[0].Metadata["reason"] != "user_search" {
+		t.Fatalf("unexpected queue reason %#v", queue.jobs[0].Metadata["reason"])
 	}
-	if queue.jobs[0].Metadata["backfill_limit"] != 500 {
-		t.Fatalf("expected backfill limit 500, got %#v", queue.jobs[0].Metadata["backfill_limit"])
+	if queue.jobs[0].Metadata["source_type"] != db.WalletTrackingSourceTypeUserSearch {
+		t.Fatalf("unexpected queue source type %#v", queue.jobs[0].Metadata["source_type"])
+	}
+	if queue.jobs[0].Metadata["tracking_status_target"] != db.WalletTrackingStatusCandidate {
+		t.Fatalf("unexpected queue status target %#v", queue.jobs[0].Metadata["tracking_status_target"])
+	}
+	if queue.jobs[0].Metadata["backfill_window_days"] != 180 {
+		t.Fatalf("expected 180-day backfill policy, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	}
+	if queue.jobs[0].Metadata["backfill_limit"] != 750 {
+		t.Fatalf("expected backfill limit 750, got %#v", queue.jobs[0].Metadata["backfill_limit"])
 	}
 	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 1 {
 		t.Fatalf("expected 1-hop search expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
@@ -280,10 +289,16 @@ func TestSearchServiceQueuesWalletBackfillWhenManualRefreshRequested(t *testing.
 	if queue.jobs[0].Metadata["refresh_reason"] != "manual" {
 		t.Fatalf("unexpected refresh metadata %#v", queue.jobs[0].Metadata)
 	}
+	if queue.jobs[0].Metadata["backfill_window_days"] != searchManualRefreshWindowDays {
+		t.Fatalf("unexpected manual refresh window %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	}
+	if queue.jobs[0].Metadata["backfill_limit"] != searchManualRefreshLimit {
+		t.Fatalf("unexpected manual refresh limit %#v", queue.jobs[0].Metadata["backfill_limit"])
+	}
 	if !result.Results[0].Queued {
 		t.Fatal("expected manual refresh search result to mark queued")
 	}
-	expected := "Found wallet summary for Indexed Whale. Queued a background refresh on demand."
+	expected := "Found wallet summary for Indexed Whale. Queued a background coverage expansion on demand."
 	if result.Results[0].Explanation != expected {
 		t.Fatalf("unexpected manual refresh explanation: %s", result.Results[0].Explanation)
 	}
@@ -399,7 +414,7 @@ func TestSearchServiceExplainsUnknownQuery(t *testing.T) {
 	t.Parallel()
 
 	svc := NewSearchService(nil)
-	result := svc.Search(context.Background(), "whalegraph")
+	result := svc.Search(context.Background(), "flowintel")
 
 	if result.InputKind != searchKindUnknown {
 		t.Fatalf("expected unknown input kind, got %s", result.InputKind)

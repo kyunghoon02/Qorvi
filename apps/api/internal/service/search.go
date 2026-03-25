@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 var evmAddressPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
@@ -31,8 +31,11 @@ const (
 	searchStaleRefreshWindowDays = 30
 	searchStaleRefreshLimit      = 250
 	searchStaleRefreshDepth      = 1
-	searchLookupMissWindowDays   = 90
-	searchLookupMissLimit        = 500
+	searchManualRefreshWindowDays = 365
+	searchManualRefreshLimit      = 1000
+	searchManualRefreshDepth      = 1
+	searchLookupMissWindowDays    = 180
+	searchLookupMissLimit         = 750
 	searchLookupMissDepth        = 1
 )
 
@@ -68,6 +71,7 @@ type WalletSummaryLookup interface {
 type SearchService struct {
 	wallets WalletSummaryLookup
 	queue   db.WalletBackfillQueueStore
+	tracking db.WalletTrackingStateStore
 	Now     func() time.Time
 }
 
@@ -79,9 +83,18 @@ func NewSearchServiceWithBackfillQueue(
 	wallets WalletSummaryLookup,
 	queue db.WalletBackfillQueueStore,
 ) *SearchService {
+	return NewSearchServiceWithBackfillQueueAndTracking(wallets, queue, nil)
+}
+
+func NewSearchServiceWithBackfillQueueAndTracking(
+	wallets WalletSummaryLookup,
+	queue db.WalletBackfillQueueStore,
+	tracking db.WalletTrackingStateStore,
+) *SearchService {
 	return &SearchService{
 		wallets: wallets,
 		queue:   queue,
+		tracking: tracking,
 		Now:     time.Now,
 	}
 }
@@ -127,16 +140,16 @@ func (s *SearchService) SearchWithOptions(
 							"query":                           trimmed,
 							"refresh_reason":                  "manual",
 							"last_indexed_at":                 strings.TrimSpace(summary.Indexing.LastIndexedAt),
-							"backfill_window_days":            searchStaleRefreshWindowDays,
-							"backfill_limit":                  searchStaleRefreshLimit,
-							"backfill_expansion_depth":        searchStaleRefreshDepth,
+							"backfill_window_days":            searchManualRefreshWindowDays,
+							"backfill_limit":                  searchManualRefreshLimit,
+							"backfill_expansion_depth":        searchManualRefreshDepth,
 							"backfill_stop_service_addresses": true,
 						},
 					})
 					if enqueueErr := s.queue.EnqueueWalletBackfill(ctx, job); enqueueErr == nil {
 						result.Queued = true
 						result.Explanation = fmt.Sprintf(
-							"Found wallet summary for %s. Queued a background refresh on demand.",
+							"Found wallet summary for %s. Queued a background coverage expansion on demand.",
 							result.Label,
 						)
 					}
@@ -173,6 +186,12 @@ func (s *SearchService) SearchWithOptions(
 				Source:      searchLookupMissSource,
 				RequestedAt: s.now().UTC(),
 				Metadata: map[string]any{
+					"reason":                          "user_search",
+					"priority":                        120,
+					"source_type":                     db.WalletTrackingSourceTypeUserSearch,
+					"source_ref":                      trimmed,
+					"candidate_score":                 1.0,
+					"tracking_status_target":          db.WalletTrackingStatusCandidate,
 					"input_kind":                      classification.kind,
 					"query":                           trimmed,
 					"backfill_window_days":            searchLookupMissWindowDays,
@@ -181,6 +200,26 @@ func (s *SearchService) SearchWithOptions(
 					"backfill_stop_service_addresses": true,
 				},
 			})
+			if s.tracking != nil {
+				_ = s.tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
+					Chain:            domain.Chain(classification.chain),
+					Address:          trimmed,
+					SourceType:       db.WalletTrackingSourceTypeUserSearch,
+					SourceRef:        trimmed,
+					DiscoveryReason:  "user_search",
+					Confidence:       1,
+					CandidateScore:   1,
+					TrackingPriority: 120,
+					ObservedAt:       s.now().UTC(),
+					Payload: map[string]any{
+						"input_kind": classification.kind,
+						"query":      trimmed,
+					},
+					Notes: map[string]any{
+						"queued_via": searchLookupMissSource,
+					},
+				})
+			}
 			if enqueueErr := s.queue.EnqueueWalletBackfill(ctx, job); enqueueErr == nil {
 				result.Queued = true
 				result.Explanation = fmt.Sprintf("Wallet not indexed yet. Queued background backfill for %s.", result.ChainLabel)

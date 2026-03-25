@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
 )
 
 func TestAdminConsoleServiceListAndMutateResources(t *testing.T) {
@@ -43,6 +43,21 @@ func TestAdminConsoleServiceListAndMutateResources(t *testing.T) {
 			Failed24h:      1,
 			RetryableCount: 1,
 			LastFailureAt:  ptrTime(time.Date(2026, time.March, 21, 3, 40, 0, 0, time.UTC)),
+		},
+		WalletTracking: repository.AdminWalletTrackingSnapshot{
+			CandidateCount:  4,
+			TrackedCount:    8,
+			LabeledCount:    3,
+			ScoredCount:     2,
+			StaleCount:      1,
+			SuppressedCount: 0,
+		},
+		TrackingSubscriptions: repository.AdminWalletTrackingSubscriptionSnapshot{
+			PendingCount: 1,
+			ActiveCount:  5,
+			ErroredCount: 1,
+			PausedCount:  0,
+			LastEventAt:  ptrTime(time.Date(2026, time.March, 21, 3, 59, 0, 0, time.UTC)),
 		},
 		RecentRuns: []repository.AdminJobHealthSnapshot{{
 			JobName:             "wallet-backfill-drain-batch",
@@ -114,6 +129,12 @@ func TestAdminConsoleServiceListAndMutateResources(t *testing.T) {
 	}
 	if observability.Ingest.LagStatus != "healthy" {
 		t.Fatalf("unexpected ingest snapshot %#v", observability.Ingest)
+	}
+	if observability.WalletTracking.TrackedCount != 8 {
+		t.Fatalf("unexpected wallet tracking snapshot %#v", observability.WalletTracking)
+	}
+	if observability.TrackingSubscriptions.ActiveCount != 5 {
+		t.Fatalf("unexpected tracking subscription snapshot %#v", observability.TrackingSubscriptions)
 	}
 	if len(observability.RecentFailures) != 1 {
 		t.Fatalf("unexpected recent failures %#v", observability.RecentFailures)

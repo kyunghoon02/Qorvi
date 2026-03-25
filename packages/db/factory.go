@@ -14,6 +14,14 @@ func NewWalletSummaryRepositoryFromClients(clients *StorageClients, cacheTTL tim
 		NewPostgresWalletIdentityReaderFromPool(clients.Postgres),
 		NewPostgresWalletStatsReaderFromPool(clients.Postgres),
 		NewNeo4jWalletGraphSignalReader(clients.Neo4j, "neo4j"),
+		NewPostgresWalletLabelingStoreWithInvalidation(
+			NewPostgresWalletStoreFromPool(clients.Postgres),
+			clients.Postgres,
+			clients.Postgres,
+			NewRedisWalletSummaryCache(clients.Redis),
+			NewRedisWalletGraphCache(clients.Redis),
+			NewPostgresWalletGraphSnapshotStoreFromPool(clients.Postgres),
+		),
 		NewWalletEnrichmentSnapshotStoreFromPool(clients.Postgres),
 		NewPostgresClusterScoreSnapshotReaderFromPool(clients.Postgres),
 		NewPostgresShadowExitSnapshotReaderFromPool(clients.Postgres),
@@ -31,12 +39,22 @@ func NewWalletGraphRepositoryFromClients(clients *StorageClients, cacheTTL time.
 
 	return NewWalletGraphRepository(
 		NewCachedWalletGraphReader(
-			NewEntityLinkedWalletGraphReader(
-				NewEnrichedWalletGraphReader(
-					NewNeo4jWalletGraphReader(clients.Neo4j, "neo4j"),
-					NewPostgresWalletGraphEdgeFlowReader(clients.Postgres),
+			NewLabeledWalletGraphReader(
+				NewEntityLinkedWalletGraphReader(
+					NewEnrichedWalletGraphReader(
+						NewNeo4jWalletGraphReader(clients.Neo4j, "neo4j"),
+						NewPostgresWalletGraphEdgeFlowReader(clients.Postgres),
+					),
+					NewPostgresWalletGraphEntityLinkReader(clients.Postgres),
 				),
-				NewPostgresWalletGraphEntityLinkReader(clients.Postgres),
+				NewPostgresWalletLabelingStoreWithInvalidation(
+					NewPostgresWalletStoreFromPool(clients.Postgres),
+					clients.Postgres,
+					clients.Postgres,
+					NewRedisWalletSummaryCache(clients.Redis),
+					NewRedisWalletGraphCache(clients.Redis),
+					NewPostgresWalletGraphSnapshotStoreFromPool(clients.Postgres),
+				),
 			),
 			NewRedisWalletGraphCache(clients.Redis),
 			NewPostgresWalletGraphSnapshotStoreFromPool(clients.Postgres),
@@ -98,6 +116,32 @@ func NewWalletStoreFromClients(clients *StorageClients) *PostgresWalletStore {
 	}
 
 	return NewPostgresWalletStoreFromPool(clients.Postgres)
+}
+
+func NewWalletLabelingStoreFromClients(clients *StorageClients) *PostgresWalletLabelingStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletLabelingStoreWithInvalidation(
+		NewPostgresWalletStoreFromPool(clients.Postgres),
+		clients.Postgres,
+		clients.Postgres,
+		NewRedisWalletSummaryCache(clients.Redis),
+		NewRedisWalletGraphCache(clients.Redis),
+		NewPostgresWalletGraphSnapshotStoreFromPool(clients.Postgres),
+	)
+}
+
+func NewWalletTrackingStateStoreFromClients(clients *StorageClients) *PostgresWalletTrackingStateStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletTrackingStateStore(
+		NewPostgresWalletStoreFromPool(clients.Postgres),
+		clients.Postgres,
+	)
 }
 
 func NewHeuristicEntityAssignmentStoreFromClients(
@@ -167,6 +211,25 @@ func NewSignalEventStoreFromClients(clients *StorageClients) *PostgresSignalEven
 	}
 
 	return NewPostgresSignalEventStoreFromPool(clients.Postgres)
+}
+
+func NewFindingStoreFromClients(clients *StorageClients) *PostgresFindingStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresFindingStoreFromPool(clients.Postgres)
+}
+
+func NewEntityInterpretationReaderFromClients(clients *StorageClients) *PostgresEntityInterpretationReader {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresEntityInterpretationReader(
+		clients.Postgres,
+		NewWalletLabelingStoreFromClients(clients),
+	)
 }
 
 func NewShadowExitCandidateReaderFromClients(clients *StorageClients) *PostgresShadowExitCandidateReader {

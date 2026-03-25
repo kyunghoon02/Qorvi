@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/whalegraph/whalegraph/packages/db"
+	"github.com/flowintel/flowintel/packages/db"
 )
 
 type WebhookIngestService interface {
@@ -28,6 +28,7 @@ func newCountingWebhookIngestService() WebhookIngestService {
 func NewWebhookIngestService(
 	wallets webhookWalletEnsurer,
 	entityAssign webhookWalletEntityAssignmentWriter,
+	labeling webhookWalletLabelingWriter,
 	transactions db.NormalizedTransactionStore,
 	dailyStats db.WalletDailyStatsRefresher,
 	graph db.TransactionGraphMaterializer,
@@ -38,10 +39,12 @@ func NewWebhookIngestService(
 	rawPayloads db.RawPayloadStore,
 	providerUsage db.ProviderUsageLogStore,
 	jobRuns db.JobRunStore,
+	tracking db.WalletTrackingStateStore,
 ) WebhookIngestService {
 	return newProviderWebhookPersistingService(
 		wallets,
 		entityAssign,
+		labeling,
 		transactions,
 		dailyStats,
 		graph,
@@ -52,6 +55,7 @@ func NewWebhookIngestService(
 		rawPayloads,
 		providerUsage,
 		jobRuns,
+		tracking,
 	)
 }
 

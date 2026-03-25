@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type fakeWalletStore struct {
@@ -21,6 +21,27 @@ func (s *fakeWalletStore) EnsureWallet(_ context.Context, ref db.WalletRef) (db.
 		Chain:    ref.Chain,
 		Address:  ref.Address,
 	}, nil
+}
+
+type fakeWalletTrackingStateStore struct {
+	candidates    []db.WalletTrackingCandidate
+	progresses    []db.WalletTrackingProgress
+	subscriptions []db.WalletTrackingSubscription
+}
+
+func (f *fakeWalletTrackingStateStore) RecordWalletCandidate(_ context.Context, candidate db.WalletTrackingCandidate) error {
+	f.candidates = append(f.candidates, candidate)
+	return nil
+}
+
+func (f *fakeWalletTrackingStateStore) MarkWalletTracked(_ context.Context, progress db.WalletTrackingProgress) error {
+	f.progresses = append(f.progresses, progress)
+	return nil
+}
+
+func (f *fakeWalletTrackingStateStore) UpsertWalletTrackingSubscription(_ context.Context, subscription db.WalletTrackingSubscription) error {
+	f.subscriptions = append(f.subscriptions, subscription)
+	return nil
 }
 
 type fakeTransactionStore struct {
@@ -648,6 +669,7 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnce(t *testing.T) {
 	summaryCache := &fakeWalletSummaryCache{}
 	graphCache := &fakeWalletGraphCache{}
 	graphSnapshots := &fakeWalletGraphSnapshotStore{}
+	tracking := &fakeWalletTrackingStateStore{}
 	queue := &fakeWalletBackfillQueueStore{
 		jobs: []db.WalletBackfillJob{
 			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
@@ -696,6 +718,7 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnce(t *testing.T) {
 	service.SummaryCache = summaryCache
 	service.GraphCache = graphCache
 	service.GraphSnapshots = graphSnapshots
+	service.Tracking = tracking
 	service.Dedup = &fakeIngestDedupStore{}
 	service.Queue = queue
 	service.JobRuns = jobRuns
@@ -746,6 +769,15 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnce(t *testing.T) {
 	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("unexpected job run entries %#v", jobRuns.entries)
 	}
+	if len(tracking.candidates) != 1 {
+		t.Fatalf("expected 1 tracking candidate write, got %#v", tracking.candidates)
+	}
+	if len(tracking.progresses) != 1 {
+		t.Fatalf("expected 1 tracking progress write, got %#v", tracking.progresses)
+	}
+	if tracking.progresses[0].Status != db.WalletTrackingStatusTracked {
+		t.Fatalf("unexpected tracking status %#v", tracking.progresses[0])
+	}
 }
 
 func TestHistoricalBackfillIngestServiceEnqueueCounterpartyExpansion(t *testing.T) {
@@ -795,7 +827,7 @@ func TestHistoricalBackfillIngestServiceEnqueueCounterpartyExpansion(t *testing.
 			Amount:         "12.5",
 			ObservedAt:     time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
 			SchemaVersion:  1,
-			RawPayloadPath: "s3://whalegraph/raw/test.json",
+			RawPayloadPath: "s3://flowintel/raw/test.json",
 			Provider:       "alchemy",
 		}),
 	})
@@ -900,8 +932,8 @@ func TestBuildQueuedHistoricalBackfillBatchUsesSourcePolicies(t *testing.T) {
 	if policy.ExpansionDepth != 2 {
 		t.Fatalf("expected watchlist policy expansion depth 2, got %d", policy.ExpansionDepth)
 	}
-	if got := int(batch.WindowEnd.Sub(batch.WindowStart).Hours() / 24); got != 90 {
-		t.Fatalf("expected 90-day watchlist window, got %d days", got)
+	if got := int(batch.WindowEnd.Sub(batch.WindowStart).Hours() / 24); got != 365 {
+		t.Fatalf("expected 365-day watchlist window, got %d days", got)
 	}
 }
 

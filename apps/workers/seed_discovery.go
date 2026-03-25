@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 const workerModeSeedDiscoveryFixture = "seed-discovery-fixture"
@@ -24,6 +24,7 @@ const seedDiscoveryWatchlistName = "Seed discovery candidates"
 type SeedDiscoveryJobRunner struct {
 	Runner     providers.SeedDiscoveryRunner
 	Queue      db.WalletBackfillQueueStore
+	Tracking   db.WalletTrackingStateStore
 	Dedup      db.IngestDedupStore
 	JobRuns    db.JobRunStore
 	Watchlists interface {
@@ -262,14 +263,44 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 			}
 
 			metadata := cloneSeedDiscoveryMetadata(candidate.Metadata)
+			sourceType := db.WalletTrackingSourceTypeDuneCandidate
+			if candidate.Provider != providers.ProviderDune {
+				sourceType = "seed_candidate"
+			}
 			metadata["seed_discovery_kind"] = candidate.Kind
 			metadata["seed_discovery_confidence"] = candidate.Confidence
 			metadata["seed_discovery_source_id"] = candidate.SourceID
 			metadata["seed_discovery_observed_at"] = candidate.ObservedAt.Format(time.RFC3339)
-			metadata["backfill_window_days"] = 90
+			metadata["reason"] = "new_candidate"
+			metadata["priority"] = 180
+			metadata["source_type"] = sourceType
+			metadata["source_ref"] = candidate.SourceID
+			metadata["candidate_score"] = candidate.Confidence
+			metadata["tracking_status_target"] = db.WalletTrackingStatusCandidate
+			metadata["backfill_window_days"] = 365
 			metadata["backfill_limit"] = 750
 			metadata["backfill_expansion_depth"] = 2
 			metadata["backfill_stop_service_addresses"] = true
+			if r.Tracking != nil {
+				if err := r.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
+					Chain:            candidate.Chain,
+					Address:          candidate.WalletAddress,
+					SourceType:       sourceType,
+					SourceRef:        candidate.SourceID,
+					DiscoveryReason:  "new_candidate",
+					Confidence:       candidate.Confidence,
+					CandidateScore:   candidate.Confidence,
+					TrackingPriority: 180,
+					ObservedAt:       candidate.ObservedAt,
+					Payload:          cloneSeedDiscoveryMetadata(candidate.Metadata),
+					Notes: map[string]any{
+						"provider": string(candidate.Provider),
+						"kind":     candidate.Kind,
+					},
+				}); err != nil {
+					return SeedDiscoveryIngestReport{}, err
+				}
+			}
 
 			if err := r.Queue.EnqueueWalletBackfill(ctx, db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
 				Chain:       candidate.Chain,
@@ -488,7 +519,7 @@ func stringValue(value any) string {
 }
 
 func seedDiscoveryTopNFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("WHALEGRAPH_SEED_DISCOVERY_TOP_N"))
+	value := strings.TrimSpace(os.Getenv("FLOWINTEL_SEED_DISCOVERY_TOP_N"))
 	if value == "" {
 		return 10
 	}
@@ -502,7 +533,7 @@ func seedDiscoveryTopNFromEnv() int {
 }
 
 func seedDiscoveryMinConfidenceFromEnv() float64 {
-	value := strings.TrimSpace(os.Getenv("WHALEGRAPH_SEED_DISCOVERY_MIN_CONFIDENCE"))
+	value := strings.TrimSpace(os.Getenv("FLOWINTEL_SEED_DISCOVERY_MIN_CONFIDENCE"))
 	if value == "" {
 		return 0.8
 	}

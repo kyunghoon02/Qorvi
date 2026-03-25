@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type fakeSeedDiscoveryWatchlistStore struct {
@@ -109,8 +109,8 @@ func TestSeedDiscoveryJobRunnerRunEnqueue(t *testing.T) {
 	if queue.jobs[0].Metadata["seed_label"] != "dune_fixture_whale" {
 		t.Fatalf("expected seed label metadata, got %#v", queue.jobs[0].Metadata["seed_label"])
 	}
-	if queue.jobs[0].Metadata["backfill_window_days"] != 90 {
-		t.Fatalf("expected 90-day seed-discovery window, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	if queue.jobs[0].Metadata["backfill_window_days"] != 365 {
+		t.Fatalf("expected 365-day seed-discovery window, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
 	}
 	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 2 {
 		t.Fatalf("expected 2-hop seed-discovery expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])

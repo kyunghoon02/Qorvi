@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/ops"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/ops"
 )
 
 var (
@@ -76,6 +76,23 @@ type AdminAlertDeliverySnapshot struct {
 	LastFailureAt  *time.Time
 }
 
+type AdminWalletTrackingSnapshot struct {
+	CandidateCount  int
+	TrackedCount    int
+	LabeledCount    int
+	ScoredCount     int
+	StaleCount      int
+	SuppressedCount int
+}
+
+type AdminWalletTrackingSubscriptionSnapshot struct {
+	PendingCount int
+	ActiveCount  int
+	ErroredCount int
+	PausedCount  int
+	LastEventAt  *time.Time
+}
+
 type AdminJobHealthSnapshot struct {
 	JobName             string
 	LastStatus          string
@@ -95,11 +112,13 @@ type AdminFailureSnapshot struct {
 }
 
 type AdminObservabilitySnapshot struct {
-	ProviderUsage  []AdminProviderUsageSnapshot
-	Ingest         AdminIngestSnapshot
-	AlertDelivery  AdminAlertDeliverySnapshot
-	RecentRuns     []AdminJobHealthSnapshot
-	RecentFailures []AdminFailureSnapshot
+	ProviderUsage         []AdminProviderUsageSnapshot
+	Ingest                AdminIngestSnapshot
+	AlertDelivery         AdminAlertDeliverySnapshot
+	WalletTracking        AdminWalletTrackingSnapshot
+	TrackingSubscriptions AdminWalletTrackingSubscriptionSnapshot
+	RecentRuns            []AdminJobHealthSnapshot
+	RecentFailures        []AdminFailureSnapshot
 }
 
 type AdminCuratedList struct {
@@ -681,6 +700,31 @@ func (r *PostgresAdminConsoleRepository) GetObservabilitySnapshot(ctx context.Co
 		LastFailureAt:  copyTimePtr(alertRecord.LastFailureAt),
 	}
 
+	trackingRecord, err := r.store.ReadWalletTrackingOverview(ctx)
+	if err != nil {
+		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
+	}
+	tracking := AdminWalletTrackingSnapshot{
+		CandidateCount:  trackingRecord.CandidateCount,
+		TrackedCount:    trackingRecord.TrackedCount,
+		LabeledCount:    trackingRecord.LabeledCount,
+		ScoredCount:     trackingRecord.ScoredCount,
+		StaleCount:      trackingRecord.StaleCount,
+		SuppressedCount: trackingRecord.SuppressedCount,
+	}
+
+	subscriptionRecord, err := r.store.ReadWalletTrackingSubscriptionOverview(ctx)
+	if err != nil {
+		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
+	}
+	subscriptions := AdminWalletTrackingSubscriptionSnapshot{
+		PendingCount: subscriptionRecord.PendingCount,
+		ActiveCount:  subscriptionRecord.ActiveCount,
+		ErroredCount: subscriptionRecord.ErroredCount,
+		PausedCount:  subscriptionRecord.PausedCount,
+		LastEventAt:  copyTimePtr(subscriptionRecord.LastEventAt),
+	}
+
 	runRows, err := r.store.ListRecentJobHealth(ctx, 5)
 	if err != nil {
 		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
@@ -714,11 +758,13 @@ func (r *PostgresAdminConsoleRepository) GetObservabilitySnapshot(ctx context.Co
 	}
 
 	return AdminObservabilitySnapshot{
-		ProviderUsage:  providerUsage,
-		Ingest:         ingest,
-		AlertDelivery:  alertDelivery,
-		RecentRuns:     recentRuns,
-		RecentFailures: recentFailures,
+		ProviderUsage:         providerUsage,
+		Ingest:                ingest,
+		AlertDelivery:         alertDelivery,
+		WalletTracking:        tracking,
+		TrackingSubscriptions: subscriptions,
+		RecentRuns:            recentRuns,
+		RecentFailures:        recentFailures,
 	}, nil
 }
 

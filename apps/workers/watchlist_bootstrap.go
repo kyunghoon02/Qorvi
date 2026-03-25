@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 const workerModeWatchlistBootstrapEnqueue = "watchlist-bootstrap-enqueue"
@@ -18,6 +18,7 @@ type WatchlistBootstrapService struct {
 	Watchlists interface {
 		ListWalletRefs(context.Context) ([]db.WalletRef, error)
 	}
+	Tracking db.WalletTrackingStateStore
 	Queue   db.WalletBackfillQueueStore
 	Dedup   db.IngestDedupStore
 	JobRuns db.JobRunStore
@@ -64,6 +65,22 @@ func (s WatchlistBootstrapService) RunEnqueue(ctx context.Context) (WatchlistBoo
 				continue
 			}
 		}
+		if s.Tracking != nil {
+			if err := s.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
+				Chain:            ref.Chain,
+				Address:          ref.Address,
+				SourceType:       db.WalletTrackingSourceTypeWatchlist,
+				SourceRef:        "watchlist_bootstrap",
+				DiscoveryReason:  "watchlist_bootstrap",
+				Confidence:       1,
+				CandidateScore:   1,
+				TrackingPriority: 200,
+				ObservedAt:       s.now().UTC(),
+				Notes:            map[string]any{"collector": "watchlist_bootstrap"},
+			}); err != nil {
+				return WatchlistBootstrapReport{}, err
+			}
+		}
 
 		if err := s.Queue.EnqueueWalletBackfill(ctx, db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
 			Chain:       ref.Chain,
@@ -71,8 +88,14 @@ func (s WatchlistBootstrapService) RunEnqueue(ctx context.Context) (WatchlistBoo
 			Source:      "watchlist_bootstrap",
 			RequestedAt: s.now().UTC(),
 			Metadata: map[string]any{
+				"reason":                          "watchlist_bootstrap",
+				"priority":                        200,
+				"source_type":                     db.WalletTrackingSourceTypeWatchlist,
+				"source_ref":                      "watchlist_bootstrap",
+				"candidate_score":                 1.0,
+				"tracking_status_target":          db.WalletTrackingStatusCandidate,
 				"watchlist_bootstrap":             true,
-				"backfill_window_days":            90,
+				"backfill_window_days":            365,
 				"backfill_limit":                  750,
 				"backfill_expansion_depth":        2,
 				"backfill_stop_service_addresses": true,
@@ -126,7 +149,7 @@ func (s WatchlistBootstrapService) recordJobRun(ctx context.Context, entry db.Jo
 }
 
 func walletBackfillDrainLimit() int {
-	value := strings.TrimSpace(os.Getenv("WHALEGRAPH_WALLET_BACKFILL_DRAIN_LIMIT"))
+	value := strings.TrimSpace(os.Getenv("FLOWINTEL_WALLET_BACKFILL_DRAIN_LIMIT"))
 	if value == "" {
 		return 25
 	}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/whalegraph/whalegraph/packages/ops"
+	"github.com/flowintel/flowintel/packages/ops"
 )
 
 var (
@@ -56,6 +56,23 @@ type AdminAlertDeliveryHealthRecord struct {
 	Failed24h      int
 	RetryableCount int
 	LastFailureAt  *time.Time
+}
+
+type AdminWalletTrackingOverviewRecord struct {
+	CandidateCount  int
+	TrackedCount    int
+	LabeledCount    int
+	ScoredCount     int
+	StaleCount      int
+	SuppressedCount int
+}
+
+type AdminWalletTrackingSubscriptionOverviewRecord struct {
+	PendingCount int
+	ActiveCount  int
+	ErroredCount int
+	PausedCount  int
+	LastEventAt  *time.Time
 }
 
 type AdminJobHealthRecord struct {
@@ -199,6 +216,27 @@ SELECT
   ) AS last_failure_at
 FROM alert_delivery_attempts
 WHERE created_at >= $1
+`
+
+const readAdminWalletTrackingOverviewSQL = `
+SELECT
+  COUNT(*) FILTER (WHERE status = 'candidate')::int AS candidate_count,
+  COUNT(*) FILTER (WHERE status = 'tracked')::int AS tracked_count,
+  COUNT(*) FILTER (WHERE status = 'labeled')::int AS labeled_count,
+  COUNT(*) FILTER (WHERE status = 'scored')::int AS scored_count,
+  COUNT(*) FILTER (WHERE status = 'stale')::int AS stale_count,
+  COUNT(*) FILTER (WHERE status = 'suppressed')::int AS suppressed_count
+FROM wallet_tracking_state
+`
+
+const readAdminWalletTrackingSubscriptionOverviewSQL = `
+SELECT
+  COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+  COUNT(*) FILTER (WHERE status = 'active')::int AS active_count,
+  COUNT(*) FILTER (WHERE status = 'errored')::int AS errored_count,
+  COUNT(*) FILTER (WHERE status = 'paused')::int AS paused_count,
+  MAX(last_event_at) AS last_event_at
+FROM wallet_tracking_subscriptions
 `
 
 const listAdminRecentJobHealthSQL = `
@@ -618,6 +656,56 @@ func (s *PostgresAdminConsoleStore) ReadAlertDeliveryHealth(
 		next := lastFailureAt.Time.UTC()
 		record.LastFailureAt = &next
 	}
+	return record, nil
+}
+
+func (s *PostgresAdminConsoleStore) ReadWalletTrackingOverview(
+	ctx context.Context,
+) (AdminWalletTrackingOverviewRecord, error) {
+	if s == nil || s.Querier == nil {
+		return AdminWalletTrackingOverviewRecord{}, nil
+	}
+
+	var record AdminWalletTrackingOverviewRecord
+	if err := s.Querier.QueryRow(ctx, readAdminWalletTrackingOverviewSQL).Scan(
+		&record.CandidateCount,
+		&record.TrackedCount,
+		&record.LabeledCount,
+		&record.ScoredCount,
+		&record.StaleCount,
+		&record.SuppressedCount,
+	); err != nil {
+		return AdminWalletTrackingOverviewRecord{}, fmt.Errorf("read wallet tracking overview: %w", err)
+	}
+
+	return record, nil
+}
+
+func (s *PostgresAdminConsoleStore) ReadWalletTrackingSubscriptionOverview(
+	ctx context.Context,
+) (AdminWalletTrackingSubscriptionOverviewRecord, error) {
+	if s == nil || s.Querier == nil {
+		return AdminWalletTrackingSubscriptionOverviewRecord{}, nil
+	}
+
+	var (
+		record      AdminWalletTrackingSubscriptionOverviewRecord
+		lastEventAt sql.NullTime
+	)
+	if err := s.Querier.QueryRow(ctx, readAdminWalletTrackingSubscriptionOverviewSQL).Scan(
+		&record.PendingCount,
+		&record.ActiveCount,
+		&record.ErroredCount,
+		&record.PausedCount,
+		&lastEventAt,
+	); err != nil {
+		return AdminWalletTrackingSubscriptionOverviewRecord{}, fmt.Errorf("read wallet tracking subscription overview: %w", err)
+	}
+	if lastEventAt.Valid {
+		next := lastEventAt.Time.UTC()
+		record.LastEventAt = &next
+	}
+
 	return record, nil
 }
 

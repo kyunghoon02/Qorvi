@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeAPIWebhookWalletStore struct {
@@ -192,6 +192,35 @@ func (s *fakeAPIWebhookEntityAssignmentStore) UpsertHeuristicEntityAssignments(
 	return nil
 }
 
+type fakeAPIWebhookLabelingStore struct {
+	batches []db.WalletLabelingBatch
+}
+
+func (s *fakeAPIWebhookLabelingStore) ApplyWalletLabeling(
+	_ context.Context,
+	batch db.WalletLabelingBatch,
+) error {
+	s.batches = append(s.batches, batch)
+	return nil
+}
+
+type fakeAPIWebhookTrackingStateStore struct {
+	subscriptions []db.WalletTrackingSubscription
+}
+
+func (s *fakeAPIWebhookTrackingStateStore) RecordWalletCandidate(context.Context, db.WalletTrackingCandidate) error {
+	return nil
+}
+
+func (s *fakeAPIWebhookTrackingStateStore) MarkWalletTracked(context.Context, db.WalletTrackingProgress) error {
+	return nil
+}
+
+func (s *fakeAPIWebhookTrackingStateStore) UpsertWalletTrackingSubscription(_ context.Context, subscription db.WalletTrackingSubscription) error {
+	s.subscriptions = append(s.subscriptions, subscription)
+	return nil
+}
+
 func TestProviderWebhookPersistingServiceIngestAlchemyAddressActivity(t *testing.T) {
 	t.Parallel()
 
@@ -207,8 +236,10 @@ func TestProviderWebhookPersistingServiceIngestAlchemyAddressActivity(t *testing
 	providerUsage := &fakeAPIWebhookProviderUsageStore{}
 	jobRuns := &fakeAPIWebhookJobRunStore{}
 	entityAssignments := &fakeAPIWebhookEntityAssignmentStore{}
+	labeling := &fakeAPIWebhookLabelingStore{}
+	tracking := &fakeAPIWebhookTrackingStateStore{}
 
-	service := NewWebhookIngestService(wallets, entityAssignments, transactions, dailyStats, graph, graphCache, graphSnapshots, summaryCache, dedup, rawPayloads, providerUsage, jobRuns)
+	service := NewWebhookIngestService(wallets, entityAssignments, labeling, transactions, dailyStats, graph, graphCache, graphSnapshots, summaryCache, dedup, rawPayloads, providerUsage, jobRuns, tracking)
 	persisting, ok := service.(providerWebhookPersistingService)
 	if !ok {
 		t.Fatal("expected providerWebhookPersistingService")
@@ -278,6 +309,12 @@ func TestProviderWebhookPersistingServiceIngestAlchemyAddressActivity(t *testing
 	if len(jobRuns.entries) != 1 {
 		t.Fatalf("expected 1 job run entry, got %d", len(jobRuns.entries))
 	}
+	if len(tracking.subscriptions) != 2 {
+		t.Fatalf("expected 2 tracking subscription freshness updates, got %d", len(tracking.subscriptions))
+	}
+	if tracking.subscriptions[0].Provider != "alchemy" || tracking.subscriptions[0].Status != "active" {
+		t.Fatalf("unexpected tracking subscription %#v", tracking.subscriptions[0])
+	}
 }
 
 func TestProviderWebhookPersistingServiceIngestHeliusAddressActivity(t *testing.T) {
@@ -295,8 +332,10 @@ func TestProviderWebhookPersistingServiceIngestHeliusAddressActivity(t *testing.
 	providerUsage := &fakeAPIWebhookProviderUsageStore{}
 	jobRuns := &fakeAPIWebhookJobRunStore{}
 	entityAssignments := &fakeAPIWebhookEntityAssignmentStore{}
+	labeling := &fakeAPIWebhookLabelingStore{}
+	tracking := &fakeAPIWebhookTrackingStateStore{}
 
-	service := NewWebhookIngestService(wallets, entityAssignments, transactions, dailyStats, graph, graphCache, graphSnapshots, summaryCache, dedup, rawPayloads, providerUsage, jobRuns)
+	service := NewWebhookIngestService(wallets, entityAssignments, labeling, transactions, dailyStats, graph, graphCache, graphSnapshots, summaryCache, dedup, rawPayloads, providerUsage, jobRuns, tracking)
 	persisting, ok := service.(providerWebhookPersistingService)
 	if !ok {
 		t.Fatal("expected providerWebhookPersistingService")
@@ -360,6 +399,9 @@ func TestProviderWebhookPersistingServiceIngestHeliusAddressActivity(t *testing.
 	if len(entityAssignments.assignments) != 0 {
 		t.Fatalf("expected generic SYSTEM_PROGRAM source to skip heuristic entity assignment, got %#v", entityAssignments.assignments)
 	}
+	if len(tracking.subscriptions) != 2 {
+		t.Fatalf("expected 2 helius tracking freshness updates, got %d", len(tracking.subscriptions))
+	}
 }
 
 func TestProviderWebhookPersistingServiceSkipsDuplicateWebhookTransactions(t *testing.T) {
@@ -372,9 +414,12 @@ func TestProviderWebhookPersistingServiceSkipsDuplicateWebhookTransactions(t *te
 	dedup := &fakeAPIWebhookDedupStore{}
 	rawPayloads := &fakeAPIWebhookRawPayloadStore{}
 	entityAssignments := &fakeAPIWebhookEntityAssignmentStore{}
+	labeling := &fakeAPIWebhookLabelingStore{}
+	tracking := &fakeAPIWebhookTrackingStateStore{}
 	service := NewWebhookIngestService(
 		wallets,
 		entityAssignments,
+		labeling,
 		transactions,
 		dailyStats,
 		graph,
@@ -385,6 +430,7 @@ func TestProviderWebhookPersistingServiceSkipsDuplicateWebhookTransactions(t *te
 		rawPayloads,
 		&fakeAPIWebhookProviderUsageStore{},
 		&fakeAPIWebhookJobRunStore{},
+		tracking,
 	)
 	persisting := service.(providerWebhookPersistingService)
 	persisting.Now = func() time.Time {
@@ -429,6 +475,9 @@ func TestProviderWebhookPersistingServiceSkipsDuplicateWebhookTransactions(t *te
 	if len(rawPayloads.descriptors) != 2 {
 		t.Fatalf("expected raw-first behavior to keep both payload writes, got %d", len(rawPayloads.descriptors))
 	}
+	if len(tracking.subscriptions) != 4 {
+		t.Fatalf("expected freshness updates for both webhook deliveries, got %d", len(tracking.subscriptions))
+	}
 }
 
 func TestProviderWebhookPersistingServiceAssignsHeuristicEntitiesFromHeliusMetadata(t *testing.T) {
@@ -443,8 +492,10 @@ func TestProviderWebhookPersistingServiceAssignsHeuristicEntitiesFromHeliusMetad
 	providerUsage := &fakeAPIWebhookProviderUsageStore{}
 	jobRuns := &fakeAPIWebhookJobRunStore{}
 	entityAssignments := &fakeAPIWebhookEntityAssignmentStore{}
+	labeling := &fakeAPIWebhookLabelingStore{}
+	tracking := &fakeAPIWebhookTrackingStateStore{}
 
-	service := NewWebhookIngestService(wallets, entityAssignments, transactions, dailyStats, graph, &fakeAPIWebhookGraphCache{}, &fakeAPIWebhookGraphSnapshotStore{}, &fakeAPIWebhookSummaryCache{}, dedup, rawPayloads, providerUsage, jobRuns)
+	service := NewWebhookIngestService(wallets, entityAssignments, labeling, transactions, dailyStats, graph, &fakeAPIWebhookGraphCache{}, &fakeAPIWebhookGraphSnapshotStore{}, &fakeAPIWebhookSummaryCache{}, dedup, rawPayloads, providerUsage, jobRuns, tracking)
 	persisting := service.(providerWebhookPersistingService)
 	persisting.Now = func() time.Time {
 		return time.Date(2026, time.March, 20, 1, 2, 3, 0, time.UTC)

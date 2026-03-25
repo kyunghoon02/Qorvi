@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
 )
 
 const (

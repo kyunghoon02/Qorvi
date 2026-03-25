@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type HeliusAddressActivityWebhookEvent struct {

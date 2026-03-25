@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/ops"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/ops"
 )
 
 var (
@@ -78,6 +78,23 @@ type AdminAlertDeliverySummary struct {
 	LastFailureAt  string `json:"lastFailureAt,omitempty"`
 }
 
+type AdminWalletTrackingSummary struct {
+	CandidateCount  int `json:"candidateCount"`
+	TrackedCount    int `json:"trackedCount"`
+	LabeledCount    int `json:"labeledCount"`
+	ScoredCount     int `json:"scoredCount"`
+	StaleCount      int `json:"staleCount"`
+	SuppressedCount int `json:"suppressedCount"`
+}
+
+type AdminWalletTrackingSubscriptionSummary struct {
+	PendingCount int    `json:"pendingCount"`
+	ActiveCount  int    `json:"activeCount"`
+	ErroredCount int    `json:"erroredCount"`
+	PausedCount  int    `json:"pausedCount"`
+	LastEventAt  string `json:"lastEventAt,omitempty"`
+}
+
 type AdminJobHealthSummary struct {
 	JobName             string `json:"jobName"`
 	LastStatus          string `json:"lastStatus"`
@@ -97,11 +114,13 @@ type AdminFailureSummary struct {
 }
 
 type AdminObservabilityCollection struct {
-	ProviderUsage  []AdminProviderUsageSummary `json:"providerUsage"`
-	Ingest         AdminIngestSummary          `json:"ingest"`
-	AlertDelivery  AdminAlertDeliverySummary   `json:"alertDelivery"`
-	RecentRuns     []AdminJobHealthSummary     `json:"recentRuns"`
-	RecentFailures []AdminFailureSummary       `json:"recentFailures"`
+	ProviderUsage         []AdminProviderUsageSummary            `json:"providerUsage"`
+	Ingest                AdminIngestSummary                     `json:"ingest"`
+	AlertDelivery         AdminAlertDeliverySummary              `json:"alertDelivery"`
+	WalletTracking        AdminWalletTrackingSummary             `json:"walletTracking"`
+	TrackingSubscriptions AdminWalletTrackingSubscriptionSummary `json:"trackingSubscriptions"`
+	RecentRuns            []AdminJobHealthSummary                `json:"recentRuns"`
+	RecentFailures        []AdminFailureSummary                  `json:"recentFailures"`
 }
 
 type AdminCuratedListItem struct {
@@ -424,6 +443,20 @@ func (s *AdminConsoleService) ListObservability(
 			Failed24h:      item.AlertDelivery.Failed24h,
 			RetryableCount: item.AlertDelivery.RetryableCount,
 		},
+		WalletTracking: AdminWalletTrackingSummary{
+			CandidateCount:  item.WalletTracking.CandidateCount,
+			TrackedCount:    item.WalletTracking.TrackedCount,
+			LabeledCount:    item.WalletTracking.LabeledCount,
+			ScoredCount:     item.WalletTracking.ScoredCount,
+			StaleCount:      item.WalletTracking.StaleCount,
+			SuppressedCount: item.WalletTracking.SuppressedCount,
+		},
+		TrackingSubscriptions: AdminWalletTrackingSubscriptionSummary{
+			PendingCount: item.TrackingSubscriptions.PendingCount,
+			ActiveCount:  item.TrackingSubscriptions.ActiveCount,
+			ErroredCount: item.TrackingSubscriptions.ErroredCount,
+			PausedCount:  item.TrackingSubscriptions.PausedCount,
+		},
 		RecentRuns:     make([]AdminJobHealthSummary, 0, len(item.RecentRuns)),
 		RecentFailures: make([]AdminFailureSummary, 0, len(item.RecentFailures)),
 	}
@@ -448,6 +481,9 @@ func (s *AdminConsoleService) ListObservability(
 	}
 	if item.AlertDelivery.LastFailureAt != nil {
 		result.AlertDelivery.LastFailureAt = item.AlertDelivery.LastFailureAt.UTC().Format(time.RFC3339)
+	}
+	if item.TrackingSubscriptions.LastEventAt != nil {
+		result.TrackingSubscriptions.LastEventAt = item.TrackingSubscriptions.LastEventAt.UTC().Format(time.RFC3339)
 	}
 	for _, run := range item.RecentRuns {
 		summary := AdminJobHealthSummary{

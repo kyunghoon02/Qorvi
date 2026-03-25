@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type HeuristicEntityAssignment struct {
@@ -376,13 +376,13 @@ func heuristicEntityDefinitionFromMetadataLabels(metadata map[string]any) (heuri
 		if normalized == "" || slices.Contains(heuristicEntitySourceStopwords, normalized) {
 			continue
 		}
-		if definition, ok := heuristicEntityDefinitionForSlug(normalized); ok {
-			return definition, true
-		}
 		for _, rule := range heuristicEntityPatternRules {
 			if strings.Contains(normalized, rule.Pattern) {
 				return rule.Definition, true
 			}
+		}
+		if definition, ok := heuristicEntityDefinitionForSlug(normalized); ok {
+			return definition, true
 		}
 	}
 

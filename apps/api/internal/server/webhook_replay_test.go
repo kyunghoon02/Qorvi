@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
 )
 
 type replayScoreSummary struct {
@@ -101,10 +101,13 @@ func replayWebhookTransactions(t *testing.T, provider string, raw []byte) []db.N
 	providerUsage := &fakeAPIWebhookProviderUsageStore{}
 	jobRuns := &fakeAPIWebhookJobRunStore{}
 	entityAssignments := &fakeAPIWebhookEntityAssignmentStore{}
+	labeling := &fakeAPIWebhookLabelingStore{}
+	tracking := &fakeAPIWebhookTrackingStateStore{}
 
 	service := NewWebhookIngestService(
 		wallets,
 		entityAssignments,
+		labeling,
 		transactions,
 		dailyStats,
 		graph,
@@ -115,6 +118,7 @@ func replayWebhookTransactions(t *testing.T, provider string, raw []byte) []db.N
 		rawPayloads,
 		providerUsage,
 		jobRuns,
+		tracking,
 	)
 	persisting := service.(providerWebhookPersistingService)
 	persisting.Now = func() time.Time {

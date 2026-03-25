@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 const workerModeHistoricalBackfillFixture = "historical-backfill-fixture"
@@ -33,6 +33,10 @@ type HeuristicEntityAssignmentWriter interface {
 	UpsertHeuristicEntityAssignments(context.Context, []db.WalletEntityAssignment) error
 }
 
+type WalletLabelingWriter interface {
+	ApplyWalletLabeling(context.Context, db.WalletLabelingBatch) error
+}
+
 type HistoricalBackfillJobRunner struct {
 	Runner providers.HistoricalBackfillRunner
 }
@@ -40,6 +44,7 @@ type HistoricalBackfillJobRunner struct {
 type HistoricalBackfillIngestService struct {
 	Runner         HistoricalBackfillJobRunner
 	Wallets        WalletEnsurer
+	Tracking       db.WalletTrackingStateStore
 	Transactions   NormalizedTransactionWriter
 	DailyStats     db.WalletDailyStatsRefresher
 	Graph          db.TransactionGraphMaterializer
@@ -48,6 +53,7 @@ type HistoricalBackfillIngestService struct {
 	Enrichment     WalletSummaryEnrichmentRefresher
 	SummaryCache   db.WalletSummaryCache
 	EntityIndex    HeuristicEntityAssignmentWriter
+	Labeling       WalletLabelingWriter
 	Dedup          db.IngestDedupStore
 	Queue          db.WalletBackfillQueueStore
 	RawPayloads    db.RawPayloadStore
@@ -89,7 +95,7 @@ type QueuedWalletBackfillBatchReport struct {
 }
 
 const (
-	defaultQueuedBackfillWindowDays     = 90
+	defaultQueuedBackfillWindowDays     = 180
 	defaultQueuedBackfillLimit          = 500
 	defaultQueuedBackfillExpansionDepth = 1
 	defaultQueuedBackfillStopServices   = true
@@ -306,6 +312,7 @@ func buildWorkerOutput(
 	shadowExit ShadowExitSnapshotService,
 	firstConnection FirstConnectionSnapshotService,
 	alertDeliveryRetry AlertDeliveryRetryService,
+	trackingSubscriptionSync TrackingSubscriptionSyncService,
 	billingSubscriptionSync ...BillingSubscriptionSyncService,
 ) (string, error) {
 	var resolvedBillingSubscriptionSync BillingSubscriptionSyncService
@@ -435,6 +442,13 @@ func buildWorkerOutput(
 			return "", err
 		}
 		return buildAlertDeliveryRetryBatchSummary(report), nil
+	}
+	if mode == workerModeWalletTrackingSubscriptionSync {
+		report, err := trackingSubscriptionSync.RunBatch(ctx, trackingSubscriptionSyncLimitFromEnv())
+		if err != nil {
+			return "", err
+		}
+		return buildTrackingSubscriptionSyncSummary(report), nil
 	}
 	if mode == workerModeBillingSubscriptionSync {
 		report, err := resolvedBillingSubscriptionSync.RunBatch(ctx, billingSubscriptionSyncLimitFromEnv())
@@ -598,6 +612,7 @@ func queuedBackfillPolicyForJob(job db.WalletBackfillJob) queuedBackfillPolicy {
 
 	switch strings.TrimSpace(job.Source) {
 	case "watchlist_bootstrap", "seed_discovery":
+		policy.WindowDays = 365
 		policy.ExpansionDepth = 2
 		policy.Limit = 750
 	}
@@ -717,13 +732,13 @@ func pointerToTime(value time.Time) *time.Time {
 
 func clusterScoreTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_ADDRESS")),
 	}
 }
 
 func clusterScoreDepthFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_DEPTH"))
+	value := strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_DEPTH"))
 	if value == "" {
 		return 1
 	}
@@ -737,7 +752,7 @@ func clusterScoreDepthFromEnv() int {
 }
 
 func clusterScoreObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("WHALEGRAPH_CLUSTER_SCORE_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_OBSERVED_AT"))
 }
 
 func (s HistoricalBackfillIngestService) recordProviderUsage(
@@ -789,19 +804,21 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 		batch.Request.WalletAddress,
 		operation,
 	)
-	result, err := s.Runner.Runner.Run(batch)
-	if err != nil {
-		if logErr := s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt)); logErr != nil {
-			return historicalBackfillBatchReport{}, logErr
-		}
-		return historicalBackfillBatchReport{}, err
-	}
-
 	identity, err := s.Wallets.EnsureWallet(ctx, db.WalletRef{
 		Chain:   batch.Request.Chain,
 		Address: batch.Request.WalletAddress,
 	})
 	if err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.recordWalletTrackingCandidate(ctx, batch, job, policy); err != nil {
+		return historicalBackfillBatchReport{}, err
+	}
+	result, err := s.Runner.Runner.Run(batch)
+	if err != nil {
+		if logErr := s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt)); logErr != nil {
+			return historicalBackfillBatchReport{}, logErr
+		}
 		return historicalBackfillBatchReport{}, err
 	}
 
@@ -816,6 +833,10 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 		return historicalBackfillBatchReport{}, err
 	}
 	if err := s.upsertHeuristicEntityAssignments(ctx, activities); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
+	if err := s.applyWalletLabeling(ctx, activities); err != nil {
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
@@ -877,6 +898,10 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
+	if err := s.markWalletTracked(ctx, batch, job, policy, activities); err != nil {
+		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
+		return historicalBackfillBatchReport{}, err
+	}
 	if err := s.recordProviderUsage(ctx, batch.Provider, operation, 200, s.now().Sub(batchStartedAt)); err != nil {
 		return historicalBackfillBatchReport{}, err
 	}
@@ -933,6 +958,64 @@ func (s HistoricalBackfillIngestService) refreshWalletEnrichment(
 		Address: address,
 	})
 	return err
+}
+
+func (s HistoricalBackfillIngestService) applyWalletLabeling(
+	ctx context.Context,
+	activities []providers.ProviderWalletActivity,
+) error {
+	if s.Labeling == nil || len(activities) == 0 {
+		return nil
+	}
+
+	derived := providers.DeriveWalletLabeling(activities)
+	if len(derived.Definitions) == 0 && len(derived.Evidences) == 0 && len(derived.Memberships) == 0 {
+		return nil
+	}
+
+	batch := db.WalletLabelingBatch{
+		Definitions: make([]db.WalletLabelDefinition, 0, len(derived.Definitions)),
+		Evidences:   make([]db.WalletEvidenceRecord, 0, len(derived.Evidences)),
+		Memberships: make([]db.WalletLabelMembershipRecord, 0, len(derived.Memberships)),
+	}
+	for _, definition := range derived.Definitions {
+		batch.Definitions = append(batch.Definitions, db.WalletLabelDefinition{
+			LabelKey:          definition.LabelKey,
+			LabelName:         definition.LabelName,
+			Class:             definition.Class,
+			EntityType:        definition.EntityType,
+			Source:            definition.Source,
+			DefaultConfidence: definition.DefaultConfidence,
+			Verified:          definition.Verified,
+		})
+	}
+	for _, evidence := range derived.Evidences {
+		batch.Evidences = append(batch.Evidences, db.WalletEvidenceRecord{
+			Chain:        evidence.Chain,
+			Address:      evidence.Address,
+			EvidenceKey:  evidence.EvidenceKey,
+			EvidenceType: evidence.EvidenceType,
+			Source:       evidence.Source,
+			Confidence:   evidence.Confidence,
+			ObservedAt:   evidence.ObservedAt,
+			Summary:      evidence.Summary,
+			Payload:      evidence.Payload,
+		})
+	}
+	for _, membership := range derived.Memberships {
+		batch.Memberships = append(batch.Memberships, db.WalletLabelMembershipRecord{
+			Chain:           membership.Chain,
+			Address:         membership.Address,
+			LabelKey:        membership.LabelKey,
+			EntityKey:       membership.EntityKey,
+			Source:          membership.Source,
+			Confidence:      membership.Confidence,
+			EvidenceSummary: membership.EvidenceSummary,
+			ObservedAt:      membership.ObservedAt,
+			Metadata:        membership.Metadata,
+		})
+	}
+	return s.Labeling.ApplyWalletLabeling(ctx, batch)
 }
 
 func (s HistoricalBackfillIngestService) invalidateWalletSummary(
@@ -1096,6 +1179,214 @@ func cloneWalletBackfillMetadata(metadata map[string]any) map[string]any {
 	}
 
 	return cloned
+}
+
+func (s HistoricalBackfillIngestService) recordWalletTrackingCandidate(
+	ctx context.Context,
+	batch providers.HistoricalBackfillBatch,
+	job *db.WalletBackfillJob,
+	policy queuedBackfillPolicy,
+) error {
+	if s.Tracking == nil {
+		return nil
+	}
+
+	return s.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
+		Chain:            batch.Request.Chain,
+		Address:          batch.Request.WalletAddress,
+		SourceType:       trackingSourceTypeForJob(job),
+		SourceRef:        trackingSourceRefForJob(job, batch),
+		DiscoveryReason:  trackingReasonForJob(job),
+		Confidence:       1,
+		CandidateScore:   floatMetadataValue(jobMetadata(job), "candidate_score", 0),
+		TrackingPriority: intMetadataValue(jobMetadata(job), "priority", trackingPriorityForJob(job)),
+		ObservedAt:       s.now().UTC(),
+		StaleAfterAt:     pointerToTime(s.now().UTC().Add(24 * time.Hour)),
+		Payload:          cloneWalletBackfillMetadata(jobMetadata(job)),
+		Notes: map[string]any{
+			"queued_source": jobSource(job),
+			"window_days":   policy.WindowDays,
+			"limit":         policy.Limit,
+			"expansion":     policy.ExpansionDepth,
+		},
+	})
+}
+
+func (s HistoricalBackfillIngestService) markWalletTracked(
+	ctx context.Context,
+	batch providers.HistoricalBackfillBatch,
+	job *db.WalletBackfillJob,
+	policy queuedBackfillPolicy,
+	activities []providers.ProviderWalletActivity,
+) error {
+	if s.Tracking == nil {
+		return nil
+	}
+
+	lastBackfillAt := s.now().UTC()
+	return s.Tracking.MarkWalletTracked(ctx, db.WalletTrackingProgress{
+		Chain:          batch.Request.Chain,
+		Address:        batch.Request.WalletAddress,
+		Status:         db.WalletTrackingStatusTracked,
+		SourceType:     trackingSourceTypeForJob(job),
+		SourceRef:      trackingSourceRefForJob(job, batch),
+		LastActivityAt: latestObservedAtFromActivities(activities),
+		LastBackfillAt: &lastBackfillAt,
+		StaleAfterAt:   pointerToTime(lastBackfillAt.Add(24 * time.Hour)),
+		Notes: map[string]any{
+			"queued_source": jobSource(job),
+			"provider":      string(batch.Provider),
+			"window_days":   policy.WindowDays,
+			"limit":         policy.Limit,
+		},
+	})
+}
+
+func jobMetadata(job *db.WalletBackfillJob) map[string]any {
+	if job == nil {
+		return nil
+	}
+
+	return job.Metadata
+}
+
+func jobSource(job *db.WalletBackfillJob) string {
+	if job == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(job.Source)
+}
+
+func trackingSourceTypeForJob(job *db.WalletBackfillJob) string {
+	if sourceType := strings.TrimSpace(stringMetadataValue(jobMetadata(job), "source_type", "")); sourceType != "" {
+		return sourceType
+	}
+
+	switch jobSource(job) {
+	case "search_lookup_miss", "search_stale_refresh", "search_manual_refresh":
+		return db.WalletTrackingSourceTypeUserSearch
+	case "watchlist_bootstrap":
+		return db.WalletTrackingSourceTypeWatchlist
+	case "seed_discovery":
+		return db.WalletTrackingSourceTypeDuneCandidate
+	case "wallet_backfill_expansion":
+		return db.WalletTrackingSourceTypeHopExpansion
+	default:
+		return db.WalletTrackingSourceTypeUnknown
+	}
+}
+
+func trackingSourceRefForJob(job *db.WalletBackfillJob, batch providers.HistoricalBackfillBatch) string {
+	if sourceRef := strings.TrimSpace(stringMetadataValue(jobMetadata(job), "source_ref", "")); sourceRef != "" {
+		return sourceRef
+	}
+	if query := strings.TrimSpace(stringMetadataValue(jobMetadata(job), "query", "")); query != "" {
+		return query
+	}
+
+	return domain.BuildWalletCanonicalKey(batch.Request.Chain, batch.Request.WalletAddress)
+}
+
+func trackingReasonForJob(job *db.WalletBackfillJob) string {
+	if reason := strings.TrimSpace(stringMetadataValue(jobMetadata(job), "reason", "")); reason != "" {
+		return reason
+	}
+
+	return firstNonEmptyTrackingReason(jobSource(job), "backfill")
+}
+
+func trackingPriorityForJob(job *db.WalletBackfillJob) int {
+	switch jobSource(job) {
+	case "watchlist_bootstrap":
+		return 200
+	case "seed_discovery":
+		return 180
+	case "search_lookup_miss":
+		return 120
+	case "wallet_backfill_expansion":
+		return 80
+	default:
+		return 100
+	}
+}
+
+func stringMetadataValue(metadata map[string]any, key string, fallback string) string {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+	typed, ok := value.(string)
+	if !ok {
+		return fallback
+	}
+
+	trimmed := strings.TrimSpace(typed)
+	if trimmed == "" {
+		return fallback
+	}
+
+	return trimmed
+}
+
+func floatMetadataValue(metadata map[string]any, key string, fallback float64) float64 {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	default:
+		return fallback
+	}
+}
+
+func latestObservedAtFromActivities(activities []providers.ProviderWalletActivity) *time.Time {
+	var latest time.Time
+	for _, activity := range activities {
+		if activity.ObservedAt.After(latest) {
+			latest = activity.ObservedAt
+		}
+	}
+	if latest.IsZero() {
+		return nil
+	}
+
+	utc := latest.UTC()
+	return &utc
+}
+
+func firstNonEmptyTrackingReason(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
 }
 
 func (s HistoricalBackfillIngestService) persistRawPayloads(

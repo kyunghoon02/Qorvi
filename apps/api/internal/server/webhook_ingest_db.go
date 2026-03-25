@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type webhookWalletEnsurer interface {
@@ -20,9 +21,14 @@ type webhookWalletEntityAssignmentWriter interface {
 	UpsertHeuristicEntityAssignments(context.Context, []db.WalletEntityAssignment) error
 }
 
+type webhookWalletLabelingWriter interface {
+	ApplyWalletLabeling(context.Context, db.WalletLabelingBatch) error
+}
+
 type providerWebhookPersistingService struct {
 	Wallets        webhookWalletEnsurer
 	EntityAssign   webhookWalletEntityAssignmentWriter
+	Labeling       webhookWalletLabelingWriter
 	Transactions   db.NormalizedTransactionStore
 	DailyStats     db.WalletDailyStatsRefresher
 	Graph          db.TransactionGraphMaterializer
@@ -33,12 +39,14 @@ type providerWebhookPersistingService struct {
 	RawPayloads    db.RawPayloadStore
 	ProviderUsage  db.ProviderUsageLogStore
 	JobRuns        db.JobRunStore
+	Tracking       db.WalletTrackingStateStore
 	Now            func() time.Time
 }
 
 func newProviderWebhookPersistingService(
 	wallets webhookWalletEnsurer,
 	entityAssign webhookWalletEntityAssignmentWriter,
+	labeling webhookWalletLabelingWriter,
 	transactions db.NormalizedTransactionStore,
 	dailyStats db.WalletDailyStatsRefresher,
 	graph db.TransactionGraphMaterializer,
@@ -49,10 +57,12 @@ func newProviderWebhookPersistingService(
 	rawPayloads db.RawPayloadStore,
 	providerUsage db.ProviderUsageLogStore,
 	jobRuns db.JobRunStore,
+	tracking db.WalletTrackingStateStore,
 ) WebhookIngestService {
 	return providerWebhookPersistingService{
 		Wallets:        wallets,
 		EntityAssign:   entityAssign,
+		Labeling:       labeling,
 		Transactions:   transactions,
 		DailyStats:     dailyStats,
 		Graph:          graph,
@@ -63,6 +73,7 @@ func newProviderWebhookPersistingService(
 		RawPayloads:    rawPayloads,
 		ProviderUsage:  providerUsage,
 		JobRuns:        jobRuns,
+		Tracking:       tracking,
 		Now:            time.Now,
 	}
 }
@@ -122,6 +133,9 @@ func (s providerWebhookPersistingService) ingestAlchemyAddressActivity(
 	if err := s.assignHeuristicEntities(ctx, activities); err != nil {
 		return WebhookIngestResult{}, err
 	}
+	if err := s.applyWalletLabeling(ctx, activities); err != nil {
+		return WebhookIngestResult{}, err
+	}
 	writes := make([]db.NormalizedTransactionWrite, 0, len(activities))
 	claimedKeys := make([]string, 0, len(activities))
 	duplicates := 0
@@ -178,6 +192,21 @@ func (s providerWebhookPersistingService) ingestAlchemyAddressActivity(
 		_ = s.releaseDedupKeys(ctx, claimedKeys)
 		return WebhookIngestResult{}, fmt.Errorf("invalidate wallet graph snapshot: %w", err)
 	}
+	if err := s.markTrackingSubscriptionEvents(
+		ctx,
+		"alchemy",
+		uniqueWalletRefsFromActivities(activities),
+		observedAtOrNow(activities, startedAt.UTC()),
+		map[string]any{
+			"source":      "provider_webhook_ingest",
+			"webhook_id":  strings.TrimSpace(payload.WebhookID),
+			"event_id":    strings.TrimSpace(payload.ID),
+			"event_count": len(payload.Event.Activity),
+		},
+	); err != nil {
+		_ = s.releaseDedupKeys(ctx, claimedKeys)
+		return WebhookIngestResult{}, fmt.Errorf("mark webhook tracking freshness: %w", err)
+	}
 
 	latency := s.now().Sub(startedAt)
 	_ = s.recordProviderUsage(ctx, "alchemy", "address_activity_webhook", 202, latency)
@@ -221,6 +250,9 @@ func (s providerWebhookPersistingService) ingestHeliusAddressActivity(
 
 	activities := buildHeliusWebhookActivities(payload, descriptor.ObjectKey, startedAt.UTC())
 	if err := s.assignHeuristicEntities(ctx, activities); err != nil {
+		return WebhookIngestResult{}, err
+	}
+	if err := s.applyWalletLabeling(ctx, activities); err != nil {
 		return WebhookIngestResult{}, err
 	}
 	writes := make([]db.NormalizedTransactionWrite, 0, len(activities))
@@ -278,6 +310,19 @@ func (s providerWebhookPersistingService) ingestHeliusAddressActivity(
 	if err := s.invalidateWalletGraphs(ctx, writes); err != nil {
 		_ = s.releaseDedupKeys(ctx, claimedKeys)
 		return WebhookIngestResult{}, fmt.Errorf("invalidate wallet graph snapshot: %w", err)
+	}
+	if err := s.markTrackingSubscriptionEvents(
+		ctx,
+		"helius",
+		uniqueWalletRefsFromActivities(activities),
+		observedAtOrNow(activities, startedAt.UTC()),
+		map[string]any{
+			"source":      "provider_webhook_ingest",
+			"event_count": len(payload),
+		},
+	); err != nil {
+		_ = s.releaseDedupKeys(ctx, claimedKeys)
+		return WebhookIngestResult{}, fmt.Errorf("mark helius webhook tracking freshness: %w", err)
 	}
 
 	latency := s.now().Sub(startedAt)
@@ -461,6 +506,96 @@ func (s providerWebhookPersistingService) recordProviderUsage(
 	})
 }
 
+func (s providerWebhookPersistingService) markTrackingSubscriptionEvents(
+	ctx context.Context,
+	provider string,
+	refs []db.WalletRef,
+	lastEventAt time.Time,
+	metadata map[string]any,
+) error {
+	if s.Tracking == nil || len(refs) == 0 {
+		return nil
+	}
+
+	subscriptionKey := trackingSubscriptionRegistryKey(provider)
+	configuredKey := configuredWebhookID(provider)
+	if configuredKey != "" {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["provider_subscription_key"] = configuredKey
+		metadata["configured"] = true
+	}
+
+	for _, ref := range refs {
+		if err := s.Tracking.UpsertWalletTrackingSubscription(ctx, db.WalletTrackingSubscription{
+			Chain:           ref.Chain,
+			Address:         ref.Address,
+			Provider:        provider,
+			SubscriptionKey: subscriptionKey,
+			Status:          "active",
+			LastEventAt:     &lastEventAt,
+			Metadata:        metadata,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func uniqueWalletRefsFromActivities(activities []providers.ProviderWalletActivity) []db.WalletRef {
+	if len(activities) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(activities))
+	refs := make([]db.WalletRef, 0, len(activities))
+	for _, activity := range activities {
+		ref, err := db.NormalizeWalletRef(db.WalletRef{
+			Chain:   activity.Chain,
+			Address: activity.WalletAddress,
+		})
+		if err != nil {
+			continue
+		}
+		key := string(ref.Chain) + ":" + strings.ToLower(ref.Address)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func observedAtOrNow(activities []providers.ProviderWalletActivity, fallback time.Time) time.Time {
+	if len(activities) == 0 {
+		return fallback
+	}
+	latest := fallback
+	for _, activity := range activities {
+		if activity.ObservedAt.After(latest) {
+			latest = activity.ObservedAt
+		}
+	}
+	return latest
+}
+
+func trackingSubscriptionRegistryKey(provider string) string {
+	return "flowintel:" + strings.ToLower(strings.TrimSpace(provider)) + ":address-activity"
+}
+
+func configuredWebhookID(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "alchemy":
+		return strings.TrimSpace(os.Getenv("ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID"))
+	case "helius":
+		return strings.TrimSpace(os.Getenv("HELIUS_ADDRESS_ACTIVITY_WEBHOOK_ID"))
+	default:
+		return ""
+	}
+}
+
 func (s providerWebhookPersistingService) recordJobRun(ctx context.Context, entry db.JobRunEntry) error {
 	if s.JobRuns == nil {
 		return nil
@@ -610,4 +745,63 @@ func (s providerWebhookPersistingService) assignHeuristicEntities(
 	}
 
 	return s.EntityAssign.UpsertHeuristicEntityAssignments(ctx, assignments)
+}
+
+func (s providerWebhookPersistingService) applyWalletLabeling(
+	ctx context.Context,
+	activities []providers.ProviderWalletActivity,
+) error {
+	if s.Labeling == nil || len(activities) == 0 {
+		return nil
+	}
+
+	derived := providers.DeriveWalletLabeling(activities)
+	if len(derived.Definitions) == 0 && len(derived.Evidences) == 0 && len(derived.Memberships) == 0 {
+		return nil
+	}
+
+	batch := db.WalletLabelingBatch{
+		Definitions: make([]db.WalletLabelDefinition, 0, len(derived.Definitions)),
+		Evidences:   make([]db.WalletEvidenceRecord, 0, len(derived.Evidences)),
+		Memberships: make([]db.WalletLabelMembershipRecord, 0, len(derived.Memberships)),
+	}
+	for _, definition := range derived.Definitions {
+		batch.Definitions = append(batch.Definitions, db.WalletLabelDefinition{
+			LabelKey:          definition.LabelKey,
+			LabelName:         definition.LabelName,
+			Class:             definition.Class,
+			EntityType:        definition.EntityType,
+			Source:            definition.Source,
+			DefaultConfidence: definition.DefaultConfidence,
+			Verified:          definition.Verified,
+		})
+	}
+	for _, evidence := range derived.Evidences {
+		batch.Evidences = append(batch.Evidences, db.WalletEvidenceRecord{
+			Chain:        evidence.Chain,
+			Address:      evidence.Address,
+			EvidenceKey:  evidence.EvidenceKey,
+			EvidenceType: evidence.EvidenceType,
+			Source:       evidence.Source,
+			Confidence:   evidence.Confidence,
+			ObservedAt:   evidence.ObservedAt,
+			Summary:      evidence.Summary,
+			Payload:      evidence.Payload,
+		})
+	}
+	for _, membership := range derived.Memberships {
+		batch.Memberships = append(batch.Memberships, db.WalletLabelMembershipRecord{
+			Chain:           membership.Chain,
+			Address:         membership.Address,
+			LabelKey:        membership.LabelKey,
+			EntityKey:       membership.EntityKey,
+			Source:          membership.Source,
+			Confidence:      membership.Confidence,
+			EvidenceSummary: membership.EvidenceSummary,
+			ObservedAt:      membership.ObservedAt,
+			Metadata:        membership.Metadata,
+		})
+	}
+
+	return s.Labeling.ApplyWalletLabeling(ctx, batch)
 }

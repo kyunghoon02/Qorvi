@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 func TestBuildStartupMessage(t *testing.T) {
@@ -18,27 +18,27 @@ func TestBuildStartupMessage(t *testing.T) {
 
 	message := buildStartupMessage(config.WorkerEnv{
 		NodeEnv:     "development",
-		PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+		PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 		RedisURL:    "redis://localhost:6379",
 	})
 
-	if !strings.Contains(message, "WhaleGraph workers ready") {
+	if !strings.Contains(message, "FlowIntel workers ready") {
 		t.Fatalf("unexpected startup message %q", message)
 	}
 }
 
 func TestRawPayloadRootDefaultsAndHonorsEnv(t *testing.T) {
-	t.Setenv("WHALEGRAPH_RAW_PAYLOAD_ROOT", "")
-	if got := rawPayloadRoot(); got != ".whalegraph/raw-payloads" {
+	t.Setenv("FLOWINTEL_RAW_PAYLOAD_ROOT", "")
+	if got := rawPayloadRoot(); got != ".flowintel/raw-payloads" {
 		t.Fatalf("unexpected default raw payload root %q", got)
 	}
 
-	t.Setenv("WHALEGRAPH_RAW_PAYLOAD_ROOT", "/tmp/whalegraph/raw")
-	if got := rawPayloadRoot(); got != "/tmp/whalegraph/raw" {
+	t.Setenv("FLOWINTEL_RAW_PAYLOAD_ROOT", "/tmp/flowintel/raw")
+	if got := rawPayloadRoot(); got != "/tmp/flowintel/raw" {
 		t.Fatalf("unexpected configured raw payload root %q", got)
 	}
 
-	_ = os.Getenv("WHALEGRAPH_RAW_PAYLOAD_ROOT")
+	_ = os.Getenv("FLOWINTEL_RAW_PAYLOAD_ROOT")
 }
 
 func TestBuildWorkerOutputRunsHistoricalBackfillFixtureFlow(t *testing.T) {
@@ -49,7 +49,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillFixtureFlow(t *testing.T) {
 		workerModeHistoricalBackfillFixture,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -61,6 +61,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillFixtureFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -83,7 +84,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillIngestFlow(t *testing.T) {
 		workerModeHistoricalBackfillIngest,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -99,6 +100,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillIngestFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -121,7 +123,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryFixtureFlow(t *testing.T) {
 		workerModeSeedDiscoveryFixture,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -133,6 +135,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryFixtureFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -160,7 +163,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryEnqueueFlow(t *testing.T) {
 		workerModeSeedDiscoveryEnqueue,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -172,6 +175,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryEnqueueFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -198,7 +202,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryWatchlistFlow(t *testing.T) {
 		workerModeSeedDiscoverySeedWatchlist,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -210,6 +214,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryWatchlistFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -252,7 +257,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainFlow(t *testing.T) {
 		workerModeWalletBackfillDrain,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -264,6 +269,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -279,7 +285,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsWalletBackfillDrainBatchFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_WALLET_BACKFILL_DRAIN_LIMIT", "2")
+	t.Setenv("FLOWINTEL_WALLET_BACKFILL_DRAIN_LIMIT", "2")
 	ingest := NewHistoricalBackfillIngestService(
 		providers.DefaultRegistry(),
 		&fakeWalletStore{},
@@ -311,7 +317,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainBatchFlow(t *testing.T) {
 		workerModeWalletBackfillDrainBatch,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -323,6 +329,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainBatchFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -346,7 +353,7 @@ func TestBuildWorkerOutputRunsWatchlistBootstrapEnqueueFlow(t *testing.T) {
 		workerModeWatchlistBootstrapEnqueue,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -366,6 +373,7 @@ func TestBuildWorkerOutputRunsWatchlistBootstrapEnqueueFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -381,14 +389,14 @@ func TestBuildWorkerOutputRunsWatchlistBootstrapEnqueueFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsAlertDeliveryRetryBatchFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_ALERT_DELIVERY_RETRY_BATCH_LIMIT", "5")
+	t.Setenv("FLOWINTEL_ALERT_DELIVERY_RETRY_BATCH_LIMIT", "5")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeAlertDeliveryRetryBatch,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -415,6 +423,7 @@ func TestBuildWorkerOutputRunsAlertDeliveryRetryBatchFlow(t *testing.T) {
 			},
 			JobRuns: &fakeJobRunStore{},
 		},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -430,8 +439,8 @@ func TestBuildWorkerOutputRunsAlertDeliveryRetryBatchFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsMoralisEnrichmentRefreshFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_ENRICHMENT_REFRESH_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_ENRICHMENT_REFRESH_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_ENRICHMENT_REFRESH_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_ENRICHMENT_REFRESH_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
 
 	refresher := &fakeWalletSummaryEnrichmentRefresher{}
 	output, err := buildWorkerOutput(
@@ -439,7 +448,7 @@ func TestBuildWorkerOutputRunsMoralisEnrichmentRefreshFlow(t *testing.T) {
 		workerModeMoralisEnrichmentRefresh,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -451,6 +460,7 @@ func TestBuildWorkerOutputRunsMoralisEnrichmentRefreshFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -471,15 +481,16 @@ func TestBuildWorkerOutputRunsMoralisEnrichmentRefreshFlow(t *testing.T) {
 	}
 }
 
-func TestBuildWorkerOutputRunsBillingSubscriptionSyncFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_BILLING_SYNC_LIMIT", "10")
+func TestBuildWorkerOutputRunsWalletTrackingSubscriptionSyncFlow(t *testing.T) {
+	t.Setenv("FLOWINTEL_TRACKING_SUBSCRIPTION_SYNC_LIMIT", "10")
+	t.Setenv("ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID", "wh_alchemy_live")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
-		workerModeBillingSubscriptionSync,
+		workerModeWalletTrackingSubscriptionSync,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -491,11 +502,56 @@ func TestBuildWorkerOutputRunsBillingSubscriptionSyncFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{
+			Registry: &fakeWalletTrackingRegistryReader{
+				refsByProvider: map[string][]db.WalletRef{
+					"alchemy": {
+						{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
+					},
+				},
+			},
+			Tracking: &fakeWalletTrackingStateStore{},
+		},
+		BillingSubscriptionSyncService{},
+	)
+	if err != nil {
+		t.Fatalf("buildWorkerOutput returned error: %v", err)
+	}
+
+	if !strings.Contains(output, "Wallet tracking subscription sync complete") {
+		t.Fatalf("unexpected tracking subscription sync output %q", output)
+	}
+	if !strings.Contains(output, "subscriptions=1") {
+		t.Fatalf("expected synced subscriptions in output, got %q", output)
+	}
+}
+
+func TestBuildWorkerOutputRunsBillingSubscriptionSyncFlow(t *testing.T) {
+	t.Setenv("FLOWINTEL_BILLING_SYNC_LIMIT", "10")
+
+	output, err := buildWorkerOutput(
+		t.Context(),
+		workerModeBillingSubscriptionSync,
+		config.WorkerEnv{
+			NodeEnv:     "development",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
+			RedisURL:    "redis://localhost:6379",
+		},
+		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
+		HistoricalBackfillIngestService{},
+		WalletEnrichmentRefreshService{},
+		SeedDiscoveryJobRunner{},
+		WatchlistBootstrapService{},
+		ClusterScoreSnapshotService{},
+		ShadowExitSnapshotService{},
+		FirstConnectionSnapshotService{},
+		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 		BillingSubscriptionSyncService{
 			Accounts: fakeBillingAccountSyncReader{
 				accounts: []db.BillingAccountRecord{{
 					OwnerUserID:          "user_123",
-					Email:                "ops@whalegraph.test",
+					Email:                "ops@flowintel.test",
 					CurrentTier:          domain.PlanFree,
 					StripeCustomerID:     "cus_123",
 					ActiveSubscriptionID: "sub_123",
