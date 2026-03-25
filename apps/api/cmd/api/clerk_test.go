@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/config"
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
+	"github.com/flowintel/flowintel/apps/api/internal/config"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
 )
 
 func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
@@ -32,11 +32,11 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 
 	verifier, err := buildClerkVerifier(config.Config{
 		API: sharedconfig.APIEnv{
-			AppBaseURL: "https://app.whalegraph.com",
+			AppBaseURL: "https://app.flowintel.com",
 			ClerkVerification: sharedconfig.ClerkVerificationConfig{
-				IssuerURL:        "https://clerk.whalegraph.com",
+				IssuerURL:        "https://clerk.flowintel.com",
 				JWKSURL:          jwksServer.URL,
-				Audience:         "whalegraph",
+				Audience:         "flowintel",
 				ClockSkewSeconds: 60,
 			},
 		},
@@ -46,13 +46,13 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 	}
 
 	token := mustSignedJWT(t, privateKey, "test-key", map[string]any{
-		"iss":   "https://clerk.whalegraph.com",
+		"iss":   "https://clerk.flowintel.com",
 		"sub":   "user_123",
 		"sid":   "sess_123",
 		"rol":   "org:admin",
-		"email": "admin@whalegraph.com",
-		"azp":   "https://app.whalegraph.com",
-		"aud":   "whalegraph",
+		"email": "admin@flowintel.com",
+		"azp":   "https://app.flowintel.com",
+		"aud":   "flowintel",
 		"exp":   time.Now().Add(10 * time.Minute).Unix(),
 		"nbf":   time.Now().Add(-1 * time.Minute).Unix(),
 	})
@@ -74,7 +74,7 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 	if principal.Role != "admin" {
 		t.Fatalf("unexpected role %q", principal.Role)
 	}
-	if principal.Email != "admin@whalegraph.com" {
+	if principal.Email != "admin@flowintel.com" {
 		t.Fatalf("unexpected email %q", principal.Email)
 	}
 }
@@ -94,9 +94,9 @@ func TestBuildClerkVerifierRejectsWrongAuthorizedParty(t *testing.T) {
 
 	verifier, err := buildClerkVerifier(config.Config{
 		API: sharedconfig.APIEnv{
-			AppBaseURL: "https://app.whalegraph.com",
+			AppBaseURL: "https://app.flowintel.com",
 			ClerkVerification: sharedconfig.ClerkVerificationConfig{
-				IssuerURL: "https://clerk.whalegraph.com",
+				IssuerURL: "https://clerk.flowintel.com",
 				JWKSURL:   jwksServer.URL,
 			},
 		},
@@ -106,7 +106,7 @@ func TestBuildClerkVerifierRejectsWrongAuthorizedParty(t *testing.T) {
 	}
 
 	token := mustSignedJWT(t, privateKey, "test-key", map[string]any{
-		"iss": "https://clerk.whalegraph.com",
+		"iss": "https://clerk.flowintel.com",
 		"sub": "user_123",
 		"sid": "sess_123",
 		"rol": "admin",

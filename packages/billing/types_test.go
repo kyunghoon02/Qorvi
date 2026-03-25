@@ -38,7 +38,7 @@ func TestStripePlaceholders(t *testing.T) {
 	session := CheckoutSessionPlaceholder(
 		CheckoutRequest{
 			Tier:          "pro",
-			CustomerEmail: "ops@whalegraph.test",
+			CustomerEmail: "ops@flowintel.test",
 			SuccessURL:    cfg.SuccessURL,
 			CancelURL:     cfg.CancelURL,
 		},

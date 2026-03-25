@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
 )
 
 type Config struct {

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/config"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/config"
 )
 
 const clerkSessionCookieName = "__session"

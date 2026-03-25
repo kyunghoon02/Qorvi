@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeStripeClient struct {
@@ -64,7 +64,7 @@ func TestBillingServiceCreateCheckoutSession(t *testing.T) {
 		checkoutRecord: billing.NormalizeStripeCheckoutSessionRecord(billing.StripeCheckoutSessionRecord{
 			SessionID:      "cs_live_123",
 			CustomerID:     "cus_live_123",
-			CustomerEmail:  "ops@whalegraph.test",
+			CustomerEmail:  "ops@flowintel.test",
 			SubscriptionID: "sub_live_123",
 			Tier:           domain.PlanPro,
 			StripePriceID:  "price_pro_placeholder",
@@ -78,7 +78,7 @@ func TestBillingServiceCreateCheckoutSession(t *testing.T) {
 
 	session, err := svc.CreateCheckoutSession(context.Background(), auth.ClerkPrincipal{
 		UserID: "user_123",
-		Email:  "ops@whalegraph.test",
+		Email:  "ops@flowintel.test",
 	}, domain.PlanFree, CreateCheckoutSessionRequest{Tier: "pro"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

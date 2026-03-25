@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeBillingAccountSyncReader struct {
@@ -89,7 +89,7 @@ func TestBillingSubscriptionSyncServiceRunBatch(t *testing.T) {
 		Accounts: fakeBillingAccountSyncReader{
 			accounts: []db.BillingAccountRecord{{
 				OwnerUserID:          "user_123",
-				Email:                "ops@whalegraph.test",
+				Email:                "ops@flowintel.test",
 				CurrentTier:          domain.PlanFree,
 				StripeCustomerID:     "cus_123",
 				ActiveSubscriptionID: "sub_123",
@@ -106,7 +106,7 @@ func TestBillingSubscriptionSyncServiceRunBatch(t *testing.T) {
 			subscription: billing.NormalizeStripeSubscriptionRecord(billing.StripeSubscriptionRecord{
 				SubscriptionID:     "sub_123",
 				CustomerID:         "cus_123",
-				CustomerEmail:      "ops@whalegraph.test",
+				CustomerEmail:      "ops@flowintel.test",
 				StripePriceID:      "price_pro_placeholder",
 				Tier:               domain.PlanPro,
 				Status:             billing.StripeSubscriptionStatusActive,

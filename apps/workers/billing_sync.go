@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 const workerModeBillingSubscriptionSync = "billing-subscription-sync"
@@ -131,7 +131,7 @@ func buildBillingSubscriptionSyncSummary(report BillingSubscriptionSyncReport) s
 }
 
 func billingSubscriptionSyncLimitFromEnv() int {
-	raw := strings.TrimSpace(os.Getenv("WHALEGRAPH_BILLING_SYNC_LIMIT"))
+	raw := strings.TrimSpace(os.Getenv("FLOWINTEL_BILLING_SYNC_LIMIT"))
 	if raw == "" {
 		return 25
 	}

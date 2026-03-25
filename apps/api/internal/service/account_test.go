@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestAccountServiceBuildsPlanAndEntitlementsFromTier(t *testing.T) {
@@ -23,7 +23,7 @@ func TestAccountServiceBuildsPlanAndEntitlementsFromTier(t *testing.T) {
 		UserID:    "user_123",
 		SessionID: "sess_123",
 		Role:      "admin",
-		Email:     "ops@whalegraph.test",
+		Email:     "ops@flowintel.test",
 	}, "pro")
 	if err != nil {
 		t.Fatalf("GetAccount returned error: %v", err)

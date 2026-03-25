@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/service"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/service"
 )
 
 func (s *Server) handleBillingCheckoutSession(w http.ResponseWriter, r *http.Request) {

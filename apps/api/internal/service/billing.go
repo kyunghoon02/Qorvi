@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/apps/api/internal/auth"
-	"github.com/whalegraph/whalegraph/apps/api/internal/repository"
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 var (
@@ -600,9 +600,9 @@ func buildSyntheticBillingEventID(req BillingWebhookRequest) string {
 		}
 	}
 	if len(filtered) == 0 {
-		return "evt_whalegraph_unknown"
+		return "evt_flowintel_unknown"
 	}
-	return "evt_whalegraph_" + strings.Join(filtered, "_")
+	return "evt_flowintel_" + strings.Join(filtered, "_")
 }
 
 func copyAnyMap(source map[string]any) map[string]any {

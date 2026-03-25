@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func (s *Server) resolveAuthorizedTier(r *http.Request, ownerUserID string) domain.PlanTier {

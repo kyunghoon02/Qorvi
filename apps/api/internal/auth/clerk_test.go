@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
 )
 
 func TestHeaderClerkVerifierRequiresIdentityHeaders(t *testing.T) {
@@ -57,7 +57,7 @@ func TestHeaderClerkVerifierVerifiesBearerToken(t *testing.T) {
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "whalegraph",
+		Audience:         "flowintel",
 		ClockSkewSeconds: 60,
 	})
 
@@ -66,7 +66,7 @@ func TestHeaderClerkVerifierVerifiesBearerToken(t *testing.T) {
 		"sid":   "session_123",
 		"role":  "admin",
 		"iss":   "https://example.clerk.accounts.dev",
-		"aud":   "whalegraph",
+		"aud":   "flowintel",
 		"exp":   time.Now().UTC().Add(time.Minute).Unix(),
 		"nbf":   time.Now().UTC().Add(-time.Minute).Unix(),
 		"email": "user@example.com",
@@ -103,7 +103,7 @@ func TestHeaderClerkVerifierPrefersBearerTokenOverLegacyHeaders(t *testing.T) {
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "whalegraph",
+		Audience:         "flowintel",
 		ClockSkewSeconds: 60,
 	})
 
@@ -112,7 +112,7 @@ func TestHeaderClerkVerifierPrefersBearerTokenOverLegacyHeaders(t *testing.T) {
 		"sid":  "session_123",
 		"role": "user",
 		"iss":  "https://example.clerk.accounts.dev",
-		"aud":  "whalegraph",
+		"aud":  "flowintel",
 		"exp":  time.Now().UTC().Add(time.Minute).Unix(),
 		"nbf":  time.Now().UTC().Add(-time.Minute).Unix(),
 	}, "clerk-test-key")
@@ -142,7 +142,7 @@ func TestHeaderClerkVerifierRejectsInvalidBearerEvenWithLegacyHeaders(t *testing
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "whalegraph",
+		Audience:         "flowintel",
 		ClockSkewSeconds: 60,
 	})
 

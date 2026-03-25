@@ -9,7 +9,7 @@ var baseEnv = map[string]string{
 	"AUTH_PROVIDER":                     "clerk",
 	"AUTH_SECRET":                       "supersecret",
 	"CLERK_SECRET_KEY":                  "clerk_secret",
-	"CLERK_AUDIENCE":                    "whalegraph",
+	"CLERK_AUDIENCE":                    "flowintel",
 	"CLERK_CLOCK_SKEW_SECONDS":          "60",
 	"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 	"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -20,7 +20,7 @@ var baseEnv = map[string]string{
 	"NEXT_PUBLIC_APP_BASE_URL":          "http://localhost:3000",
 	"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	"NODE_ENV":                          "development",
-	"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/whalegraph",
+	"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
 	"REDIS_URL":                         "redis://localhost:6379",
 }
 
@@ -76,7 +76,7 @@ func TestParseClerkVerificationConfig(t *testing.T) {
 	if cfg.JWKSURL != "https://example.clerk.accounts.dev/.well-known/jwks.json" {
 		t.Fatalf("unexpected jwks url %q", cfg.JWKSURL)
 	}
-	if cfg.Audience != "whalegraph" {
+	if cfg.Audience != "flowintel" {
 		t.Fatalf("unexpected audience %q", cfg.Audience)
 	}
 }

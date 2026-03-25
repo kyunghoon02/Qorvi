@@ -3,7 +3,7 @@ package billing
 import (
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestNormalizePlanTier(t *testing.T) {

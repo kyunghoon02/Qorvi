@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeBillingCheckoutSessionStore struct{}

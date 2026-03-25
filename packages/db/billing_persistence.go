@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/billing"
+	"github.com/flowintel/flowintel/packages/billing"
 )
 
 type BillingCheckoutSessionStore interface {

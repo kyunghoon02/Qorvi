@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestNormalizeStripeCheckoutSessionRecordClonesMetadata(t *testing.T) {
@@ -15,7 +15,7 @@ func TestNormalizeStripeCheckoutSessionRecordClonesMetadata(t *testing.T) {
 	input := StripeCheckoutSessionRecord{
 		SessionID:     " cs_test_123 ",
 		CustomerID:    " cus_123 ",
-		CustomerEmail: "OPS@WHALEGRAPH.TEST ",
+		CustomerEmail: "OPS@FLOWINTEL.TEST ",
 		Tier:          domain.PlanPro,
 		StripePriceID: " price_pro_placeholder ",
 		Status:        StripeSessionStatusCompleted,
@@ -33,7 +33,7 @@ func TestNormalizeStripeCheckoutSessionRecordClonesMetadata(t *testing.T) {
 	if normalized.SessionID != "cs_test_123" {
 		t.Fatalf("unexpected session id %q", normalized.SessionID)
 	}
-	if normalized.CustomerEmail != "ops@whalegraph.test" {
+	if normalized.CustomerEmail != "ops@flowintel.test" {
 		t.Fatalf("unexpected customer email %q", normalized.CustomerEmail)
 	}
 	if normalized.CompletedAt == nil || !normalized.CompletedAt.Equal(completedAt.UTC()) {
@@ -59,7 +59,7 @@ func TestNormalizeStripeSubscriptionRecordClonesMetadata(t *testing.T) {
 	input := StripeSubscriptionRecord{
 		SubscriptionID:     " sub_123 ",
 		CustomerID:         " cus_123 ",
-		CustomerEmail:      "TEAM@WHALEGRAPH.TEST ",
+		CustomerEmail:      "TEAM@FLOWINTEL.TEST ",
 		StripePriceID:      " price_team_placeholder ",
 		Tier:               domain.PlanTeam,
 		Status:             StripeSubscriptionStatusActive,
@@ -75,7 +75,7 @@ func TestNormalizeStripeSubscriptionRecordClonesMetadata(t *testing.T) {
 	if normalized.SubscriptionID != "sub_123" {
 		t.Fatalf("unexpected subscription id %q", normalized.SubscriptionID)
 	}
-	if normalized.CustomerEmail != "team@whalegraph.test" {
+	if normalized.CustomerEmail != "team@flowintel.test" {
 		t.Fatalf("unexpected email %q", normalized.CustomerEmail)
 	}
 	if normalized.CurrentPeriodStart != start {

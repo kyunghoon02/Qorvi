@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -62,9 +62,9 @@ func TestHTTPStripeClientCreateCheckoutSession(t *testing.T) {
 	}, StripeCheckoutSessionCreateRequest{
 		OwnerUserID:   "user_123",
 		Tier:          domain.PlanPro,
-		CustomerEmail: "ops@whalegraph.test",
-		SuccessURL:    "https://whalegraph.test/account?checkout=success",
-		CancelURL:     "https://whalegraph.test/account?checkout=cancel",
+		CustomerEmail: "ops@flowintel.test",
+		SuccessURL:    "https://flowintel.test/account?checkout=success",
+		CancelURL:     "https://flowintel.test/account?checkout=cancel",
 		StripePriceID: "price_pro_live",
 	})
 	if err != nil {

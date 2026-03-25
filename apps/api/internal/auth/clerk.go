@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	sharedconfig "github.com/whalegraph/whalegraph/packages/config"
+	sharedconfig "github.com/flowintel/flowintel/packages/config"
 )
 
 type ClerkPrincipal struct {
