@@ -135,7 +135,7 @@ check_same_origin() {
   return 0
 }
 
-echo "WhaleGraph Beta Open Prep"
+echo "FlowIntel Beta Open Prep"
 echo "Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "Repo: $ROOT_DIR"
 echo "Env file: $ENV_FILE"
@@ -153,7 +153,7 @@ required_keys=(
   NEO4J_USERNAME
   NEO4J_PASSWORD
   REDIS_URL
-  WHALEGRAPH_RAW_PAYLOAD_ROOT
+  FLOWINTEL_RAW_PAYLOAD_ROOT
   AUTH_PROVIDER
   AUTH_SECRET
   CLERK_SECRET_KEY
@@ -181,7 +181,7 @@ optional_keys=(
   STRIPE_SUCCESS_URL
   STRIPE_CANCEL_URL
   STRIPE_BASE_URL
-  WHALEGRAPH_ALERT_SMTP_HOST
+  FLOWINTEL_ALERT_SMTP_HOST
 )
 
 for key in "${optional_keys[@]}"; do

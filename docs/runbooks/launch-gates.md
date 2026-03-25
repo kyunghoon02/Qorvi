@@ -1,6 +1,6 @@
 # Beta Launch Gates
 
-이 문서는 WhaleGraph beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
+이 문서는 FlowIntel beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
 
 ## 1. Gate Status Rules
 
@@ -38,18 +38,18 @@
 증빙 명령:
 
 ```bash
-corepack pnpm --filter @whalegraph/web typecheck
-corepack pnpm --filter @whalegraph/web lint
-GOCACHE=/tmp/whalegraph-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
-corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
+corepack pnpm --filter @flowintel/web typecheck
+corepack pnpm --filter @flowintel/web lint
+GOCACHE=/tmp/flowintel-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
+corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 ```
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/server.go`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/page.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/wallets/[chain]/[address]/page.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/server.go`
+- `/Users/kh/Github/FlowIntel/apps/web/app/page.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/page.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
 
 ### 3.2 Tracking And Alerts
 
@@ -63,10 +63,10 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/watchlist.go`
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/alert_rule.go`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/alerts/page.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/alerts/alert-center-screen.tsx`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/watchlist.go`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/alert_rule.go`
+- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/page.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/alert-center-screen.tsx`
 
 ### 3.3 Billing Activation Readiness
 
@@ -87,11 +87,11 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/billing.go`
-- `/Users/kh/Github/WhaleGraph/apps/workers/billing_sync.go`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/account/page.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/pricing/page.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/billing.go`
+- `/Users/kh/Github/FlowIntel/apps/workers/billing_sync.go`
+- `/Users/kh/Github/FlowIntel/apps/web/app/account/page.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/app/pricing/page.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
 
 ## 4. Reliability Gates
 
@@ -108,10 +108,10 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/webhook_replay_test.go`
-- `/Users/kh/Github/WhaleGraph/packages/db/ingest_dedup.go`
-- `/Users/kh/Github/WhaleGraph/packages/db/wallet_graph_invalidation.go`
-- `/Users/kh/Github/WhaleGraph/packages/db/wallet_summary.go`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/webhook_replay_test.go`
+- `/Users/kh/Github/FlowIntel/packages/db/ingest_dedup.go`
+- `/Users/kh/Github/FlowIntel/packages/db/wallet_graph_invalidation.go`
+- `/Users/kh/Github/FlowIntel/packages/db/wallet_summary.go`
 
 ### 4.2 Provider And Worker Stability
 
@@ -127,9 +127,9 @@ corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts
 
 ```bash
 corepack pnpm dev:stack
-WHALEGRAPH_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
-WHALEGRAPH_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
-WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ## 5. UX Gates
@@ -145,10 +145,10 @@ WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/web/lib/api-boundary.ts`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/home-screen.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
-- `/Users/kh/Github/WhaleGraph/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/FlowIntel/apps/web/lib/api-boundary.ts`
+- `/Users/kh/Github/FlowIntel/apps/web/app/home-screen.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
+- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
 
 ## 6. Ops Gates
 
@@ -163,9 +163,9 @@ WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/WhaleGraph/apps/api/internal/server/admin_console.go`
-- `/Users/kh/Github/WhaleGraph/apps/web/app/admin/page.tsx`
-- `/Users/kh/Github/WhaleGraph/docs/runbooks/ops-admin.md`
+- `/Users/kh/Github/FlowIntel/apps/api/internal/server/admin_console.go`
+- `/Users/kh/Github/FlowIntel/apps/web/app/admin/page.tsx`
+- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
 
 ## 7. Evidence Bundle
 
@@ -178,17 +178,17 @@ corepack pnpm beta:hardening
 ```
 
 1. backend contract evidence
-   - `GOCACHE=/tmp/whalegraph-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers`
+   - `GOCACHE=/tmp/flowintel-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers`
 2. web type/lint evidence
-   - `corepack pnpm --filter @whalegraph/web typecheck`
-   - `corepack pnpm --filter @whalegraph/web lint`
+   - `corepack pnpm --filter @flowintel/web typecheck`
+   - `corepack pnpm --filter @flowintel/web lint`
 3. browser/API mixed beta flow evidence
-   - `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
+   - `corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
 4. gate document review
-   - 이 문서와 `/Users/kh/Github/WhaleGraph/plan.md`
-   - `/Users/kh/Github/WhaleGraph/task.md`
-   - `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-release-package.md`
-   - `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-launch-review.md`
+   - 이 문서와 `/Users/kh/Github/FlowIntel/plan.md`
+   - `/Users/kh/Github/FlowIntel/task.md`
+   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`
+   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`
 
 optional billing evidence:
 
@@ -211,7 +211,7 @@ optional billing evidence:
 3. 필요하면 worker를 개별 mode로 재기동한다.
 
 ```bash
-WHALEGRAPH_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
 ### 8.2 Billing Regression
@@ -228,7 +228,7 @@ WHALEGRAPH_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 3. billing blocker가 남으면 `/pricing`의 upgrade CTA는 유지하되 beta open 판단은 `warn`으로 남긴다.
 
 ```bash
-WHALEGRAPH_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 ```
 
 ### 8.3 Enrichment Or Provider Pressure
@@ -246,7 +246,7 @@ WHALEGRAPH_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 3. 필요 시 `moralis-enrichment-refresh`를 수동 실행한다.
 
 ```bash
-WHALEGRAPH_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ### 8.4 Operator Action Rules

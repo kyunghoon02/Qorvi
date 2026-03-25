@@ -1,6 +1,6 @@
 # Beta Launch Review
 
-이 문서는 WhaleGraph beta open 직전 실제 gate review 결과를 기록하는 문서다. 상세 기준은 `/Users/kh/Github/WhaleGraph/docs/runbooks/launch-gates.md`를 따르고, 운영 준비는 `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-release-package.md`와 `/Users/kh/Github/WhaleGraph/docs/runbooks/beta-operator-handoff.md`를 따른다.
+이 문서는 FlowIntel beta open 직전 실제 gate review 결과를 기록하는 문서다. 상세 기준은 `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`를 따르고, 운영 준비는 `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`와 `/Users/kh/Github/FlowIntel/docs/runbooks/beta-operator-handoff.md`를 따른다.
 
 ## 1. Review Snapshot
 
@@ -21,10 +21,10 @@ corepack pnpm beta:evidence:core
 
 실행 결과:
 
-1. `@whalegraph/web typecheck` 통과
-2. `@whalegraph/web lint` 통과
+1. `@flowintel/web typecheck` 통과
+2. `@flowintel/web lint` 통과
 3. `go test ./packages/providers ./apps/api/internal/server ./apps/workers` 통과
-4. `corepack pnpm --filter @whalegraph/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"` 통과
+4. `corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"` 통과
    - `searches a wallet and lands on tracked alerts`
 
 ## 3. Gate Outcome
@@ -55,7 +55,7 @@ launch 이후 follow-up으로 남길 `warn`:
 
 아래 조건이 그대로 유지되면 beta open 상태를 유지한다.
 
-1. `/Users/kh/Github/WhaleGraph/docs/runbooks/launch-gates.md`에 새로운 `block`이 추가되지 않는다.
+1. `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`에 새로운 `block`이 추가되지 않는다.
 2. `corepack pnpm beta:open:prep`가 target environment에서 통과한다.
 3. operator가 `/v1/admin/provider-quotas`, `/v1/admin/observability`를 직접 확인한다.
 
