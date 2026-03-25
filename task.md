@@ -1,6 +1,6 @@
-# WhaleGraph Task Backlog
+# FlowIntel Task Backlog
 
-이 문서는 [plan.md](/Users/kh/Github/WhaleGraph/plan.md)를 실제 실행 단위로 쪼갠 작업 백로그다.  
+이 문서는 [plan.md](/Users/kh/Github/FlowIntel/plan.md)를 실제 실행 단위로 쪼갠 작업 백로그다.
 각 task는 바로 이슈나 스프린트 티켓으로 옮길 수 있도록 우선순위, 담당 subagent, 선행 조건, 산출물, 완료 기준을 포함한다.
 
 ## 1. 사용 규칙
@@ -27,12 +27,134 @@
 | --- | --- |
 | Sprint 0 | scope freeze, repo bootstrap, schema baseline |
 | Sprint 1 | data platform, provider adapters, ingest skeleton |
-| Sprint 2 | wallet intelligence MVP |
-| Sprint 3 | cluster engine, shadow exit engine |
-| Sprint 4 | first-connection, alerts, watchlists, admin |
-| Sprint 5 | billing, launch hardening, beta release |
+| Sprint 2 | AI wallet brief MVP |
+| Sprint 3 | behavior cohort, distribution & exit risk |
+| Sprint 4 | early convergence, findings delivery, entity interpretation |
+| Sprint 5 | alerts, admin, launch hardening |
 
 ## 4. Task List
+
+## Current Strategic Next
+
+아래 task를 기존 launch/billing 마감보다 우선한다. FlowIntel의 기본 제품 경험은 이제 `검색 -> 그래프`가 아니라 `findings -> brief -> evidence` 순서로 구현한다.
+
+### WG-044 AI Findings Generation Baseline
+
+- Status: `In Progress`
+- Owner: `intelligence-engineer`
+- Support: `api-platform-engineer`, `data-platform-engineer`
+- Depends On: `WG-007`, `WG-020`, `WG-019`
+- Deliverables:
+  - `finding_candidates`
+  - `finding_evidence_bundles`
+  - finding classification + priority rules
+  - AI summary contract wiring
+- Current State:
+  - migration `0016_findings_baseline.sql` 추가
+  - `cluster_score`, `shadow_exit`, `first_connection` snapshot worker가 baseline finding을 materialize
+  - `packages/domain/findings.go`와 `flowintel-ai/contracts/finding-object-schema.md` 기준 canonical finding object 고정
+- Definition of Done:
+  - 최소 5개 finding type이 evidence bundle과 함께 생성됨
+  - finding duplication/merge 규칙이 정의됨
+
+### WG-045 AI Findings Feed API/UI
+
+- Status: `Done`
+- Owner: `product-ui-engineer`
+- Support: `api-platform-engineer`, `intelligence-engineer`
+- Depends On: `WG-044`
+- Deliverables:
+  - `GET /findings`
+  - findings feed ranking/filter
+  - home/discover findings-first surface
+- Current State:
+  - `GET /v1/findings` baseline route/service/repository/store 추가
+  - feed item contract에 summary, importance, confidence, evidence, next-watch 포함
+  - home/discover가 `/v1/findings` live feed를 우선 읽고, unavailable일 때만 summary-derived findings로 fallback
+- Definition of Done:
+  - 홈에서 검색 전에도 주요 finding을 읽을 수 있음
+  - feed item은 summary, importance, confidence, next-watch를 포함함
+
+### WG-046 AI Wallet Brief
+
+- Status: `Done`
+- Owner: `api-platform-engineer`
+- Support: `product-ui-engineer`, `intelligence-engineer`
+- Depends On: `WG-044`, `WG-021`
+- Deliverables:
+  - `GET /wallet/:chain/:address/brief`
+  - AI summary + key findings + evidence timeline contract
+  - wallet page에서 brief-first layout
+- Current State:
+  - `GET /v1/wallets/:chain/:address/brief` baseline route/service 추가
+  - deterministic AI summary + key findings + verified/probable/behavioral label split 포함
+  - wallet detail route가 `/brief`를 실제로 load하고, 상단 `AI brief` 카드가 brief contract를 우선 사용
+- Definition of Done:
+  - 검색 결과에서 그래프보다 AI brief가 먼저 반환됨
+  - verified / probable / behavioral labels가 함께 노출됨
+
+### WG-047 Entity Interpretation Surface
+
+- Status: `Done`
+- Owner: `api-platform-engineer`
+- Support: `product-ui-engineer`, `ops-admin-engineer`
+- Depends On: `WG-044`, `WG-007`
+- Deliverables:
+  - `GET /entity/:id`
+  - entity-linked wallets, interpreted findings, timeline
+  - VC / MM / treasury / exchange / bridge 중심 page
+- Current State:
+  - `GET /v1/entity/:id` baseline route/service/repository/reader 추가
+  - entities + member wallets + member labels + entity-scoped findings read path 연결
+  - `/app/entity/[entityId]` route가 boundary `loadEntityInterpretationPreview` 기준으로 정리됨
+- Definition of Done:
+  - 엔터티 단위 해석과 evidence drill-down이 가능함
+
+### WG-048 Interpretation Finding Types
+
+- Status: `In Progress`
+- Owner: `intelligence-engineer`
+- Support: `provider-integration-engineer`, `ops-admin-engineer`
+- Depends On: `WG-044`
+- Deliverables:
+  - suspected MM handoff
+  - treasury redistribution
+  - cross-chain rotation
+  - exchange pressure
+- Current State:
+  - baseline finding generation은 `smart_money_convergence`, `exit_preparation`, `cross_chain_rotation`, `cex_deposit_pressure`까지 연결
+  - snapshot worker가 wallet labels + score context를 읽어 `suspected_mm_handoff`, `treasury_redistribution`, `fund_adjacent_activity`, `high_conviction_entry`를 추가 materialize
+  - snapshot worker가 service-specific `flow/path/evidence + next_watch` bundle을 함께 materialize 하도록 보강
+  - 다음 focus는 label-aware baseline을 넘어 `flow/path/evidence bundle` 기반 해석형 finding rule 고도화
+- Definition of Done:
+  - 최소 4개 interpretation finding type이 규칙/evidence 기반으로 서빙됨
+
+### WG-049 Interactive Analyst Tool Routes
+
+- Status: `In Progress`
+- Owner: `api-platform-engineer`
+- Support: `product-ui-engineer`, `intelligence-engineer`
+- Depends On: `WG-045`, `WG-046`, `WG-047`
+- Deliverables:
+  - `GET /v1/analyst/findings`
+  - `GET /v1/analyst/wallets/:chain/:address/brief`
+  - `GET /v1/analyst/entity/:id`
+  - `GET /v1/analyst/tools/wallets/:chain/:address/counterparties`
+  - `GET /v1/analyst/tools/wallets/:chain/:address/graph`
+  - `GET /v1/analyst/tools/wallets/:chain/:address/behavior-patterns`
+  - `GET /v1/analyst/findings/:findingId`
+  - `GET /v1/analyst/findings/:findingId/evidence-timeline`
+  - `GET /v1/analyst/findings/:findingId/historical-analogs`
+- Current State:
+  - analyst-prefixed route baseline이 실제 backend route로 연결됨
+  - home/discover, wallet detail, entity page가 analyst loader를 우선 사용하도록 전환됨
+  - findings feed query parsing이 repeated `type=` 형식까지 읽도록 정리됨
+  - deterministic analyst tool endpoint 3종(`counterparties`, `graph`, `behavior-patterns`)이 실제 backend route로 연결됨
+  - finding drill-down endpoint 3종(`detail`, `evidence-timeline`, `historical-analogs`)이 실제 backend route로 연결됨
+  - 다음 focus는 evidence timeline에 richer tx/path/entity refs를 넣고, historical analogs에 outcome scoring을 붙이는 것
+- Definition of Done:
+  - analyst-prefixed read routes가 실서빙 경로로 동작함
+  - baseline deterministic tool endpoints가 실서빙 경로로 동작함
 
 ## Sprint 0
 
@@ -135,6 +257,8 @@
   - admin curated list를 source로 `entities`와 `wallets.entity_key`를 재동기화하는 baseline index sync 추가
   - `heuristic entity assignment` store baseline 추가: ingest/backfill이 `heuristic:*` entity를 upsert하고 `wallets.entity_key`를 채울 수 있음
   - heuristic assignment는 기존 `curated:*` 및 기타 non-heuristic mapping을 덮어쓰지 않도록 보존
+  - migration `0015_wallet_labeling_baseline.sql`로 `entity_labels`, `entity_label_memberships`, `wallet_evidence` 스키마 추가
+  - `packages/db/wallet_labels.go`가 label/evidence upsert와 changed-wallet summary/graph invalidation baseline 제공
 - Definition of Done:
   - `plan.md`의 핵심 테이블이 생성 가능
   - 주요 인덱스와 unique key가 포함됨
@@ -313,20 +437,21 @@
 - Support: `data-platform-engineer`
 - Depends On: `WG-014`, `WG-015`, `WG-010`, `WG-011`
 - Deliverables:
-  - 90일 기본 backfill worker
+  - 180일 기본 backfill worker
   - 1-hop 및 제한된 2-hop 확장 로직
   - service address stop rule
 - Current State:
   - search miss, watchlist bootstrap, seed discovery enqueue가 source-aware backfill policy metadata를 queue job에 실어 보내도록 정리
   - worker가 `backfill_window_days`, `backfill_limit`, `backfill_expansion_depth`, `backfill_stop_service_addresses`를 읽어 실제 batch window/limit를 해석하는 baseline 추가
-  - 기본 정책은 `search=90d/500/1-hop`, `watchlist|seed=90d/750/2-hop`, metadata override는 상한(`365d`, `1000 limit`, `2-hop`) 내에서만 허용
+  - 기본 정책은 `search=180d/750/1-hop`, `watchlist|seed=365d/750/2-hop`, metadata override는 상한(`365d`, `1000 limit`, `2-hop`) 내에서만 허용
   - `watchlist_bootstrap` / `seed_discovery` source에서는 normalized transaction counterparties 상위 후보를 bounded fanout으로 `wallet_backfill_expansion` job에 재enqueue하는 baseline 추가
   - expansion job은 `backfill_root_*`, `backfill_parent_*`, `backfill_expansion_hits` metadata를 남기고, Redis dedup으로 중복 re-enqueue를 방지
   - search hit라도 `indexing.status=ready` 이고 `lastIndexedAt`이 stale threshold를 넘은 wallet은 `search_stale_refresh` source로 low-priority background refresh를 enqueue
   - wallet summary/detail에 `indexing status`, `coverage window`, `last indexed`를 노출하는 baseline 추가
   - home search surface와 wallet detail이 `indexing` 상태일 때 자동 polling으로 summary/graph를 다시 불러와 `ready` 상태로 자연스럽게 전환되도록 보강
   - home/detail copy를 `background indexing`, `coverage ready`, `updated just now / 5m ago` 형태로 정리해 기술 상태 노출을 줄이고 조사 흐름 중심으로 다듬음
-  - `GET /v1/search?refresh=manual`을 통해 사용자가 명시적으로 stale/fresh wallet의 background refresh를 다시 enqueue할 수 있게 하고, home/detail UI에 `Refresh now` 액션을 추가
+  - `GET /v1/search?refresh=manual`을 통해 사용자가 명시적으로 stale/fresh wallet의 background refresh를 다시 enqueue할 수 있게 하고, home/detail UI에 `Expand coverage` 액션을 추가
+  - related addresses와 home snapshot에 `showing X of Y indexed`, `180d/365d indexed` 형태의 coverage visibility baseline 추가
 - Definition of Done:
   - 기본 기간 내 wallet graph용 데이터가 적재됨
 
@@ -446,7 +571,7 @@
   - related addresses expanded row에서 `copy summary`와 `open in search` 액션을 제공하고, 홈 검색 surface가 `?q=` query param으로 같은 주소를 즉시 다시 여는 baseline 완료
   - graph API가 depth gate/empty neighborhood로 fallback될 때 summary counterparties에서 파생한 `summary-derived` graph로 관련 주소 시각화 유지
   - wallet detail hero/summary/graph 패널에서 `GET /v1/...` route 노출을 제거하고 compact graph variant 기준으로 정보 위계를 정리
-  - PRD 그래프 UX 방향을 WhaleGraph 고유의 `분석형 hub-and-spoke + partial flow hints`와 signal-first investigation view로 고정
+  - PRD 그래프 UX 방향을 FlowIntel 고유의 `분석형 hub-and-spoke + partial flow hints`와 signal-first investigation view로 고정
   - focal wallet 중심 `hub-and-spoke + partial flow hints` visual layout baseline 완료
   - home search surface를 result-first layout으로 단순화하고 compact wallet graph preview 연결 완료
   - home main page를 graph-first layout으로 재구성하고, summary는 compact side card로 축소
@@ -739,7 +864,7 @@
   - UX gate checklist
   - rollback/runbook package
 - Current State:
-  - `/Users/kh/Github/WhaleGraph/docs/runbooks/launch-gates.md`를 beta closeout source of truth로 확장해 `functional`, `reliability`, `UX`, `ops` gate와 `pass / warn / block` 상태를 현재 코드 기준으로 고정
+  - `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`를 beta closeout source of truth로 확장해 `functional`, `reliability`, `UX`, `ops` gate와 `pass / warn / block` 상태를 현재 코드 기준으로 고정
   - evidence bundle 명령을 문서에 직접 명시하고 현재 저장소 기준으로 재실행 가능한 형태로 정리
   - rollback/recovery package에 `search/wallet`, `billing`, `enrichment/provider pressure` 조치와 수동 worker mode 명령을 포함
 - Definition of Done:
@@ -782,3 +907,29 @@ beta를 가장 늦추는 경로는 아래다.
    - admin/ops/billing handoff 최종 확인
 
 위 순서는 다음 세션에서도 기본 우선순위로 유지한다. 새로운 아이디어가 생겨도, 문서에 명시적으로 재정렬하기 전에는 이 순서를 깨지 않는다.
+## AI Workspace
+
+- AI analyst workstream is now split into `/Users/kh/Github/FlowIntel/flowintel-ai`
+- Use it for dataset specs, agent payload contracts, and evaluation assets
+- Keep core ingestion, labeling, and scoring changes in the main product stack
+- Initial completed specs:
+  - `datasets/wallet-tracking-state.md`
+  - `datasets/wallet-tracking-state-migration-outline.md`
+  - `datasets/signal-outcomes.md`
+  - `contracts/wallet-analyst.md`
+  - `contracts/signal-explainer.md`
+  - `contracts/alert-briefing.md`
+  - `contracts/interactive-analyst.md`
+  - `contracts/background-detection-agent.md`
+  - `contracts/finding-object-schema.md`
+- Implemented first product-side bridge:
+  - migration `0014_wallet_tracking_state.sql`
+  - DB store `packages/db/wallet_tracking_state.go`
+  - search/watchlist/seed/backfill metadata now populate candidate discovery and tracked lifecycle state
+  - admin observability includes wallet tracking + subscription overview snapshots
+  - `packages/db/wallet_tracking_registry.go` and `apps/workers/tracking_subscription_sync.go` keep tracked-wallet subscription rows in sync and reconcile configured provider webhook address sets
+  - webhook ingest updates `wallet_tracking_subscriptions.last_event_at` from real provider deliveries
+  - migration `0015_wallet_labeling_baseline.sql` now adds `entity_labels`, `entity_label_memberships`, and `wallet_evidence`
+  - `packages/providers/wallet_labeling.go` now derives baseline inferred labels for exchange / bridge / treasury / market-maker patterns and behavioral flow labels
+  - `packages/db/wallet_labels.go` now persists evidence-first label memberships and invalidates summary/graph caches for affected wallets
+  - wallet summary and wallet graph now expose separated `verified`, `inferred`, and `behavioral` labels on wallet/counterparty/node surfaces
