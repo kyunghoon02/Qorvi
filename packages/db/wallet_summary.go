@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type WalletRef struct {
@@ -21,6 +21,7 @@ type WalletSummaryIdentity struct {
 	Address     string
 	DisplayName string
 	EntityKey   string
+	Labels      domain.WalletLabelSet
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -46,6 +47,7 @@ type WalletSummaryCounterparty struct {
 	EntityKey        string
 	EntityType       string
 	EntityLabel      string
+	Labels           domain.WalletLabelSet
 	InteractionCount int64
 	InboundCount     int64
 	OutboundCount    int64
@@ -170,6 +172,7 @@ type WalletSummaryRepository struct {
 	IdentityReader                WalletIdentityReader
 	StatsReader                   WalletStatsReader
 	GraphSignalReader             WalletGraphSignalReader
+	LabelReader                   WalletLabelReader
 	EnrichmentReader              WalletEnrichmentReader
 	ClusterScoreSnapshotReader    ClusterScoreSnapshotReader
 	ShadowExitSnapshotReader      ShadowExitSnapshotReader
@@ -186,6 +189,7 @@ func NewWalletSummaryRepository(
 	identityReader WalletIdentityReader,
 	statsReader WalletStatsReader,
 	graphSignalReader WalletGraphSignalReader,
+	labelReader WalletLabelReader,
 	enrichmentReader WalletEnrichmentReader,
 	clusterScoreSnapshotReader ClusterScoreSnapshotReader,
 	shadowExitSnapshotReader ShadowExitSnapshotReader,
@@ -198,6 +202,7 @@ func NewWalletSummaryRepository(
 		IdentityReader:                identityReader,
 		StatsReader:                   statsReader,
 		GraphSignalReader:             graphSignalReader,
+		LabelReader:                   labelReader,
 		EnrichmentReader:              enrichmentReader,
 		ClusterScoreSnapshotReader:    clusterScoreSnapshotReader,
 		ShadowExitSnapshotReader:      shadowExitSnapshotReader,
@@ -497,6 +502,10 @@ func (r *WalletSummaryRepository) LoadWalletSummaryInputs(ctx context.Context, r
 		return WalletSummaryInputs{}, err
 	}
 
+	if err := r.readLabels(ctx, &identity, &stats); err != nil {
+		return WalletSummaryInputs{}, err
+	}
+
 	signals, err := r.readSignals(ctx, plan)
 	if err != nil {
 		return WalletSummaryInputs{}, err
@@ -591,6 +600,47 @@ func (r *WalletSummaryRepository) readSignals(ctx context.Context, plan WalletSu
 	}
 
 	return signals, nil
+}
+
+func (r *WalletSummaryRepository) readLabels(
+	ctx context.Context,
+	identity *WalletSummaryIdentity,
+	stats *WalletSummaryStats,
+) error {
+	if r.LabelReader == nil || identity == nil || stats == nil {
+		return nil
+	}
+
+	refs := make([]WalletRef, 0, len(stats.TopCounterparties)+1)
+	refs = append(refs, WalletRef{
+		Chain:   identity.Chain,
+		Address: identity.Address,
+	})
+	for _, counterparty := range stats.TopCounterparties {
+		refs = append(refs, WalletRef{
+			Chain:   counterparty.Chain,
+			Address: counterparty.Address,
+		})
+	}
+
+	labelsByRef, err := r.LabelReader.ReadWalletLabels(ctx, refs)
+	if err != nil {
+		return fmt.Errorf("read wallet labels: %w", err)
+	}
+
+	identity.Labels = labelsByRef[walletRefLabelKey(WalletRef{
+		Chain:   identity.Chain,
+		Address: identity.Address,
+	})]
+	for index := range stats.TopCounterparties {
+		key := walletRefLabelKey(WalletRef{
+			Chain:   stats.TopCounterparties[index].Chain,
+			Address: stats.TopCounterparties[index].Address,
+		})
+		stats.TopCounterparties[index].Labels = labelsByRef[key]
+	}
+
+	return nil
 }
 
 func (r *WalletSummaryRepository) readEnrichment(

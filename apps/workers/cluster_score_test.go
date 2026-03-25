@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type fakeWalletGraphLoader struct {
@@ -134,10 +134,10 @@ func TestClusterScoreSnapshotServiceRunSnapshot(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsClusterScoreSnapshotFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_CLUSTER_SCORE_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_CLUSTER_SCORE_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("WHALEGRAPH_CLUSTER_SCORE_DEPTH", "2")
-	t.Setenv("WHALEGRAPH_CLUSTER_SCORE_OBSERVED_AT", "2026-03-20T01:02:03Z")
+	t.Setenv("FLOWINTEL_CLUSTER_SCORE_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_CLUSTER_SCORE_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_CLUSTER_SCORE_DEPTH", "2")
+	t.Setenv("FLOWINTEL_CLUSTER_SCORE_OBSERVED_AT", "2026-03-20T01:02:03Z")
 
 	graphLoader := &fakeWalletGraphLoader{
 		graph: domain.WalletGraph{
@@ -178,7 +178,7 @@ func TestBuildWorkerOutputRunsClusterScoreSnapshotFlow(t *testing.T) {
 		workerModeClusterScoreSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -195,6 +195,7 @@ func TestBuildWorkerOutputRunsClusterScoreSnapshotFlow(t *testing.T) {
 		ShadowExitSnapshotService{},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)

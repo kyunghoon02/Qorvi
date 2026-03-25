@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeWalletIdentityReader struct {
@@ -173,13 +173,14 @@ func TestLoadWalletSummaryInputsUsesCacheHitFirst(t *testing.T) {
 	identityReader := &fakeWalletIdentityReader{}
 	statsReader := &fakeWalletStatsReader{}
 	signalReader := &fakeWalletSignalReader{}
-	repo := NewWalletSummaryRepository(
-		identityReader,
-		statsReader,
-		signalReader,
-		nil,
-		nil,
-		nil,
+		repo := NewWalletSummaryRepository(
+			identityReader,
+			statsReader,
+			signalReader,
+			nil,
+			nil,
+			nil,
+			nil,
 		nil,
 		nil,
 		cache,
@@ -211,8 +212,8 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 
 	latest := time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC)
 	cache := &fakeWalletCache{}
-	repo := NewWalletSummaryRepository(
-		&stubWalletIdentityReader{
+		repo := NewWalletSummaryRepository(
+			&stubWalletIdentityReader{
 			identity: WalletSummaryIdentity{
 				WalletID:    "wallet_1",
 				Chain:       domain.ChainSolana,
@@ -249,7 +250,7 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 				},
 			},
 		},
-		&stubWalletSignalReader{
+			&stubWalletSignalReader{
 			signals: WalletGraphSignals{
 				ClusterKey:            "cluster_seed_whales",
 				ClusterType:           "whale",
@@ -259,8 +260,9 @@ func TestLoadWalletSummaryInputsAggregatesAndCaches(t *testing.T) {
 				BridgeTransferCount:   1,
 				CEXProximityCount:     2,
 			},
-		},
-		&fakeWalletEnrichmentReader{
+			},
+			nil,
+			&fakeWalletEnrichmentReader{
 			enrichment: &domain.WalletEnrichment{
 				Provider:               "moralis",
 				NetWorthUSD:            "157.00",
@@ -333,8 +335,8 @@ func TestLoadWalletSummaryInputsIncludesClusterScoreSnapshot(t *testing.T) {
 	t.Parallel()
 
 	latest := time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC)
-	repo := NewWalletSummaryRepository(
-		&stubWalletIdentityReader{
+		repo := NewWalletSummaryRepository(
+			&stubWalletIdentityReader{
 			identity: WalletSummaryIdentity{
 				WalletID:    "wallet_1",
 				Chain:       domain.ChainEVM,
@@ -349,9 +351,10 @@ func TestLoadWalletSummaryInputsIncludesClusterScoreSnapshot(t *testing.T) {
 				AsOfDate: latest,
 			},
 		},
-		&stubWalletSignalReader{},
-		nil,
-		&fakeClusterScoreSnapshotReader{
+			&stubWalletSignalReader{},
+			nil,
+			nil,
+			&fakeClusterScoreSnapshotReader{
 			snapshot: &ClusterScoreSnapshot{
 				SignalType:  "cluster_score_snapshot",
 				ScoreValue:  82,

@@ -124,6 +124,7 @@ type WalletCounterparty struct {
 	EntityKey        string                           `json:"entity_key"`
 	EntityType       string                           `json:"entity_type"`
 	EntityLabel      string                           `json:"entity_label"`
+	Labels           WalletLabelSet                   `json:"labels,omitempty"`
 	InteractionCount int                              `json:"interaction_count"`
 	InboundCount     int                              `json:"inbound_count"`
 	OutboundCount    int                              `json:"outbound_count"`
@@ -195,6 +196,7 @@ type WalletSummary struct {
 	Chain             Chain                `json:"chain"`
 	Address           string               `json:"address"`
 	DisplayName       string               `json:"display_name"`
+	Labels            WalletLabelSet       `json:"labels,omitempty"`
 	ClusterID         *string              `json:"cluster_id"`
 	Counterparties    int                  `json:"counterparties"`
 	LatestActivityAt  string               `json:"latest_activity_at"`

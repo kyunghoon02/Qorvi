@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type fakeShadowExitCandidateReader struct {
@@ -239,26 +239,26 @@ func TestShadowExitSnapshotServiceRunSnapshotUsesDetectorInputs(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsShadowExitSnapshotFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CHAIN", "solana")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS", "So11111111111111111111111111111111111111112")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "solana")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "So11111111111111111111111111111111111111112")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeShadowExitSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -273,6 +273,7 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotFlow(t *testing.T) {
 		},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
@@ -287,26 +288,26 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsShadowExitSnapshotAutoDetectFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OBSERVED_AT", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_COUNT", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeShadowExitSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -338,6 +339,7 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotAutoDetectFlow(t *testing.T) {
 		},
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
@@ -349,19 +351,19 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotAutoDetectFlow(t *testing.T) {
 }
 
 func TestShadowExitSignalFromEnvBuildsDetectorInputs(t *testing.T) {
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
 
 	signal := shadowExitSignalFromEnv()
 	if signal.FanOut24hCount != 2 {
@@ -379,20 +381,20 @@ func TestShadowExitSignalFromEnvBuildsDetectorInputs(t *testing.T) {
 }
 
 func TestShadowExitShouldAutoDetect(t *testing.T) {
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
 	if !shadowExitShouldAutoDetect() {
 		t.Fatal("expected auto detect to be enabled when manual metrics are absent")
 	}
 
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
 	if shadowExitShouldAutoDetect() {
 		t.Fatal("expected manual metrics to disable auto detect")
 	}
 
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
-	t.Setenv("WHALEGRAPH_SHADOW_EXIT_AUTO_DETECT", "false")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
+	t.Setenv("FLOWINTEL_SHADOW_EXIT_AUTO_DETECT", "false")
 	if shadowExitShouldAutoDetect() {
 		t.Fatal("expected explicit auto detect=false to disable auto detect")
 	}

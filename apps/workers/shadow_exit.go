@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
 )
 
 const workerModeShadowExitSnapshot = "shadow-exit-snapshot"
@@ -20,6 +20,8 @@ type ShadowExitSnapshotService struct {
 	Wallets    WalletEnsurer
 	Candidates db.ShadowExitCandidateReader
 	Signals    db.SignalEventStore
+	Labels     db.WalletLabelReader
+	Findings   db.FindingStore
 	Cache      db.WalletSummaryCache
 	Alerts     AlertSignalDispatcher
 	JobRuns    db.JobRunStore
@@ -94,6 +96,47 @@ func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intel
 			},
 		})
 		return ShadowExitSnapshotReport{}, err
+	}
+	reportPreview := ShadowExitSnapshotReport{
+		WalletID:                  signal.WalletID,
+		Chain:                     string(signal.Chain),
+		Address:                   signal.Address,
+		ScoreName:                 string(score.Name),
+		ScoreValue:                score.Value,
+		ScoreRating:               string(score.Rating),
+		ObservedAt:                snapshotObservedAt,
+		BridgeTransfers:           signal.BridgeTransfers,
+		CEXProximityCount:         signal.CEXProximityCount,
+		FanOutCount:               signal.FanOutCount,
+		FanOutCandidateCount24h:   signal.FanOut24hCount,
+		OutflowRatio:              signal.OutflowRatio,
+		BridgeEscapeCount:         signal.BridgeEscapeCount,
+		TreasuryWhitelistDiscount: signal.TreasuryWhitelistDiscount,
+		InternalRebalanceDiscount: signal.InternalRebalanceDiscount,
+	}
+	for _, finding := range shadowExitFindingEntries(reportPreview, score) {
+		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+	}
+	labels, err := readWalletLabelSet(ctx, s.Labels, db.WalletRef{Chain: signal.Chain, Address: signal.Address})
+	if err != nil {
+		return ShadowExitSnapshotReport{}, err
+	}
+	for _, finding := range interpretationFindingsFromLabels(
+		db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+		signal.WalletID,
+		snapshotObservedAt,
+		findingConfidenceFromScore(score),
+		float64(score.Value)/100,
+		30,
+		labels,
+		score,
+		shadowExitInterpretationContext(reportPreview, score),
+	) {
+		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
 	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   signal.Chain,
@@ -175,23 +218,7 @@ func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intel
 		return ShadowExitSnapshotReport{}, err
 	}
 
-	return ShadowExitSnapshotReport{
-		WalletID:                  signal.WalletID,
-		Chain:                     string(signal.Chain),
-		Address:                   signal.Address,
-		ScoreName:                 string(score.Name),
-		ScoreValue:                score.Value,
-		ScoreRating:               string(score.Rating),
-		ObservedAt:                snapshotObservedAt,
-		BridgeTransfers:           signal.BridgeTransfers,
-		CEXProximityCount:         signal.CEXProximityCount,
-		FanOutCount:               signal.FanOutCount,
-		FanOutCandidateCount24h:   signal.FanOut24hCount,
-		OutflowRatio:              signal.OutflowRatio,
-		BridgeEscapeCount:         signal.BridgeEscapeCount,
-		TreasuryWhitelistDiscount: signal.TreasuryWhitelistDiscount,
-		InternalRebalanceDiscount: signal.InternalRebalanceDiscount,
-	}, nil
+	return reportPreview, nil
 }
 
 func (s ShadowExitSnapshotService) RunSnapshotForWallet(
@@ -278,17 +305,17 @@ func shadowExitSignalFromEnv() intelligence.ShadowExitSignal {
 
 func shadowExitTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_ADDRESS")),
 	}
 }
 
 func shadowExitObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT"))
 }
 
 func shadowExitShouldAutoDetect() bool {
-	configured := strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_AUTO_DETECT"))
+	configured := strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_AUTO_DETECT"))
 	if configured != "" {
 		parsed, err := strconv.ParseBool(configured)
 		if err == nil {
@@ -296,20 +323,20 @@ func shadowExitShouldAutoDetect() bool {
 		}
 	}
 
-	if strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID")) != "" {
+	if strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID")) != "" {
 		return false
 	}
 
 	for _, key := range []string{
-		"WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS",
-		"WHALEGRAPH_SHADOW_EXIT_CEX_PROXIMITY_COUNT",
-		"WHALEGRAPH_SHADOW_EXIT_FAN_OUT_COUNT",
-		"WHALEGRAPH_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H",
-		"WHALEGRAPH_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H",
-		"WHALEGRAPH_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H",
-		"WHALEGRAPH_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT",
-		"WHALEGRAPH_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT",
-		"WHALEGRAPH_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT",
+		"FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS",
+		"FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT",
+		"FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT",
+		"FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H",
+		"FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H",
+		"FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H",
+		"FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT",
+		"FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT",
+		"FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT",
 	} {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return false
@@ -357,19 +384,19 @@ func shadowExitBoolToInt(value bool) int {
 
 func shadowExitDetectorInputsFromEnv() intelligence.ShadowExitDetectorInputs {
 	return intelligence.ShadowExitDetectorInputs{
-		WalletID:                       strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_WALLET_ID")),
-		Chain:                          domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_CHAIN"))),
-		Address:                        strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_ADDRESS")),
-		ObservedAt:                     strings.TrimSpace(os.Getenv("WHALEGRAPH_SHADOW_EXIT_OBSERVED_AT")),
-		BridgeTransfers:                shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_TRANSFERS", 0),
-		CEXProximityCount:              shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_CEX_PROXIMITY_COUNT", 0),
-		FanOutCount:                    shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_COUNT", 0),
-		FanOutCandidateCount24h:        shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", 0),
-		OutboundTransferCount24h:       shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", 0),
-		InboundTransferCount24h:        shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", 0),
-		BridgeEscapeCount:              shadowExitIntFromEnv("WHALEGRAPH_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", 0),
-		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("WHALEGRAPH_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", false)),
-		InternalRebalanceEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("WHALEGRAPH_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", false)),
+		WalletID:                       strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID")),
+		Chain:                          domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_CHAIN"))),
+		Address:                        strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_ADDRESS")),
+		ObservedAt:                     strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT")),
+		BridgeTransfers:                shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", 0),
+		CEXProximityCount:              shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", 0),
+		FanOutCount:                    shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", 0),
+		FanOutCandidateCount24h:        shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", 0),
+		OutboundTransferCount24h:       shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", 0),
+		InboundTransferCount24h:        shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", 0),
+		BridgeEscapeCount:              shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", 0),
+		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", false)),
+		InternalRebalanceEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", false)),
 	}
 }
 

@@ -39,6 +39,7 @@ type WalletGraphNode struct {
 	Chain   Chain               `json:"chain,omitempty"`
 	Address string              `json:"address,omitempty"`
 	Label   string              `json:"label"`
+	Labels  WalletLabelSet      `json:"labels,omitempty"`
 }
 
 type WalletGraphEdgeEvidence struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
 )
 
 var ErrWalletSummaryNotFound = errors.New("wallet summary not found")
@@ -91,11 +91,13 @@ func buildWalletSummary(inputs db.WalletSummaryInputs) domain.WalletSummary {
 	scores = applyClusterScoreSnapshot(scores, inputs.ClusterScoreSnapshot)
 	scores = applyShadowExitSnapshot(scores, inputs.ShadowExitSnapshot)
 	scores = applyFirstConnectionSnapshot(scores, inputs.FirstConnectionSnapshot)
+	labels := mergeBehavioralWalletLabels(inputs.Identity.Labels, scores)
 
 	return domain.WalletSummary{
 		Chain:             inputs.Ref.Chain,
 		Address:           inputs.Ref.Address,
 		DisplayName:       displayName(inputs),
+		Labels:            labels,
 		ClusterID:         clusterRef,
 		Counterparties:    int(inputs.Stats.CounterpartyCount),
 		LatestActivityAt:  latestActivityAt,
@@ -107,6 +109,84 @@ func buildWalletSummary(inputs db.WalletSummaryInputs) domain.WalletSummary {
 		Tags:              tags,
 		Scores:            scores,
 	}
+}
+
+func mergeBehavioralWalletLabels(
+	set domain.WalletLabelSet,
+	scores []domain.Score,
+) domain.WalletLabelSet {
+	next := set
+	for _, score := range scores {
+		label, ok := behavioralLabelForScore(score)
+		if !ok {
+			continue
+		}
+		exists := false
+		for _, item := range next.Behavioral {
+			if item.Key == label.Key {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			next.Behavioral = append(next.Behavioral, label)
+		}
+	}
+	return next
+}
+
+func behavioralLabelForScore(score domain.Score) (domain.WalletLabel, bool) {
+	if len(score.Evidence) == 0 {
+		return domain.WalletLabel{}, false
+	}
+	latest := score.Evidence[0]
+	for _, item := range score.Evidence[1:] {
+		if item.ObservedAt > latest.ObservedAt {
+			latest = item
+		}
+	}
+	switch score.Name {
+	case domain.ScoreCluster:
+		if score.Rating == domain.RatingHigh || score.Value >= 70 {
+			return domain.WalletLabel{
+				Key:             "behavioral:smart_money_candidate",
+				Name:            "Smart money candidate",
+				Class:           domain.WalletLabelClassBehavioral,
+				EntityType:      "behavior",
+				Source:          latest.Source,
+				Confidence:      0.8,
+				EvidenceSummary: "Cluster score indicates repeated overlap with high-value counterparties.",
+				ObservedAt:      latest.ObservedAt,
+			}, true
+		}
+	case domain.ScoreShadowExit:
+		if score.Rating == domain.RatingHigh || score.Value >= 70 {
+			return domain.WalletLabel{
+				Key:             "behavioral:shadow_exit_pattern",
+				Name:            "Shadow exit pattern",
+				Class:           domain.WalletLabelClassBehavioral,
+				EntityType:      "behavior",
+				Source:          latest.Source,
+				Confidence:      0.8,
+				EvidenceSummary: "Recent bridge and distribution behavior matches shadow exit heuristics.",
+				ObservedAt:      latest.ObservedAt,
+			}, true
+		}
+	case domain.ScoreAlpha:
+		if score.Rating == domain.RatingHigh || score.Value >= 70 {
+			return domain.WalletLabel{
+				Key:             "behavioral:early_rotation_pattern",
+				Name:            "Early rotation pattern",
+				Class:           domain.WalletLabelClassBehavioral,
+				EntityType:      "behavior",
+				Source:          latest.Source,
+				Confidence:      0.75,
+				EvidenceSummary: "Recent activity aligns with early rotation behavior.",
+				ObservedAt:      latest.ObservedAt,
+			}, true
+		}
+	}
+	return domain.WalletLabel{}, false
 }
 
 func buildLatestSignals(inputs db.WalletSummaryInputs, scores []domain.Score) []domain.WalletLatestSignal {

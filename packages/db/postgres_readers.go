@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type postgresQuerier interface {
@@ -136,6 +136,7 @@ func BuildWalletSummaryFromPostgres(
 		Chain:             identity.Chain,
 		Address:           identity.Address,
 		DisplayName:       identity.DisplayName,
+		Labels:            identity.Labels,
 		ClusterID:         &clusterID,
 		Counterparties:    int(stats.CounterpartyCount),
 		LatestActivityAt:  statsTime(stats),
@@ -245,6 +246,7 @@ func buildDomainCounterparties(items []WalletSummaryCounterparty) []domain.Walle
 			EntityKey:        item.EntityKey,
 			EntityType:       item.EntityType,
 			EntityLabel:      item.EntityLabel,
+			Labels:           item.Labels,
 			InteractionCount: int(item.InteractionCount),
 			InboundCount:     int(item.InboundCount),
 			OutboundCount:    int(item.OutboundCount),

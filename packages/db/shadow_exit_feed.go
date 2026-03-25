@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 const latestShadowExitFeedSQL = `

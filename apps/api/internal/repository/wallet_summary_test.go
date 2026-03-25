@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeWalletSummaryInputsLoader struct {
@@ -373,6 +373,79 @@ func TestQueryBackedWalletSummaryRepositoryReturnsNotFound(t *testing.T) {
 	_, err := repo.FindWalletSummary(context.Background(), "evm", "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	if !errors.Is(err, ErrWalletSummaryNotFound) {
 		t.Fatalf("expected not found error, got %v", err)
+	}
+}
+
+func TestQueryBackedWalletSummaryRepositorySeparatesVerifiedInferredAndBehavioralLabels(t *testing.T) {
+	t.Parallel()
+
+	latest := time.Date(2026, time.March, 19, 6, 7, 8, 0, time.UTC)
+	repo := NewQueryBackedWalletSummaryRepository(&fakeWalletSummaryInputsLoader{
+		inputs: db.WalletSummaryInputs{
+			Ref: db.WalletRef{
+				Chain:   domain.ChainEVM,
+				Address: "0x1234567890abcdef1234567890abcdef12345678",
+			},
+			Identity: db.WalletSummaryIdentity{
+				WalletID:    "wallet_1",
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				DisplayName: "Seed Whale",
+				Labels: domain.WalletLabelSet{
+					Verified: []domain.WalletLabel{
+						{
+							Key:   "curated:fund:paradigm",
+							Name:  "Paradigm",
+							Class: domain.WalletLabelClassVerified,
+						},
+					},
+					Inferred: []domain.WalletLabel{
+						{
+							Key:   "inferred:treasury:treasury",
+							Name:  "Treasury",
+							Class: domain.WalletLabelClassInferred,
+						},
+					},
+				},
+			},
+			Stats: db.WalletSummaryStats{
+				AsOfDate: latest,
+			},
+			Signals: db.WalletGraphSignals{
+				ClusterScore: 88,
+			},
+			ClusterScoreSnapshot: &db.ClusterScoreSnapshot{
+				SignalType:  "cluster_score_snapshot",
+				ScoreValue:  88,
+				ScoreRating: domain.RatingHigh,
+				ObservedAt:  latest,
+			},
+			LatestSignals: []domain.WalletLatestSignal{
+				{
+					Name:       domain.ScoreCluster,
+					Value:      88,
+					Rating:     domain.RatingHigh,
+					Label:      "latest cluster score snapshot",
+					Source:     "cluster-score-snapshot",
+					ObservedAt: latest.Format(time.RFC3339),
+				},
+			},
+		},
+	})
+
+	summary, err := repo.FindWalletSummary(context.Background(), "evm", "0x1234567890abcdef1234567890abcdef12345678")
+	if err != nil {
+		t.Fatalf("expected summary, got %v", err)
+	}
+
+	if len(summary.Labels.Verified) != 1 || summary.Labels.Verified[0].Name != "Paradigm" {
+		t.Fatalf("expected verified labels to be preserved, got %#v", summary.Labels)
+	}
+	if len(summary.Labels.Inferred) != 1 || summary.Labels.Inferred[0].Name != "Treasury" {
+		t.Fatalf("expected inferred labels to be preserved, got %#v", summary.Labels)
+	}
+	if len(summary.Labels.Behavioral) != 1 || summary.Labels.Behavioral[0].Key != "behavioral:smart_money_candidate" {
+		t.Fatalf("expected behavioral label from score, got %#v", summary.Labels)
 	}
 }
 

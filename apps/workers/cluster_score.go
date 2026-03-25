@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
 )
 
 const workerModeClusterScoreSnapshot = "cluster-score-snapshot"
@@ -19,13 +19,15 @@ type WalletGraphLoader interface {
 }
 
 type ClusterScoreSnapshotService struct {
-	Wallets WalletEnsurer
-	Graphs  WalletGraphLoader
-	Signals db.SignalEventStore
-	Cache   db.WalletSummaryCache
-	Alerts  AlertSignalDispatcher
-	JobRuns db.JobRunStore
-	Now     func() time.Time
+	Wallets  WalletEnsurer
+	Graphs   WalletGraphLoader
+	Signals  db.SignalEventStore
+	Labels   db.WalletLabelReader
+	Findings db.FindingStore
+	Cache    db.WalletSummaryCache
+	Alerts   AlertSignalDispatcher
+	JobRuns  db.JobRunStore
+	Now      func() time.Time
 }
 
 type ClusterScoreSnapshotReport struct {
@@ -148,6 +150,36 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 			},
 		})
 		return ClusterScoreSnapshotReport{}, err
+	}
+	if err := recordWalletFinding(ctx, s.Findings, clusterScoreFindingEntry(ClusterScoreSnapshotReport{
+		WalletID:    identity.WalletID,
+		Chain:       string(normalizedRef.Chain),
+		Address:     normalizedRef.Address,
+		ScoreName:   string(score.Name),
+		ScoreValue:  score.Value,
+		ScoreRating: string(score.Rating),
+		ObservedAt:  snapshotObservedAt,
+	}, score)); err != nil {
+		return ClusterScoreSnapshotReport{}, err
+	}
+	labels, err := readWalletLabelSet(ctx, s.Labels, db.WalletRef{Chain: identity.Chain, Address: identity.Address})
+	if err != nil {
+		return ClusterScoreSnapshotReport{}, err
+	}
+	for _, finding := range interpretationFindingsFromLabels(
+		db.WalletRef{Chain: identity.Chain, Address: identity.Address},
+		identity.WalletID,
+		snapshotObservedAt,
+		findingConfidenceFromScore(score),
+		float64(score.Value)/100,
+		30,
+		labels,
+		score,
+		clusterScoreInterpretationContext(graph, score),
+	) {
+		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+			return ClusterScoreSnapshotReport{}, err
+		}
 	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   identity.Chain,

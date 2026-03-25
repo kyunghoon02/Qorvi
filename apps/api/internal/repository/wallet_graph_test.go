@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeWalletGraphLoader struct {

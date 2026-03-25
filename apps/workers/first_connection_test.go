@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/config"
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
-	"github.com/whalegraph/whalegraph/packages/providers"
+	"github.com/flowintel/flowintel/packages/config"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/providers"
 )
 
 type fakeFirstConnectionSignalReader struct {
@@ -184,20 +184,20 @@ func TestFirstConnectionSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeFirstConnectionSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -212,6 +212,7 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
 			JobRuns: &fakeJobRunStore{},
 		},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
@@ -226,20 +227,20 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T) {
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_OBSERVED_AT", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_HOT_FEED_MENTIONS", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeFirstConnectionSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/whalegraph",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -266,6 +267,7 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T
 			JobRuns: &fakeJobRunStore{},
 		},
 		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
@@ -280,13 +282,13 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T
 }
 
 func TestFirstConnectionSignalFromEnvBuildsDetectorInputs(t *testing.T) {
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN", "solana")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS", "So11111111111111111111111111111111111111112")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "solana")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "So11111111111111111111111111111111111111112")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
 
 	signal := firstConnectionSignalFromEnv()
 	if signal.WalletID != "wallet_first_connection" {
@@ -304,20 +306,20 @@ func TestFirstConnectionSignalFromEnvBuildsDetectorInputs(t *testing.T) {
 }
 
 func TestFirstConnectionShouldAutoDetect(t *testing.T) {
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
 	if !firstConnectionShouldAutoDetect() {
 		t.Fatal("expected auto detect to be enabled when manual metrics are absent")
 	}
 
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "1")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "1")
 	if firstConnectionShouldAutoDetect() {
 		t.Fatal("expected manual metrics to disable auto detect")
 	}
 
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
-	t.Setenv("WHALEGRAPH_FIRST_CONNECTION_AUTO_DETECT", "false")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
+	t.Setenv("FLOWINTEL_FIRST_CONNECTION_AUTO_DETECT", "false")
 	if firstConnectionShouldAutoDetect() {
 		t.Fatal("expected explicit auto detect=false to disable auto detect")
 	}

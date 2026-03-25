@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/whalegraph/whalegraph/packages/db"
-	"github.com/whalegraph/whalegraph/packages/domain"
-	"github.com/whalegraph/whalegraph/packages/intelligence"
+	"github.com/flowintel/flowintel/packages/db"
+	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/flowintel/flowintel/packages/intelligence"
 )
 
 const workerModeFirstConnectionSnapshot = "first-connection-snapshot"
@@ -25,6 +25,8 @@ type FirstConnectionSnapshotService struct {
 	Candidates db.FirstConnectionCandidateReader
 	Reader     FirstConnectionSignalReader
 	Signals    db.SignalEventStore
+	Labels     db.WalletLabelReader
+	Findings   db.FindingStore
 	Cache      db.WalletSummaryCache
 	Alerts     AlertSignalDispatcher
 	JobRuns    db.JobRunStore
@@ -89,6 +91,50 @@ func (s FirstConnectionSnapshotService) RunSnapshot(ctx context.Context, signal 
 			},
 		})
 		return FirstConnectionSnapshotReport{}, err
+	}
+	if err := recordWalletFinding(ctx, s.Findings, firstConnectionFindingEntry(FirstConnectionSnapshotReport{
+		WalletID:                signal.WalletID,
+		Chain:                   string(signal.Chain),
+		Address:                 signal.Address,
+		ScoreName:               string(score.Name),
+		ScoreValue:              score.Value,
+		ScoreRating:             string(score.Rating),
+		ObservedAt:              snapshotObservedAt,
+		NewCommonEntries:        signal.NewCommonEntries,
+		FirstSeenCounterparties: signal.FirstSeenCounterparties,
+		HotFeedMentions:         signal.HotFeedMentions,
+	}, score)); err != nil {
+		return FirstConnectionSnapshotReport{}, err
+	}
+	labels, err := readWalletLabelSet(ctx, s.Labels, db.WalletRef{Chain: signal.Chain, Address: signal.Address})
+	if err != nil {
+		return FirstConnectionSnapshotReport{}, err
+	}
+	for _, finding := range interpretationFindingsFromLabels(
+		db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+		signal.WalletID,
+		snapshotObservedAt,
+		findingConfidenceFromScore(score),
+		float64(score.Value)/100,
+		30,
+		labels,
+		score,
+		firstConnectionInterpretationContext(FirstConnectionSnapshotReport{
+			WalletID:                signal.WalletID,
+			Chain:                   string(signal.Chain),
+			Address:                 signal.Address,
+			ScoreName:               string(score.Name),
+			ScoreValue:              score.Value,
+			ScoreRating:             string(score.Rating),
+			ObservedAt:              snapshotObservedAt,
+			NewCommonEntries:        signal.NewCommonEntries,
+			FirstSeenCounterparties: signal.FirstSeenCounterparties,
+			HotFeedMentions:         signal.HotFeedMentions,
+		}, score),
+	) {
+		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+			return FirstConnectionSnapshotReport{}, err
+		}
 	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   signal.Chain,
@@ -265,43 +311,43 @@ func (s FirstConnectionSnapshotService) recordJobRun(ctx context.Context, entry 
 
 func firstConnectionSignalFromEnv() intelligence.FirstConnectionSignal {
 	return intelligence.BuildFirstConnectionSignalFromInputs(intelligence.FirstConnectionDetectorInputs{
-		WalletID:                strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID")),
-		Chain:                   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN"))),
-		Address:                 strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS")),
-		ObservedAt:              strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_OBSERVED_AT")),
-		NewCommonEntries:        firstConnectionIntFromEnv("WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES", 0),
-		FirstSeenCounterparties: firstConnectionIntFromEnv("WHALEGRAPH_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", 0),
-		HotFeedMentions:         firstConnectionIntFromEnv("WHALEGRAPH_FIRST_CONNECTION_HOT_FEED_MENTIONS", 0),
+		WalletID:                strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID")),
+		Chain:                   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_CHAIN"))),
+		Address:                 strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS")),
+		ObservedAt:              strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT")),
+		NewCommonEntries:        firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", 0),
+		FirstSeenCounterparties: firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", 0),
+		HotFeedMentions:         firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", 0),
 	})
 }
 
 func firstConnectionTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS")),
 	}
 }
 
 func firstConnectionObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT"))
 }
 
 func firstConnectionShouldAutoDetect() bool {
-	if configured := strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_AUTO_DETECT")); configured != "" {
+	if configured := strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_AUTO_DETECT")); configured != "" {
 		parsed, err := strconv.ParseBool(configured)
 		if err == nil {
 			return parsed
 		}
 	}
 
-	if strings.TrimSpace(os.Getenv("WHALEGRAPH_FIRST_CONNECTION_WALLET_ID")) != "" {
+	if strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID")) != "" {
 		return false
 	}
 
 	for _, key := range []string{
-		"WHALEGRAPH_FIRST_CONNECTION_NEW_COMMON_ENTRIES",
-		"WHALEGRAPH_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES",
-		"WHALEGRAPH_FIRST_CONNECTION_HOT_FEED_MENTIONS",
+		"FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES",
+		"FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES",
+		"FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS",
 	} {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return false
