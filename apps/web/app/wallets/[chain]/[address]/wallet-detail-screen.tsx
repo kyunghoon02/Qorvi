@@ -9,9 +9,11 @@ import {
   useState,
 } from "react";
 
-import { Badge, type Tone } from "@whalegraph/ui";
+import { Badge, type Tone } from "@flowintel/ui";
 
 import type {
+  WalletBriefPreview,
+  ClusterDetailPreview,
   WalletDetailRequest,
   WalletGraphPreview,
   WalletGraphPreviewEdge,
@@ -23,12 +25,15 @@ import {
   buildProductSearchHref,
   buildWalletDetailHref,
   deriveWalletGraphPreviewFromSummary,
+  loadAnalystWalletBriefPreview,
+  loadClusterDetailPreview,
   loadSearchPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
   shouldPollIndexedWalletSummary,
   trackWalletAlertRule,
 } from "../../../../lib/api-boundary";
+import { useClerkRequestHeaders } from "../../../../lib/clerk-client-auth";
 import { persistClientForwardedAuthHeaders } from "../../../../lib/request-headers";
 import {
   type GraphEntityAssignmentPresentation,
@@ -63,6 +68,7 @@ export type WalletDetailViewModel = {
   title: string;
   chainLabel: string;
   address: string;
+  aiBrief: WalletBriefViewModel;
   summaryRoute: string;
   summaryStatus: string;
   summaryModeLabel: string;
@@ -85,12 +91,23 @@ export type WalletDetailViewModel = {
   indexing: WalletIndexingViewModel;
   enrichment: WalletEnrichmentViewModel | null;
   relatedAddresses: WalletRelatedAddressViewModel[];
+  relatedAddressCountAvailable: number;
+  relatedAddressCountShown: number;
+  relatedAddressCountLabel: string;
   recentFlow: WalletRecentFlowViewModel;
   graphNodeCount: number;
   graphEdgeCount: number;
   graphNodes: WalletGraphNodeViewModel[];
   graphEdges: WalletGraphEdgeViewModel[];
   graphRelationships: WalletGraphRelationshipViewModel[];
+};
+
+export type WalletBriefViewModel = {
+  headline: string;
+  summary: string;
+  keyFindings: string[];
+  evidence: string[];
+  nextWatch: string[];
 };
 
 export type WalletGraphNodeViewModel = WalletGraphPreviewNode & {
@@ -208,6 +225,7 @@ export type WalletHoldingViewModel = {
 export type WalletIndexingViewModel = {
   status: "ready" | "indexing";
   statusLabel: string;
+  actionLabel: string;
   helperCopy: string;
   lastIndexedAt: string;
   coverageStartAt: string;
@@ -238,33 +256,42 @@ export type WalletRelatedAddressSortKey =
   | "outbound_volume"
   | "inbound_volume";
 
-const MAX_EXPANDED_GRAPH_WALLETS = 2;
-const MAX_GRAPH_NODE_BUDGET = 12;
+const MAX_GRAPH_HOP_BUDGET = 20;
+const MAX_GRAPH_NODE_BUDGET = 120;
 
 export type WalletGraphExpansionState = {
   canExpand: boolean;
   expansionKey: string | null;
   reason: string;
   budgetLabel: string;
+  hopsUsed: number;
+  hopBudget: number;
+  nodeCount: number;
+  nodeBudget: number;
 };
+
 
 export function buildWalletDetailViewModel({
   request,
   summary,
   graph,
+  brief,
 }: {
   request: WalletDetailRequest;
   summary: WalletSummaryPreview;
   graph: WalletGraphPreview;
+  brief?: WalletBriefPreview;
 }): WalletDetailViewModel {
   const summaryAvailability =
     buildWalletSummaryAvailabilityPresentation(summary);
   const graphAvailability = buildWalletGraphAvailabilityPresentation(graph);
+  const aiBrief = buildWalletBriefViewModel(summary, brief);
 
   return {
     title: summary.label,
     chainLabel: summary.chainLabel,
     address: request.address,
+    aiBrief,
     summaryRoute: summary.route,
     summaryStatus: summary.statusMessage,
     summaryModeLabel: summaryAvailability.modeLabel,
@@ -299,6 +326,10 @@ export function buildWalletDetailViewModel({
         summary.indexing.status === "indexing"
           ? "Background indexing"
           : "Coverage ready",
+      actionLabel:
+        summary.indexing.status === "indexing"
+          ? "Continue indexing"
+          : "Expand coverage",
       helperCopy:
         summary.indexing.status === "indexing"
           ? "Fresh counterparties and flows are still being collected. This panel refreshes automatically."
@@ -354,6 +385,12 @@ export function buildWalletDetailViewModel({
         address: counterparty.address,
       }),
     })),
+    relatedAddressCountAvailable: summary.counterparties,
+    relatedAddressCountShown: summary.topCounterparties.length,
+    relatedAddressCountLabel: formatRelatedAddressCoverageLabel(
+      summary.topCounterparties.length,
+      summary.counterparties,
+    ),
     recentFlow: {
       incomingTxCount7d: summary.recentFlow.incomingTxCount7d,
       outgoingTxCount7d: summary.recentFlow.outgoingTxCount7d,
@@ -377,6 +414,106 @@ export function buildWalletDetailViewModel({
       kindLabel: formatGraphKind(edge.kind),
     })),
     graphRelationships: buildGraphRelationships(graph),
+  };
+}
+
+function buildWalletBriefViewModel(
+  summary: WalletSummaryPreview,
+  brief?: WalletBriefPreview,
+): WalletBriefViewModel {
+  if (brief && brief.mode === "live") {
+    const evidence = brief.keyFindings
+      .flatMap((finding) => finding.observedFacts)
+      .filter(Boolean)
+      .slice(0, 3);
+    const nextWatch = brief.keyFindings
+      .flatMap((finding) =>
+        finding.nextWatch.map((item) => {
+          if (item.label) {
+            return item.label;
+          }
+          if (item.token) {
+            return item.token;
+          }
+          if (item.address) {
+            return compactAddress(item.address);
+          }
+          return item.subjectType;
+        }),
+      )
+      .filter(Boolean)
+      .slice(0, 3);
+
+    return {
+      headline: `${brief.displayName} AI brief`,
+      summary: brief.aiSummary,
+      keyFindings: brief.keyFindings.map((finding) => finding.summary).slice(0, 4),
+      evidence:
+        evidence.length > 0
+          ? evidence
+          : ["Evidence is still being assembled for this wallet."],
+      nextWatch:
+        nextWatch.length > 0
+          ? nextWatch
+          : ["Watch the top counterparties and linked entities next."],
+    };
+  }
+
+  const primarySignal = summary.latestSignals[0];
+  const primaryCounterparty = summary.topCounterparties[0];
+  const leadingScore = summary.scores[0];
+
+  const headline = primarySignal?.label
+    ? `${summary.label} is showing ${primarySignal.label}.`
+    : primaryCounterparty?.entityLabel
+      ? `${summary.label} is tied closely to ${primaryCounterparty.entityLabel}.`
+      : `${summary.label} has indexed activity ready for review.`;
+
+  const summaryLine = [
+    summary.counterparties > 0
+      ? `${summary.counterparties} indexed counterparties`
+      : "No indexed counterparties yet",
+    summary.indexing.coverageWindowDays > 0
+      ? `${summary.indexing.coverageWindowDays}d coverage`
+      : "coverage warming up",
+    summary.recentFlow.netDirection7d !== "balanced"
+      ? `${summary.recentFlow.netDirection7d} flow in the last 7d`
+      : "balanced recent flow",
+  ].join(" · ");
+
+  const keyFindings = [
+    ...summary.latestSignals.slice(0, 3).map((signal) =>
+      `${formatSignalLabel(signal.name)}: ${signal.label} (${signal.rating})`,
+    ),
+    ...(leadingScore
+      ? [`${formatScoreLabel(leadingScore.name)} ${leadingScore.rating}`]
+      : []),
+  ].slice(0, 4);
+
+  const evidence = [
+    primaryCounterparty
+      ? `Top counterparty ${compactAddress(primaryCounterparty.address)} with ${primaryCounterparty.interactionCount} hits.`
+      : "No top counterparty evidence is available yet.",
+    summary.indexing.lastIndexedAt
+      ? `Last indexed ${formatRelativeTime(summary.indexing.lastIndexedAt)}.`
+      : "Coverage is still warming up.",
+  ];
+
+  const nextWatch = [
+    ...(primaryCounterparty?.entityLabel
+      ? [`Follow ${primaryCounterparty.entityLabel} linked flow.`]
+      : []),
+    ...(primarySignal?.label
+      ? [`Watch for continuation of ${primarySignal.label}.`]
+      : []),
+  ];
+
+  return {
+    headline,
+    summary: summaryLine,
+    keyFindings,
+    evidence,
+    nextWatch,
   };
 }
 
@@ -519,15 +656,20 @@ export function filterAndSortRelatedAddresses(
 export function WalletDetailScreen({
   request,
   summary,
+  brief,
   graph,
   requestHeaders,
 }: {
   request: WalletDetailRequest;
   summary: WalletSummaryPreview;
+  brief?: WalletBriefPreview;
   graph: WalletGraphPreview;
   requestHeaders?: HeadersInit;
 }) {
   const [summaryPreviewState, setSummaryPreviewState] = useState(summary);
+  const [briefPreviewState, setBriefPreviewState] = useState<WalletBriefPreview | undefined>(
+    brief,
+  );
   const [graphPreviewState, setGraphPreviewState] = useState(graph);
   const [directionFilter, setDirectionFilter] =
     useState<WalletRelatedAddressDirectionFilter>("all");
@@ -551,15 +693,18 @@ export function WalletDetailScreen({
   const [isRefreshingWallet, setIsRefreshingWallet] = useState(false);
   const [isTrackingWallet, setIsTrackingWallet] = useState(false);
   const [trackWalletMessage, setTrackWalletMessage] = useState("");
+  const getClerkRequestHeaders = useClerkRequestHeaders();
   const graphSectionRef = useRef<HTMLElement | null>(null);
   const viewModel = buildWalletDetailViewModel({
     request,
     summary: summaryPreviewState,
     graph: graphPreviewState,
+    ...(briefPreviewState ? { brief: briefPreviewState } : {}),
   });
 
   useEffect(() => {
     setSummaryPreviewState(summary);
+    setBriefPreviewState(brief);
     setGraphPreviewState(graph);
     setSelectedGraphNodeId(graph.nodes[0]?.id ?? null);
     setSelectedGraphRelationshipKey(
@@ -568,7 +713,7 @@ export function WalletDetailScreen({
     setExpandedGraphNeighborhoodKeys([]);
     setTrackWalletMessage("");
     setIsTrackingWallet(false);
-  }, [summary, graph]);
+  }, [summary, brief, graph]);
 
   useEffect(() => {
     persistClientForwardedAuthHeaders(requestHeaders);
@@ -606,19 +751,36 @@ export function WalletDetailScreen({
       }
       setSummaryPreviewState(nextSummary);
 
+      const nextBrief = await loadAnalystWalletBriefPreview(
+        briefPreviewState
+          ? {
+              request,
+              fallback: briefPreviewState,
+              ...(requestHeaders ? { requestHeaders } : {}),
+            }
+          : {
+              request,
+              ...(requestHeaders ? { requestHeaders } : {}),
+            },
+      );
+      if (!canCommit()) {
+        return;
+      }
+      setBriefPreviewState(nextBrief);
+
       const loadedGraph = await loadWalletGraphPreview(
         graphFallback
           ? {
               request: {
                 ...request,
-                depthRequested: 2,
+                depthRequested: 1,
               },
               fallback: graphFallback,
             }
           : {
               request: {
                 ...request,
-                depthRequested: 2,
+                depthRequested: 1,
               },
             },
       );
@@ -632,7 +794,7 @@ export function WalletDetailScreen({
           ? deriveWalletGraphPreviewFromSummary({
               request: {
                 ...request,
-                depthRequested: 2,
+                depthRequested: 1,
               },
               summary: nextSummary,
               fallback: loadedGraph,
@@ -643,7 +805,7 @@ export function WalletDetailScreen({
       }
       setGraphPreviewState(nextGraph);
     },
-    [request],
+    [briefPreviewState, request, requestHeaders],
   );
 
   useEffect(() => {
@@ -776,7 +938,24 @@ export function WalletDetailScreen({
     selectedNode: selectedGraphNode,
     expandedGraphNeighborhoodKeys,
     graphNodeCount: viewModel.graphNodeCount,
+    graphNodes: viewModel.graphNodes,
+    relatedAddresses: viewModel.relatedAddresses,
   });
+  const expandableGraphNodeIds = useMemo(
+    () =>
+      resolveExpandableGraphNodeIds({
+        graphNodes: viewModel.graphNodes,
+        expandedGraphNeighborhoodKeys,
+        graphNodeCount: viewModel.graphNodeCount,
+        relatedAddresses: viewModel.relatedAddresses,
+      }),
+    [
+      expandedGraphNeighborhoodKeys,
+      viewModel.graphNodeCount,
+      viewModel.graphNodes,
+      viewModel.relatedAddresses,
+    ],
+  );
 
   useEffect(() => {
     setSelectedGraphRelationshipKey((current) => {
@@ -830,23 +1009,17 @@ export function WalletDetailScreen({
     });
   };
   const handleExpandSelectedGraphNode = async () => {
-    if (
-      !graphExpansionState.canExpand ||
-      !graphExpansionState.expansionKey ||
-      !selectedGraphNode?.chain ||
-      !selectedGraphNode.address
-    ) {
+    if (!graphExpansionState.canExpand || !graphExpansionState.expansionKey || !selectedGraphNode) {
       return;
     }
 
     setIsExpandingGraph(true);
     try {
-      const nextGraph = await loadWalletGraphPreview({
-        request: {
-          chain: selectedGraphNode.chain,
-          address: selectedGraphNode.address,
-          depthRequested: 2,
-        },
+      const nextGraph = await expandGraphNode({
+        node: selectedGraphNode,
+        graphNodes: viewModel.graphNodes,
+        relatedAddresses: viewModel.relatedAddresses,
+        rootRequest: request,
       });
 
       if (
@@ -866,6 +1039,55 @@ export function WalletDetailScreen({
           expansionKey,
         ]);
       }
+    } finally {
+      setIsExpandingGraph(false);
+    }
+  };
+  const handleExpandGraphNode = async (nodeId: string) => {
+    const node =
+      viewModel.graphNodes.find((graphNode) => graphNode.id === nodeId) ?? null;
+    if (!node) {
+      return;
+    }
+
+    setSelectedGraphNodeId(nodeId);
+    const nextExpansionState = resolveGraphExpansionState({
+      selectedNode: node,
+      expandedGraphNeighborhoodKeys,
+      graphNodeCount: viewModel.graphNodeCount,
+      graphNodes: viewModel.graphNodes,
+      relatedAddresses: viewModel.relatedAddresses,
+    });
+    if (
+      !nextExpansionState.canExpand ||
+      !nextExpansionState.expansionKey
+    ) {
+      return;
+    }
+
+    setIsExpandingGraph(true);
+    try {
+      const nextGraph = await expandGraphNode({
+        node,
+        graphNodes: viewModel.graphNodes,
+        relatedAddresses: viewModel.relatedAddresses,
+        rootRequest: request,
+      });
+
+      if (
+        nextGraph.mode === "unavailable" &&
+        nextGraph.source === "boundary-unavailable"
+      ) {
+        return;
+      }
+
+      setGraphPreviewState((current) =>
+        mergeWalletGraphPreviews(current, nextGraph),
+      );
+      setExpandedGraphNeighborhoodKeys((current) => [
+        ...current,
+        nextExpansionState.expansionKey as string,
+      ]);
     } finally {
       setIsExpandingGraph(false);
     }
@@ -1028,7 +1250,9 @@ export function WalletDetailScreen({
             }}
             type="button"
           >
-            {isRefreshingWallet ? "Refreshing..." : "Refresh"}
+            {isRefreshingWallet
+              ? "Expanding..."
+              : viewModel.indexing.actionLabel}
           </button>
           <button
             className="search-cta"
@@ -1039,11 +1263,13 @@ export function WalletDetailScreen({
                 setTrackWalletMessage("");
 
                 try {
+                  const authHeaders =
+                    requestHeaders ?? (await getClerkRequestHeaders());
                   const result = await trackWalletAlertRule({
                     chain: request.chain,
                     address: request.address,
                     label: summaryPreviewState.label,
-                    ...(requestHeaders ? { requestHeaders } : {}),
+                    ...(authHeaders ? { requestHeaders: authHeaders } : {}),
                   });
 
                   if (result.nextHref) {
@@ -1072,6 +1298,102 @@ export function WalletDetailScreen({
             {trackWalletMessage}
           </p>
         ) : null}
+      </section>
+
+      <section className="preview-card detail-card" aria-label="AI brief">
+        <div className="preview-header">
+          <div>
+            <h2>{viewModel.aiBrief.headline}</h2>
+            <span className="preview-kicker">AI brief</span>
+          </div>
+          <div className="preview-state">
+            <span className="detail-state-copy">
+              {viewModel.aiBrief.keyFindings.length} findings
+            </span>
+          </div>
+        </div>
+
+        <p className="detail-route-copy">{viewModel.aiBrief.summary}</p>
+        <p className="detail-route-copy">
+          Interactive Analyst hook: follow-up questions will reuse this brief,
+          findings, and evidence bundles.
+        </p>
+
+        <div className="preview-status">
+          <span className="preview-kicker">Key findings</span>
+          <div className="detail-enrichment-list">
+            {viewModel.aiBrief.keyFindings.map((item) => (
+              <span key={item} className="detail-enrichment-item">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {briefPreviewState?.mode === "live" &&
+        briefPreviewState.keyFindings.length > 0 ? (
+          <div className="preview-status">
+            <span className="preview-kicker">Finding bundles</span>
+            <div className="detail-signal-list">
+              {briefPreviewState.keyFindings.slice(0, 2).map((finding) => (
+                <article key={finding.id} className="detail-signal-item">
+                  <div>
+                    <strong>{finding.summary}</strong>
+                    <span>
+                      {finding.observedFacts.slice(0, 2).join(" · ") ||
+                        "Observed facts pending"}
+                    </span>
+                    <span>
+                      {finding.inferredInterpretations.slice(0, 2).join(
+                        " · ",
+                      ) || "Inference pending"}
+                    </span>
+                    {finding.evidence.length > 0 ? (
+                      <span>
+                        Evidence:{" "}
+                        {finding.evidence
+                          .slice(0, 2)
+                          .map((item) => item.value ?? item.type)
+                          .join(" · ")}
+                      </span>
+                    ) : null}
+                    {finding.nextWatch.length > 0 ? (
+                      <span>
+                        Next watch:{" "}
+                        {finding.nextWatch
+                          .slice(0, 2)
+                          .map(
+                            (item) =>
+                              item.label ??
+                              item.token ??
+                              item.address ??
+                              item.subjectType,
+                          )
+                          .join(" · ")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <Badge tone={finding.importanceScore >= 0.7 ? "emerald" : "amber"}>
+                    {formatPercent(finding.confidence)} confidence
+                  </Badge>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="detail-flow-grid">
+          <article className="detail-flow-card">
+            <span>Evidence</span>
+            <strong>{viewModel.aiBrief.evidence.length}</strong>
+            <p>{viewModel.aiBrief.evidence[0] ?? "No evidence yet."}</p>
+          </article>
+          <article className="detail-flow-card">
+            <span>Next watch</span>
+            <strong>{viewModel.aiBrief.nextWatch.length}</strong>
+            <p>{viewModel.aiBrief.nextWatch[0] ?? "No watch recommendation yet."}</p>
+          </article>
+        </div>
       </section>
 
       <section className="detail-grid">
@@ -1197,6 +1519,9 @@ export function WalletDetailScreen({
 
           <div className="preview-status">
             <span className="preview-kicker">Related addresses</span>
+            <p className="detail-route-copy">
+              {viewModel.relatedAddressCountLabel}
+            </p>
             <div className="related-address-toolbar">
               <div
                 className="related-address-filters"
@@ -1502,12 +1827,16 @@ export function WalletDetailScreen({
           </div>
           <div className="preview-identity">
             <div>
-              <span>Depth requested</span>
-              <strong>{graphPreviewState.depthRequested}</strong>
+              <span>Hop budget</span>
+              <strong>
+                {graphExpansionState.hopsUsed} / {graphExpansionState.hopBudget}
+              </strong>
             </div>
             <div>
-              <span>Depth resolved</span>
-              <strong>{graphPreviewState.depthResolved}</strong>
+              <span>Visible nodes</span>
+              <strong>
+                {graphExpansionState.nodeCount} / {graphExpansionState.nodeBudget}
+              </strong>
             </div>
             <div>
               <span>Density capped</span>
@@ -1530,7 +1859,7 @@ export function WalletDetailScreen({
                 {isExpandingGraph
                   ? "Expanding..."
                   : graphExpansionState.canExpand
-                    ? "Expand 2-hop"
+                    ? "Expand next hop"
                     : "Expand unavailable"}
               </button>
               <span className="detail-graph-action-copy">
@@ -1545,6 +1874,11 @@ export function WalletDetailScreen({
               edges={graphPreviewState.edges}
               neighborhoodSummary={graphPreviewState.neighborhoodSummary}
               nodes={graphPreviewState.nodes}
+              expandableNodeIds={expandableGraphNodeIds}
+              expandingNodeId={isExpandingGraph ? selectedGraphNodeId : null}
+              onExpandNode={(nodeId) => {
+                void handleExpandGraphNode(nodeId);
+              }}
               onSelectedEdgeIdChange={setSelectedGraphRelationshipKey}
               onSelectedNodeIdChange={setSelectedGraphNodeId}
               selectedEdgeId={selectedGraphRelationshipKey}
@@ -1566,10 +1900,10 @@ export function WalletDetailScreen({
                 <strong>{viewModel.graphRelationships[0]?.weight ?? 0}</strong>
               </article>
               <article className="detail-map-metric">
-                <span>Depth</span>
+                <span>Hop budget</span>
                 <strong>
-                  {graphPreviewState.depthResolved} /{" "}
-                  {graphPreviewState.depthRequested}
+                  {graphExpansionState.hopsUsed} /{" "}
+                  {graphExpansionState.hopBudget}
                 </strong>
               </article>
             </div>
@@ -2182,6 +2516,10 @@ function formatScoreLabel(name: string): string {
   return name.replaceAll("_", " ");
 }
 
+function formatSignalLabel(name: string): string {
+  return formatScoreLabel(name);
+}
+
 function formatRelativeTime(value: string): string {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) {
@@ -2221,7 +2559,18 @@ function renderCoverageRange(indexing: WalletIndexingViewModel): string {
     return "Historical coverage is still being filled.";
   }
 
-  return `${formatObservedAt(indexing.coverageStartAt)} -> ${formatObservedAt(indexing.coverageEndAt)}`;
+  return `Observed range ${formatObservedAt(indexing.coverageStartAt)} -> ${formatObservedAt(indexing.coverageEndAt)}`;
+}
+
+function formatRelatedAddressCoverageLabel(
+  shownCount: number,
+  indexedCount: number,
+): string {
+  if (indexedCount > 0) {
+    return `Showing ${shownCount} of ${indexedCount} indexed`;
+  }
+
+  return `Showing ${shownCount} retrieved counterparties`;
 }
 
 function formatCounterpartyAmount(
@@ -2294,9 +2643,7 @@ export function mergeWalletGraphPreviews(
     depthResolved: Math.max(current.depthResolved, expansion.depthResolved),
     densityCapped: current.densityCapped || expansion.densityCapped,
     statusMessage:
-      expansion.mode === "live"
-        ? `Expanded 2-hop neighborhood around ${expansion.address}.`
-        : current.statusMessage,
+      expansion.mode === "live" ? expansion.statusMessage : current.statusMessage,
     neighborhoodSummary: buildMergedNeighborhoodSummary(
       mergedNodes,
       mergedEdges,
@@ -2387,12 +2734,17 @@ export function resolveGraphExpansionState({
   selectedNode,
   expandedGraphNeighborhoodKeys,
   graphNodeCount,
+  graphNodes = [],
+  relatedAddresses = [],
 }: {
   selectedNode: WalletGraphNodeViewModel | null;
   expandedGraphNeighborhoodKeys: string[];
   graphNodeCount: number;
+  graphNodes?: WalletGraphNodeViewModel[];
+  relatedAddresses?: WalletRelatedAddressViewModel[];
 }): WalletGraphExpansionState {
-  const budgetLabel = `${expandedGraphNeighborhoodKeys.length}/${MAX_EXPANDED_GRAPH_WALLETS} wallets expanded`;
+  const hopsUsed = expandedGraphNeighborhoodKeys.length;
+  const budgetLabel = `${hopsUsed}/${MAX_GRAPH_HOP_BUDGET} hops used · ${graphNodeCount}/${MAX_GRAPH_NODE_BUDGET} nodes visible`;
 
   if (!selectedNode) {
     return {
@@ -2400,39 +2752,50 @@ export function resolveGraphExpansionState({
       expansionKey: null,
       reason: "Select a wallet node to expand.",
       budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
   }
 
-  if (
-    selectedNode.kind !== "wallet" ||
-    !selectedNode.chain ||
-    !selectedNode.address
-  ) {
+  const expansionKey = resolveGraphExpansionKey(selectedNode);
+  if (!expansionKey) {
     return {
       canExpand: false,
       expansionKey: null,
-      reason: "Clusters and entities stop expansion.",
+      reason: "This node cannot be expanded.",
       budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
   }
-
-  const expansionKey = `${selectedNode.chain}:${selectedNode.address.toLowerCase()}`;
 
   if (expandedGraphNeighborhoodKeys.includes(expansionKey)) {
     return {
       canExpand: false,
       expansionKey,
-      reason: "This wallet neighborhood is already expanded.",
+      reason: describeExpandedGraphNodeReason(selectedNode.kind),
       budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
   }
 
-  if (expandedGraphNeighborhoodKeys.length >= MAX_EXPANDED_GRAPH_WALLETS) {
+  if (expandedGraphNeighborhoodKeys.length >= MAX_GRAPH_HOP_BUDGET) {
     return {
       canExpand: false,
       expansionKey,
-      reason: "Local 2-hop budget reached.",
+      reason: "Global hop budget reached.",
       budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
   }
 
@@ -2442,15 +2805,500 @@ export function resolveGraphExpansionState({
       expansionKey,
       reason: "Visible node budget reached.",
       budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
+    };
+  }
+
+  if (
+    selectedNode.kind === "entity" &&
+    !hasExpandableEntityWallets({
+      selectedNode,
+      graphNodes,
+      relatedAddresses,
+    })
+  ) {
+    return {
+      canExpand: false,
+      expansionKey,
+      reason: "No additional indexed wallets are linked to this entity.",
+      budgetLabel,
+      hopsUsed,
+      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      nodeCount: graphNodeCount,
+      nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
   }
 
   return {
     canExpand: true,
     expansionKey,
-    reason: "Expand one more wallet neighborhood.",
+    reason: describeGraphExpansionReason(selectedNode.kind),
     budgetLabel,
+    hopsUsed,
+    hopBudget: MAX_GRAPH_HOP_BUDGET,
+    nodeCount: graphNodeCount,
+    nodeBudget: MAX_GRAPH_NODE_BUDGET,
   };
+}
+
+export function resolveExpandableGraphNodeIds({
+  graphNodes,
+  expandedGraphNeighborhoodKeys,
+  graphNodeCount,
+  relatedAddresses = [],
+}: {
+  graphNodes: WalletGraphNodeViewModel[];
+  expandedGraphNeighborhoodKeys: string[];
+  graphNodeCount: number;
+  relatedAddresses?: WalletRelatedAddressViewModel[];
+}): string[] {
+  return graphNodes
+    .filter(
+      (node) =>
+        resolveGraphExpansionState({
+          selectedNode: node,
+          expandedGraphNeighborhoodKeys,
+          graphNodeCount,
+          graphNodes,
+          relatedAddresses,
+        }).canExpand,
+    )
+    .map((node) => node.id);
+}
+
+async function expandGraphNode({
+  node,
+  graphNodes,
+  relatedAddresses,
+  rootRequest,
+}: {
+  node: WalletGraphNodeViewModel;
+  graphNodes: WalletGraphNodeViewModel[];
+  relatedAddresses: WalletRelatedAddressViewModel[];
+  rootRequest: WalletDetailRequest;
+}): Promise<WalletGraphPreview> {
+  if (node.kind === "cluster") {
+    const cluster = await loadClusterDetailPreview({
+      request: { clusterId: resolveClusterNodeId(node.id) },
+    });
+
+    return buildClusterExpansionGraphPreview({
+      cluster,
+      selectedNode: node,
+      graphNodes,
+      rootRequest,
+    });
+  }
+
+  if (node.kind === "entity") {
+    return buildEntityExpansionGraphPreview({
+      selectedNode: node,
+      graphNodes,
+      relatedAddresses,
+      rootRequest,
+    });
+  }
+
+  if (!node.chain || !node.address) {
+    return createUnavailableExpansionGraphPreview(rootRequest);
+  }
+
+  const requestedGraph = await loadWalletGraphPreview({
+    request: {
+      chain: node.chain,
+      address: node.address,
+      depthRequested: 1,
+    },
+  });
+
+  if (requestedGraph.mode === "live") {
+    return requestedGraph;
+  }
+
+  const summary = await loadWalletSummaryPreview({
+    request: {
+      chain: node.chain,
+      address: node.address,
+    },
+  });
+
+  if (summary.mode !== "live") {
+    return createUnavailableExpansionGraphPreview(rootRequest);
+  }
+
+  return rebaseExpandedGraphRootNode(
+    deriveWalletGraphPreviewFromSummary({
+      request: {
+        chain: node.chain,
+        address: node.address,
+        depthRequested: 1,
+      },
+      summary,
+      fallback: requestedGraph,
+    }),
+    node.id,
+  );
+}
+
+function buildClusterExpansionGraphPreview({
+  cluster,
+  selectedNode,
+  graphNodes,
+  rootRequest,
+}: {
+  cluster: ClusterDetailPreview;
+  selectedNode: WalletGraphNodeViewModel;
+  graphNodes: WalletGraphNodeViewModel[];
+  rootRequest: WalletDetailRequest;
+}): WalletGraphPreview {
+  if (cluster.mode === "unavailable") {
+    return createUnavailableExpansionGraphPreview(rootRequest);
+  }
+
+  const clusterNodeId = selectedNode.id;
+  const nodes: WalletGraphPreviewNode[] = [];
+  const edges: WalletGraphPreviewEdge[] = [];
+
+  for (const member of cluster.members) {
+    const existingWalletNode =
+      graphNodes.find(
+        (graphNode) =>
+          graphNode.kind === "wallet" &&
+          graphNode.chain === member.chain &&
+          graphNode.address?.toLowerCase() === member.address.toLowerCase(),
+      ) ?? null;
+    const memberNodeId =
+      existingWalletNode?.id ?? `wallet:${member.chain}:${member.address.toLowerCase()}`;
+
+    nodes.push({
+      id: memberNodeId,
+      kind: "wallet",
+      chain: member.chain,
+      address: member.address,
+      label: member.label,
+    });
+    edges.push({
+      sourceId: memberNodeId,
+      targetId: clusterNodeId,
+      kind: "member_of",
+      family: "derived",
+      directionality: "linked",
+      ...(member.latestActivityAt ? { observedAt: member.latestActivityAt } : {}),
+      weight: member.interactionCount,
+      counterpartyCount: member.interactionCount,
+      evidence: {
+        source: "cluster-detail-members",
+        confidence: cluster.classification === "strong" ? "high" : "medium",
+        summary: `${member.label} is listed as a ${member.role ?? "member"} of ${cluster.label}.`,
+      },
+    });
+  }
+
+  return {
+    mode: "live",
+    source: "live-api",
+    route: cluster.route,
+    chain: rootRequest.chain === "evm" ? "EVM" : "SOLANA",
+    address: rootRequest.address,
+    depthRequested: 1,
+    depthResolved: 1,
+    densityCapped: false,
+    statusMessage: `Expanded cluster members from ${cluster.label}.`,
+    neighborhoodSummary: buildPreviewNeighborhoodSummary(nodes, edges),
+    nodes,
+    edges,
+  };
+}
+
+function buildEntityExpansionGraphPreview({
+  selectedNode,
+  graphNodes,
+  relatedAddresses,
+  rootRequest,
+}: {
+  selectedNode: WalletGraphNodeViewModel;
+  graphNodes: WalletGraphNodeViewModel[];
+  relatedAddresses: WalletRelatedAddressViewModel[];
+  rootRequest: WalletDetailRequest;
+}): WalletGraphPreview {
+  const rootNode = graphNodes.find((node) => node.isPrimary) ?? null;
+  const entityWallets = resolveExpandableEntityWallets({
+    selectedNode,
+    graphNodes,
+    relatedAddresses,
+  });
+
+  if (!rootNode || !rootNode.chain || !rootNode.address || !entityWallets.length) {
+    return createUnavailableExpansionGraphPreview(rootRequest);
+  }
+
+  const nodes: WalletGraphPreviewNode[] = [];
+  const edges: WalletGraphPreviewEdge[] = [];
+
+  for (const counterparty of entityWallets) {
+    const existingWalletNode =
+      graphNodes.find(
+        (graphNode) =>
+          graphNode.kind === "wallet" &&
+          graphNode.chain?.toLowerCase() === counterparty.chainLabel.toLowerCase() &&
+          graphNode.address?.toLowerCase() === counterparty.address.toLowerCase(),
+      ) ?? null;
+    const counterpartyChain = counterparty.chainLabel.toLowerCase() === "solana" ? "solana" : "evm";
+    const counterpartyNodeId =
+      existingWalletNode?.id ?? `wallet:${counterpartyChain}:${counterparty.address.toLowerCase()}`;
+
+    nodes.push({
+      id: counterpartyNodeId,
+      kind: "wallet",
+      chain: counterpartyChain,
+      address: counterparty.address,
+      label: counterparty.entityLabel || counterparty.address,
+    });
+    edges.push({
+      sourceId: rootNode.id,
+      targetId: counterpartyNodeId,
+      kind:
+        counterparty.directionLabel === "inbound" ? "funded_by" : "interacted_with",
+      family: counterparty.directionLabel === "inbound" ? "derived" : "base",
+      directionality:
+        counterparty.directionLabel === "inbound"
+          ? "received"
+          : counterparty.directionLabel === "outbound"
+            ? "sent"
+            : "mixed",
+      observedAt: counterparty.latestActivityAt,
+      weight: counterparty.interactionCount,
+      counterpartyCount: counterparty.interactionCount,
+      evidence: {
+        source: "entity-summary-expansion",
+        confidence:
+          counterparty.interactionCount >= 8
+            ? "high"
+            : counterparty.interactionCount >= 3
+              ? "medium"
+              : "low",
+        summary: `${counterparty.address} shares the ${selectedNode.label} entity assignment in indexed counterparties.`,
+      },
+      tokenFlow: {
+        primaryToken: counterparty.primaryToken,
+        inboundCount: counterparty.inboundCount,
+        outboundCount: counterparty.outboundCount,
+        inboundAmount: counterparty.inboundAmount,
+        outboundAmount: counterparty.outboundAmount,
+        breakdowns: counterparty.tokenBreakdowns.map((token) => ({
+          symbol: token.symbol,
+          inboundAmount: token.inboundAmount,
+          outboundAmount: token.outboundAmount,
+        })),
+      },
+    });
+    edges.push({
+      sourceId: counterpartyNodeId,
+      targetId: selectedNode.id,
+      kind: "entity_linked",
+      family: "derived",
+      directionality: "linked",
+      evidence: {
+        source: "entity-summary-expansion",
+        confidence: "medium",
+        summary: `Indexed counterparty assigned to ${selectedNode.label}.`,
+      },
+    });
+  }
+
+  return {
+    mode: "live",
+    source: "summary-derived",
+    route: rootRequest.chain === "evm" ? "GET /v1/wallets/:chain/:address/graph" : "GET /v1/wallets/:chain/:address/graph",
+    chain: rootRequest.chain === "evm" ? "EVM" : "SOLANA",
+    address: rootRequest.address,
+    depthRequested: 1,
+    depthResolved: 1,
+    densityCapped: false,
+    statusMessage: `Expanded indexed wallets linked to ${selectedNode.label}.`,
+    neighborhoodSummary: buildPreviewNeighborhoodSummary(nodes, edges),
+    nodes,
+    edges,
+  };
+}
+
+function createUnavailableExpansionGraphPreview(
+  request: WalletDetailRequest,
+): WalletGraphPreview {
+  return {
+    mode: "unavailable",
+    source: "boundary-unavailable",
+    route: "GET /v1/wallets/:chain/:address/graph",
+    chain: request.chain === "evm" ? "EVM" : "SOLANA",
+    address: request.address,
+    depthRequested: 1,
+    depthResolved: 0,
+    densityCapped: false,
+    statusMessage: "Expansion data is unavailable.",
+    neighborhoodSummary: {
+      neighborNodeCount: 0,
+      walletNodeCount: 0,
+      clusterNodeCount: 0,
+      entityNodeCount: 0,
+      interactionEdgeCount: 0,
+      totalInteractionWeight: 0,
+    },
+    nodes: [],
+    edges: [],
+  };
+}
+
+function rebaseExpandedGraphRootNode(
+  graph: WalletGraphPreview,
+  nextRootNodeId: string,
+): WalletGraphPreview {
+  if (!graph.nodes.some((node) => node.id === "wallet_root")) {
+    return graph;
+  }
+
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === "wallet_root" ? { ...node, id: nextRootNodeId } : node,
+    ),
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      sourceId: edge.sourceId === "wallet_root" ? nextRootNodeId : edge.sourceId,
+      targetId: edge.targetId === "wallet_root" ? nextRootNodeId : edge.targetId,
+    })),
+  };
+}
+
+function buildPreviewNeighborhoodSummary(
+  nodes: WalletGraphPreviewNode[],
+  edges: WalletGraphPreviewEdge[],
+): WalletGraphPreview["neighborhoodSummary"] {
+  const latestObservedAt = edges
+    .map((edge) => edge.observedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+
+  return {
+    neighborNodeCount: Math.max(nodes.length, 0),
+    walletNodeCount: nodes.filter((node) => node.kind === "wallet").length,
+    clusterNodeCount: nodes.filter((node) => node.kind === "cluster").length,
+    entityNodeCount: nodes.filter((node) => node.kind === "entity").length,
+    interactionEdgeCount: edges.filter((edge) => edge.kind !== "entity_linked").length,
+    totalInteractionWeight: edges.reduce(
+      (sum, edge) => sum + (edge.weight ?? edge.counterpartyCount ?? 1),
+      0,
+    ),
+    ...(latestObservedAt ? { latestObservedAt } : {}),
+  };
+}
+
+function resolveGraphExpansionKey(
+  selectedNode: WalletGraphNodeViewModel,
+): string | null {
+  if (selectedNode.kind === "wallet" && selectedNode.chain && selectedNode.address) {
+    return `${selectedNode.chain}:${selectedNode.address.toLowerCase()}`;
+  }
+
+  if (selectedNode.kind === "cluster") {
+    return `cluster:${resolveClusterNodeId(selectedNode.id)}`;
+  }
+
+  if (selectedNode.kind === "entity") {
+    return `entity:${resolveEntityNodeKey(selectedNode)}`;
+  }
+
+  return null;
+}
+
+function describeGraphExpansionReason(
+  kind: WalletGraphNodeViewModel["kind"],
+): string {
+  if (kind === "cluster") {
+    return "Show cluster members around this node.";
+  }
+
+  if (kind === "entity") {
+    return "Show indexed wallets linked to this entity.";
+  }
+
+  return "Expand the next hop from this wallet.";
+}
+
+function describeExpandedGraphNodeReason(
+  kind: WalletGraphNodeViewModel["kind"],
+): string {
+  if (kind === "cluster") {
+    return "This cluster already has its member expansion loaded.";
+  }
+
+  if (kind === "entity") {
+    return "This entity already has its linked wallets loaded.";
+  }
+
+  return "This wallet already has its next hop loaded.";
+}
+
+function resolveClusterNodeId(nodeId: string): string {
+  return nodeId.startsWith("cluster:") ? nodeId.slice("cluster:".length) : nodeId;
+}
+
+function resolveEntityNodeKey(node: Pick<WalletGraphNodeViewModel, "id" | "label">): string {
+  return node.id.startsWith("entity:") ? node.id.slice("entity:".length) : node.label.toLowerCase();
+}
+
+function hasExpandableEntityWallets({
+  selectedNode,
+  graphNodes,
+  relatedAddresses,
+}: {
+  selectedNode: WalletGraphNodeViewModel;
+  graphNodes: WalletGraphNodeViewModel[];
+  relatedAddresses: WalletRelatedAddressViewModel[];
+}): boolean {
+  return resolveExpandableEntityWallets({
+    selectedNode,
+    graphNodes,
+    relatedAddresses,
+  }).length > 0;
+}
+
+function resolveExpandableEntityWallets({
+  selectedNode,
+  graphNodes,
+  relatedAddresses,
+}: {
+  selectedNode: WalletGraphNodeViewModel;
+  graphNodes: WalletGraphNodeViewModel[];
+  relatedAddresses: WalletRelatedAddressViewModel[];
+}): WalletRelatedAddressViewModel[] {
+  if (selectedNode.kind !== "entity") {
+    return [];
+  }
+
+  const entityKey = resolveEntityNodeKey(selectedNode);
+  const visibleWalletKeys = new Set(
+    graphNodes
+      .filter(
+        (node): node is WalletGraphNodeViewModel & { chain: "evm" | "solana"; address: string } =>
+          node.kind === "wallet" && Boolean(node.chain) && Boolean(node.address),
+      )
+      .map((node) => `${node.chain}:${node.address.toLowerCase()}`),
+  );
+
+  return relatedAddresses.filter((counterparty) => {
+    const counterpartyChain =
+      counterparty.chainLabel.toLowerCase() === "solana" ? "solana" : "evm";
+    const walletKey = `${counterpartyChain}:${counterparty.address.toLowerCase()}`;
+    const matchesEntity =
+      counterparty.entityKey.toLowerCase() === entityKey.toLowerCase() ||
+      counterparty.entityLabel.toLowerCase() === selectedNode.label.toLowerCase();
+
+    return matchesEntity && !visibleWalletKeys.has(walletKey);
+  });
 }
 
 export function resolveSelectedGraphEntityContext({
@@ -2585,4 +3433,9 @@ function normalizeAmount(value: string): string {
   }
 
   return trimmed;
+}
+
+function formatPercent(value: number): string {
+  const normalized = value > 1 ? value : value * 100;
+  return `${Math.round(normalized)}%`;
 }

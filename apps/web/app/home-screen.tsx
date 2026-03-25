@@ -3,20 +3,26 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@whalegraph/ui";
+import { Badge } from "@flowintel/ui";
 
 import {
+  type FindingPreview,
+  type FindingsFeedPreview,
   type SearchPreview,
   type WalletGraphPreview,
+  type WalletGraphPreviewEdge,
   type WalletGraphPreviewNode,
   type WalletSummaryPreview,
   type WalletSummaryRequest,
+  buildEntityDetailHref,
   buildProductSearchHref,
   buildWalletDetailHref,
   deriveWalletGraphPreviewFromSummary,
+  getAnalystFindingsPreview,
   getSearchPreview,
   getWalletGraphPreview,
   getWalletSummaryPreview,
+  loadAnalystFindingsPreview,
   loadSearchPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
@@ -38,10 +44,14 @@ import {
 } from "./wallets/[chain]/[address]/wallet-graph-presenter";
 import { WalletGraphVisual } from "./wallets/[chain]/[address]/wallet-graph-visual";
 import {
+  buildWalletGraphEdgeKey,
   formatGraphKind,
   getWalletGraphEdgeFamilyLabel,
   getWalletGraphEdgeKindLabel,
 } from "./wallets/[chain]/[address]/wallet-graph-visual-model";
+
+const HOME_GRAPH_HOP_BUDGET = 20;
+const HOME_GRAPH_NODE_BUDGET = 120;
 
 export function resolveWalletRequestFromSearchPreview(
   preview: SearchPreview,
@@ -66,6 +76,167 @@ export function shouldPollHomeWalletPreview(
   return shouldPollIndexedWalletSummary(preview);
 }
 
+export function getHomeCoverageActionLabel(
+  preview: WalletSummaryPreview,
+): string {
+  return preview.indexing.status === "indexing"
+    ? "Continue indexing"
+    : "Expand coverage";
+}
+
+export type HomeFindingFeedItem = {
+  id: string;
+  title: string;
+  findingTypeLabel: string;
+  summary: string;
+  evidenceLabel: string;
+  nextWatchLabel: string;
+  nextWatchHref: string | null;
+  analystEntryLabel: string;
+  analystEntryHref: string | null;
+  importance: number;
+  confidence: number;
+  subjectLabel: string;
+  subjectHref: string | null;
+  subjectTypeLabel: string;
+  badgeTone: "teal" | "amber" | "violet" | "emerald";
+};
+
+export function buildHomeFindingsFeedItems(
+  preview: WalletSummaryPreview,
+  walletDetailHref: string | null,
+): HomeFindingFeedItem[] {
+  const items: HomeFindingFeedItem[] = [];
+
+  for (const score of preview.scores.slice(0, 2)) {
+    const title = formatScoreLabel(score.name);
+    items.push({
+      id: `score:${score.name}`,
+      title,
+      findingTypeLabel: "Signal interpretation",
+      summary:
+        score.rating === "high"
+          ? `${title} is elevated and worth reviewing first.`
+          : `${title} is active in the current indexed coverage window.`,
+      evidenceLabel: `Derived from wallet score ${score.value}/100`,
+      nextWatchLabel: "Open wallet brief",
+      nextWatchHref: walletDetailHref,
+      analystEntryLabel: "Analyze wallet",
+      analystEntryHref: walletDetailHref,
+      importance: score.value / 100,
+      confidence: score.value / 100,
+      subjectLabel: preview.label,
+      subjectHref: walletDetailHref,
+      subjectTypeLabel: "Wallet",
+      badgeTone: score.tone,
+    });
+  }
+
+  for (const signal of preview.latestSignals.slice(0, 2)) {
+    items.push({
+      id: `signal:${signal.name}:${signal.observedAt}`,
+      title: signal.label || formatScoreLabel(signal.name),
+      findingTypeLabel: "Signal interpretation",
+      summary:
+        signal.rating === "high"
+          ? `${signal.label || formatScoreLabel(signal.name)} is the latest high-priority signal.`
+          : `${signal.label || formatScoreLabel(signal.name)} is still active in the current coverage window.`,
+      evidenceLabel: `Source ${signal.source} · observed ${signal.observedAt.slice(0, 10)}`,
+      nextWatchLabel: "Open wallet brief",
+      nextWatchHref: walletDetailHref,
+      analystEntryLabel: "Analyze wallet",
+      analystEntryHref: walletDetailHref,
+      importance: signal.value / 100,
+      confidence: signal.value / 100,
+      subjectLabel: preview.label,
+      subjectHref: walletDetailHref,
+      subjectTypeLabel: "Wallet",
+      badgeTone: signal.rating === "high" ? "emerald" : "amber",
+    });
+  }
+
+  const topCounterparty = preview.topCounterparties[0];
+  if (topCounterparty) {
+    items.push({
+      id: `counterparty:${topCounterparty.chain}:${topCounterparty.address}`,
+      title: `${topCounterparty.directionLabel} counterparty`,
+      findingTypeLabel: "Counterparty evidence",
+      summary: `${compactAddress(topCounterparty.address)} has ${topCounterparty.interactionCount} indexed interactions and ${topCounterparty.primaryToken} is the dominant token.`,
+      evidenceLabel:
+        topCounterparty.latestActivityAt
+          ? `${topCounterparty.interactionCount} indexed interactions · latest activity ${topCounterparty.latestActivityAt.slice(0, 10)}`
+          : `${topCounterparty.interactionCount} indexed interactions`,
+      nextWatchLabel: topCounterparty.entityLabel
+        ? `Open ${topCounterparty.entityLabel}`
+        : `Watch ${compactAddress(topCounterparty.address)}`,
+      nextWatchHref: topCounterparty.entityLabel
+        ? buildProductSearchHref(topCounterparty.entityLabel)
+        : buildWalletDetailHref({
+            chain: topCounterparty.chain,
+            address: topCounterparty.address,
+          }),
+      analystEntryLabel: topCounterparty.entityLabel
+        ? "Analyze entity"
+        : "Analyze wallet",
+      analystEntryHref: topCounterparty.entityLabel
+        ? buildProductSearchHref(topCounterparty.entityLabel)
+        : buildWalletDetailHref({
+            chain: topCounterparty.chain,
+            address: topCounterparty.address,
+          }),
+      importance:
+        preview.counterparties > 0
+          ? topCounterparty.interactionCount / preview.counterparties
+          : topCounterparty.interactionCount / 10,
+      confidence:
+        topCounterparty.interactionCount >= 8
+          ? 0.82
+          : topCounterparty.interactionCount >= 3
+            ? 0.68
+            : 0.5,
+      subjectLabel: topCounterparty.entityLabel || compactAddress(topCounterparty.address),
+      subjectHref: topCounterparty.entityLabel
+        ? buildProductSearchHref(topCounterparty.entityLabel)
+        : buildWalletDetailHref({
+            chain: topCounterparty.chain,
+            address: topCounterparty.address,
+          }),
+      subjectTypeLabel: topCounterparty.entityLabel ? "Entity" : "Wallet",
+      badgeTone: topCounterparty.directionLabel === "inbound" ? "violet" : "teal",
+    });
+  }
+
+  return items
+    .sort((left, right) => right.importance - left.importance)
+    .slice(0, 4);
+}
+
+export function buildHomeFindingsFeedItemsFromFeed(
+  preview: FindingsFeedPreview,
+): HomeFindingFeedItem[] {
+  return preview.items.slice(0, 6).map((item) => ({
+    id: item.id,
+    title: formatFindingTypeLabel(item.type),
+    findingTypeLabel: formatFindingSubjectTypeLabel(item.subjectType),
+    summary: item.summary,
+    evidenceLabel:
+      item.observedFacts[0] ??
+      item.importanceReason[0] ??
+      item.evidence[0]?.value ??
+      "Evidence bundle available",
+    nextWatchLabel: resolveFindingNextWatchLabel(item),
+    nextWatchHref: resolveFindingNextWatchHref(item),
+    analystEntryLabel: resolveFindingAnalystEntryLabel(item),
+    analystEntryHref: resolveFindingAnalystEntryHref(item),
+    importance: item.importanceScore,
+    confidence: item.confidence,
+    subjectLabel: resolveFindingSubjectLabel(item),
+    subjectHref: resolveFindingSubjectHref(item),
+    subjectTypeLabel: formatFindingSubjectTypeLabel(item.subjectType),
+    badgeTone: toneForFindingType(item.type),
+  }));
+}
+
 export function HomeScreen({
   requestHeaders,
 }: {
@@ -77,21 +248,33 @@ export function HomeScreen({
   const lastHydratedUrlQuery = useRef<string | null>(queryFromUrl);
   const [query, setQuery] = useState("");
   const [searchPreview, setSearchPreview] = useState(() => getSearchPreview());
+  const [findingsFeedPreview, setFindingsFeedPreview] = useState(() =>
+    getAnalystFindingsPreview(),
+  );
   const [walletRequest, setWalletRequest] =
     useState<WalletSummaryRequest | null>(null);
   const [preview, setPreview] = useState(() =>
     getWalletSummaryPreview({ chain: "evm", address: "" }),
   );
   const [graphPreview, setGraphPreview] = useState(() =>
-    getWalletGraphPreview({ chain: "evm", address: "", depthRequested: 2 }),
+    getWalletGraphPreview({ chain: "evm", address: "", depthRequested: 1 }),
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [expandedGraphNeighborhoodKeys, setExpandedGraphNeighborhoodKeys] =
+    useState<string[]>([]);
+  const [expandingNodeId, setExpandingNodeId] = useState<string | null>(null);
   const selectedNode = useMemo(() => {
     return (
       graphPreview.nodes.find((node) => node.id === selectedNodeId) ?? null
     );
   }, [graphPreview.nodes, selectedNodeId]);
-  const activeNode = selectedNode ?? graphPreview.nodes[0] ?? null;
+  const hoveredNode = useMemo(() => {
+    return (
+      graphPreview.nodes.find((node) => node.id === hoveredNodeId) ?? null
+    );
+  }, [graphPreview.nodes, hoveredNodeId]);
+  const activeNode = hoveredNode ?? selectedNode ?? graphPreview.nodes[0] ?? null;
   const [isRefreshingWalletPreview, setIsRefreshingWalletPreview] =
     useState(false);
   const walletRequestForDetail =
@@ -99,9 +282,32 @@ export function HomeScreen({
   const walletDetailHref = walletRequestForDetail
     ? buildWalletDetailHref(walletRequestForDetail)
     : null;
+  const findingsFeedItems = useMemo(() => {
+    if (findingsFeedPreview.items.length > 0) {
+      return buildHomeFindingsFeedItemsFromFeed(findingsFeedPreview);
+    }
+    return buildHomeFindingsFeedItems(preview, walletDetailHref);
+  }, [findingsFeedPreview, preview, walletDetailHref]);
 
   useEffect(() => {
     persistClientForwardedAuthHeaders(requestHeaders);
+  }, [requestHeaders]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const nextFeed = await loadAnalystFindingsPreview({
+        ...(requestHeaders ? { requestHeaders } : {}),
+      });
+      if (!active) {
+        return;
+      }
+      setFindingsFeedPreview(nextFeed);
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [requestHeaders]);
 
   const runSearch = useCallback(
@@ -113,6 +319,8 @@ export function HomeScreen({
       setWalletRequest(
         resolveWalletRequestFromSearchPreview(nextSearchPreview),
       );
+      setExpandedGraphNeighborhoodKeys([]);
+      setExpandingNodeId(null);
 
       if (syncUrl) {
         lastHydratedUrlQuery.current = trimmed;
@@ -168,9 +376,9 @@ export function HomeScreen({
       const nextSummary = await loadWalletSummaryPreview(
         summaryFallback
           ? {
-            request: walletRequest,
-            fallback: summaryFallback,
-          }
+              request: walletRequest,
+              fallback: summaryFallback,
+            }
           : { request: walletRequest },
       );
       if (!canCommit()) {
@@ -181,18 +389,18 @@ export function HomeScreen({
       const loadedGraph = await loadWalletGraphPreview(
         graphFallback
           ? {
-            request: {
-              ...walletRequest,
-              depthRequested: 2,
-            },
-            fallback: graphFallback,
-          }
+              request: {
+                ...walletRequest,
+                depthRequested: 1,
+              },
+              fallback: graphFallback,
+            }
           : {
-            request: {
-              ...walletRequest,
-              depthRequested: 2,
+              request: {
+                ...walletRequest,
+                depthRequested: 1,
+              },
             },
-          },
       );
       if (!canCommit()) {
         return;
@@ -201,13 +409,13 @@ export function HomeScreen({
         loadedGraph.mode === "unavailable" &&
           nextSummary.topCounterparties.length > 0
           ? deriveWalletGraphPreviewFromSummary({
-            request: {
-              ...walletRequest,
-              depthRequested: 2,
-            },
-            summary: nextSummary,
-            fallback: loadedGraph,
-          })
+              request: {
+                ...walletRequest,
+                depthRequested: 1,
+              },
+              summary: nextSummary,
+              fallback: loadedGraph,
+            })
           : loadedGraph,
       );
     },
@@ -232,6 +440,7 @@ export function HomeScreen({
   useEffect(() => {
     if (!graphPreview.nodes.length) {
       setSelectedNodeId(null);
+      setHoveredNodeId(null);
       return;
     }
 
@@ -242,6 +451,96 @@ export function HomeScreen({
       return graphPreview.nodes[0]?.id ?? null;
     });
   }, [graphPreview.nodes]);
+
+  const expandableGraphNodeIds = useMemo(() => {
+    if (
+      graphPreview.nodes.length >= HOME_GRAPH_NODE_BUDGET ||
+      expandedGraphNeighborhoodKeys.length >= HOME_GRAPH_HOP_BUDGET
+    ) {
+      return [];
+    }
+
+    const expandedKeys = new Set(expandedGraphNeighborhoodKeys);
+
+    return graphPreview.nodes
+      .filter(
+        (node) =>
+          node.kind === "wallet" &&
+          Boolean(node.chain) &&
+          Boolean(node.address) &&
+          !expandedKeys.has(buildHomeGraphExpansionKey(node)),
+      )
+      .map((node) => node.id);
+  }, [expandedGraphNeighborhoodKeys, graphPreview.nodes]);
+
+  const handleExpandGraphNode = useCallback(
+    async (nodeId: string) => {
+      const node =
+        graphPreview.nodes.find((graphNode) => graphNode.id === nodeId) ?? null;
+      if (
+        !node ||
+        node.kind !== "wallet" ||
+        !node.chain ||
+        !node.address ||
+        expandedGraphNeighborhoodKeys.length >= HOME_GRAPH_HOP_BUDGET ||
+        graphPreview.nodes.length >= HOME_GRAPH_NODE_BUDGET
+      ) {
+        return;
+      }
+
+      const expansionKey = buildHomeGraphExpansionKey(node);
+      if (expandedGraphNeighborhoodKeys.includes(expansionKey)) {
+        return;
+      }
+
+      setSelectedNodeId(nodeId);
+      setExpandingNodeId(nodeId);
+      try {
+        const requestedGraph = await loadWalletGraphPreview({
+          request: {
+            chain: node.chain,
+            address: node.address,
+            depthRequested: 1,
+          },
+        });
+        const nextGraph =
+          requestedGraph.mode === "unavailable"
+            ? rebaseExpandedGraphRootNode(
+                deriveWalletGraphPreviewFromSummary({
+                  request: {
+                    chain: node.chain,
+                    address: node.address,
+                    depthRequested: 1,
+                  },
+                  summary: await loadWalletSummaryPreview({
+                    request: {
+                      chain: node.chain,
+                      address: node.address,
+                    },
+                  }),
+                  fallback: requestedGraph,
+                }),
+                node.id,
+              )
+            : requestedGraph;
+
+        if (
+          nextGraph.mode === "unavailable" &&
+          nextGraph.source === "boundary-unavailable"
+        ) {
+          return;
+        }
+
+        setGraphPreview((current) =>
+          mergeHomeGraphPreviews(current, nextGraph),
+        );
+        setExpandedGraphNeighborhoodKeys((current) => [...current, expansionKey]);
+      } finally {
+        setExpandingNodeId(null);
+      }
+    },
+    [expandedGraphNeighborhoodKeys, graphPreview.nodes],
+  );
 
   useEffect(() => {
     if (!walletRequest || !shouldPollHomeWalletPreview(preview)) {
@@ -292,9 +591,9 @@ export function HomeScreen({
       preview.topCounterparties.find(
         (counterparty) =>
           counterparty.chain.toLowerCase() ===
-          activeNode.chain?.toLowerCase() &&
+            activeNode.chain?.toLowerCase() &&
           counterparty.address.toLowerCase() ===
-          activeNode.address?.toLowerCase(),
+            activeNode.address?.toLowerCase(),
       ) ?? null;
     const fallback = summaryCounterparty
       ? buildCounterpartyEntityAssignment(summaryCounterparty)
@@ -332,7 +631,7 @@ export function HomeScreen({
               letterSpacing: "-0.01em",
             }}
           >
-            Wallet graph
+            FlowIntel
           </h1>
           {walletDetailHref ? (
             <a className="search-cta" href={walletDetailHref}>
@@ -362,6 +661,76 @@ export function HomeScreen({
       </header>
 
       <section className="home-fullscreen-body">
+        {hasWalletPreview && findingsFeedItems.length > 0 ? (
+          <aside className="home-fullscreen-panel" style={{ marginBottom: 16 }}>
+            <article className="preview-card home-summary-card">
+              <div className="preview-header">
+                <div className="home-side-header">
+                  <h2
+                    style={{ fontSize: "1.2rem", fontWeight: 600, margin: 0 }}
+                  >
+                    Findings feed
+                  </h2>
+                  <p
+                    style={{
+                      margin: "4px 0 0",
+                      color: "var(--muted)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    AI findings and signal interpretations from the current indexed coverage.
+                  </p>
+                </div>
+              </div>
+              <div className="home-counterparty-stack" style={{ marginTop: 16 }}>
+                {findingsFeedItems.map((item) => (
+                  <div key={item.id} className="home-counterparty-card">
+                    <div>
+                      <strong>{item.title}</strong>
+                      <span>{item.findingTypeLabel}</span>
+                      <span>{item.evidenceLabel}</span>
+                      <span>Next watch · {item.nextWatchLabel}</span>
+                      <span>{item.summary}</span>
+                      <span>
+                        {item.subjectTypeLabel} · {item.subjectLabel}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <Badge tone={item.badgeTone}>
+                        {Math.round(item.importance * 100)} importance
+                      </Badge>
+                      <Badge tone="amber">
+                        {Math.round(item.confidence * 100)} confidence
+                      </Badge>
+                      {item.subjectHref ? (
+                        <a className="search-cta home-inline-refresh" href={item.subjectHref}>
+                          Open
+                        </a>
+                      ) : null}
+                      {item.analystEntryHref ? (
+                        <a
+                          className="search-cta home-inline-refresh"
+                          href={item.analystEntryHref}
+                        >
+                          {item.analystEntryLabel}
+                        </a>
+                      ) : null}
+                      {item.nextWatchHref ? (
+                        <a
+                          className="search-cta home-inline-refresh"
+                          href={item.nextWatchHref}
+                        >
+                          Next watch
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </aside>
+        ) : null}
+
         <div className="home-fullscreen-canvas">
           <div
             className="preview-header home-fullscreen-canvas-overlay"
@@ -370,9 +739,7 @@ export function HomeScreen({
               boxShadow: "none",
               border: "none",
             }}
-          >
-
-          </div>
+          />
 
           {hasWalletPreview ? (
             <WalletGraphVisual
@@ -381,8 +748,14 @@ export function HomeScreen({
               edges={graphPreview.edges}
               neighborhoodSummary={graphPreview.neighborhoodSummary}
               variant="hero"
+              expandableNodeIds={expandableGraphNodeIds}
+              expandingNodeId={expandingNodeId}
+              onExpandNode={(nodeId) => {
+                void handleExpandGraphNode(nodeId);
+              }}
               selectedNodeId={selectedNodeId}
               onSelectedNodeIdChange={setSelectedNodeId}
+              onHoveredNodeIdChange={setHoveredNodeId}
             />
           ) : (
             <div className="graph-empty-state">
@@ -496,8 +869,8 @@ export function HomeScreen({
                         type="button"
                       >
                         {isRefreshingWalletPreview
-                          ? "Refreshing..."
-                          : "Refresh Intelligence"}
+                          ? "Expanding..."
+                          : getHomeCoverageActionLabel(preview)}
                       </button>
                     ) : null}
                   </div>
@@ -508,6 +881,11 @@ export function HomeScreen({
                       : preview.indexing.lastIndexedAt
                         ? `Updated ${formatRelativeTime(preview.indexing.lastIndexedAt)}`
                         : "Ready"}
+                  </p>
+                  <p className="home-summary-copy">
+                    {preview.indexing.coverageWindowDays > 0
+                      ? `${preview.indexing.coverageWindowDays}d indexed`
+                      : "Coverage warming up"}
                   </p>
 
                   <div className="preview-identity home-summary-grid">
@@ -599,7 +977,9 @@ export function HomeScreen({
                         <span
                           style={{ color: "var(--muted)", fontSize: "0.85rem" }}
                         >
-                          {preview.topCounterparties.length} visible
+                          {preview.counterparties > 0
+                            ? `${Math.min(preview.topCounterparties.length, 3)} shown of ${preview.counterparties} indexed`
+                            : `${preview.topCounterparties.length} visible`}
                         </span>
                       </div>
 
@@ -752,6 +1132,101 @@ export function HomeScreen({
   );
 }
 
+export function buildHomeGraphExpansionKey(
+  node: Pick<WalletGraphPreviewNode, "kind" | "chain" | "address" | "id">,
+): string {
+  if (node.kind === "wallet" && node.chain && node.address) {
+    return `${node.chain}:${node.address.toLowerCase()}`;
+  }
+
+  return node.id;
+}
+
+export function mergeHomeGraphPreviews(
+  current: WalletGraphPreview,
+  expansion: WalletGraphPreview,
+): WalletGraphPreview {
+  const nodeMap = new Map<string, WalletGraphPreviewNode>();
+  for (const node of [...current.nodes, ...expansion.nodes]) {
+    if (!nodeMap.has(node.id)) {
+      nodeMap.set(node.id, node);
+    }
+  }
+
+  const edgeMap = new Map<string, WalletGraphPreviewEdge>();
+  for (const edge of [...current.edges, ...expansion.edges]) {
+    const key = buildWalletGraphEdgeKey(edge);
+    if (!edgeMap.has(key)) {
+      edgeMap.set(key, edge);
+    }
+  }
+
+  const mergedNodes = [...nodeMap.values()];
+  const mergedEdges = [...edgeMap.values()];
+
+  return {
+    ...current,
+    mode:
+      current.mode === "live" || expansion.mode === "live"
+        ? "live"
+        : current.mode,
+    source: current.source === "live-api" ? current.source : expansion.source,
+    depthResolved: Math.max(current.depthResolved, expansion.depthResolved),
+    densityCapped: current.densityCapped || expansion.densityCapped,
+    statusMessage:
+      expansion.mode === "live" ? expansion.statusMessage : current.statusMessage,
+    neighborhoodSummary: {
+      neighborNodeCount: Math.max(mergedNodes.length - 1, 0),
+      walletNodeCount: mergedNodes.filter((node) => node.kind === "wallet")
+        .length,
+      clusterNodeCount: mergedNodes.filter((node) => node.kind === "cluster")
+        .length,
+      entityNodeCount: mergedNodes.filter((node) => node.kind === "entity")
+        .length,
+      interactionEdgeCount: mergedEdges.length,
+      totalInteractionWeight: mergedEdges.reduce(
+        (sum, edge) => sum + (edge.weight ?? edge.counterpartyCount ?? 1),
+        0,
+      ),
+      ...(() => {
+        const latestObservedAt = [
+          current.neighborhoodSummary.latestObservedAt,
+          expansion.neighborhoodSummary.latestObservedAt,
+          ...mergedEdges.map((edge) => edge.observedAt),
+        ]
+          .filter((value): value is string => Boolean(value))
+          .sort()
+          .at(-1);
+
+        return latestObservedAt ? { latestObservedAt } : {};
+      })(),
+    },
+    nodes: mergedNodes,
+    edges: mergedEdges,
+  };
+}
+
+function rebaseExpandedGraphRootNode(
+  graph: WalletGraphPreview,
+  nextRootNodeId: string,
+): WalletGraphPreview {
+  if (!graph.nodes.some((node) => node.id === "wallet_root")) {
+    return graph;
+  }
+
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === "wallet_root" ? { ...node, id: nextRootNodeId } : node,
+    ),
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      sourceId: edge.sourceId === "wallet_root" ? nextRootNodeId : edge.sourceId,
+      targetId: edge.targetId === "wallet_root" ? nextRootNodeId : edge.targetId,
+    })),
+  };
+}
+
 type HomeGraphRelationship = {
   key: string;
   sourceId: string;
@@ -821,4 +1296,128 @@ function formatRelativeTime(value: string): string {
 
 function formatScoreLabel(name: string): string {
   return name.replaceAll("_", " ");
+}
+
+function formatFindingTypeLabel(type: string): string {
+  return type.replaceAll("_", " ");
+}
+
+function formatFindingSubjectTypeLabel(type: string): string {
+  return type.replaceAll("_", " ");
+}
+
+function resolveFindingNextWatchLabel(item: FindingPreview): string {
+  const nextWatch = item.nextWatch[0];
+  if (!nextWatch) {
+    return item.subjectType === "entity"
+      ? "Open entity context"
+      : item.subjectType === "wallet"
+        ? "Open wallet brief"
+        : "Open finding context";
+  }
+
+  if (nextWatch.subjectType === "wallet") {
+    return nextWatch.label?.trim()
+      ? `Watch ${nextWatch.label.trim()}`
+      : nextWatch.address?.trim()
+        ? `Watch ${compactAddress(nextWatch.address.trim())}`
+        : "Watch counterparty wallet";
+  }
+
+  if (nextWatch.subjectType === "entity") {
+    return nextWatch.label?.trim()
+      ? `Open ${nextWatch.label.trim()}`
+      : "Open entity context";
+  }
+
+  if (nextWatch.subjectType === "token") {
+    return nextWatch.token?.trim()
+      ? `Watch token ${nextWatch.token.trim()}`
+      : "Watch token context";
+  }
+
+  return nextWatch.label?.trim()
+    ? `Watch ${nextWatch.label.trim()}`
+    : "Watch next context";
+}
+
+function resolveFindingNextWatchHref(item: FindingPreview): string | null {
+  const nextWatch = item.nextWatch[0];
+  if (!nextWatch) {
+    return resolveFindingSubjectHref(item);
+  }
+
+  if (nextWatch.subjectType === "wallet" && nextWatch.chain && nextWatch.address) {
+    return buildWalletDetailHref({
+      chain: nextWatch.chain as "evm" | "solana",
+      address: nextWatch.address,
+    });
+  }
+  if (nextWatch.subjectType === "token" && nextWatch.token?.trim()) {
+    return buildProductSearchHref(nextWatch.token.trim());
+  }
+  if (nextWatch.label?.trim()) {
+    return buildProductSearchHref(nextWatch.label.trim());
+  }
+
+  return null;
+}
+
+function resolveFindingAnalystEntryLabel(item: FindingPreview): string {
+  if (item.subjectType === "wallet") {
+    return "Analyze wallet";
+  }
+  if (item.subjectType === "entity") {
+    return "Analyze entity";
+  }
+  if (item.subjectType === "token") {
+    return "Analyze token";
+  }
+  return "Analyze finding";
+}
+
+function resolveFindingAnalystEntryHref(item: FindingPreview): string | null {
+  return resolveFindingSubjectHref(item);
+}
+
+function resolveFindingSubjectLabel(item: FindingPreview): string {
+  if (item.label?.trim()) {
+    return item.label.trim();
+  }
+  if (item.address?.trim()) {
+    return compactAddress(item.address);
+  }
+  if (item.key?.trim()) {
+    return item.key.trim();
+  }
+  return "Finding";
+}
+
+function resolveFindingSubjectHref(item: FindingPreview): string | null {
+  if (item.subjectType === "wallet" && item.chain && item.address) {
+    return buildWalletDetailHref({
+      chain: item.chain as "evm" | "solana",
+      address: item.address,
+    });
+  }
+  if (item.subjectType === "entity" && item.key) {
+    return buildEntityDetailHref(item.key);
+  }
+  if (item.label?.trim()) {
+    return buildProductSearchHref(item.label.trim());
+  }
+  return null;
+}
+
+function toneForFindingType(type: string): HomeFindingFeedItem["badgeTone"] {
+  if (type.includes("exit") || type.includes("pressure")) {
+    return "amber";
+  }
+  if (type.includes("convergence") || type.includes("entry")) {
+    return "emerald";
+  }
+  if (type.includes("rotation")) {
+    return "violet";
+  }
+  return "teal";
 }

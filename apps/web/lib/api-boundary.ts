@@ -93,6 +93,7 @@ export type WalletSummaryPreview = {
   address: string;
   label: string;
   clusterId?: string;
+  counterparties: number;
   statusMessage: string;
   topCounterparties: WalletSummaryCounterpartyPreview[];
   recentFlow: WalletSummaryRecentFlowPreview;
@@ -100,6 +101,108 @@ export type WalletSummaryPreview = {
   indexing: WalletSummaryIndexingPreview;
   latestSignals: WalletSummaryLatestSignalPreview[];
   scores: WalletSummaryScorePreview[];
+};
+
+export type FindingPreview = {
+  id: string;
+  type: string;
+  subjectType: string;
+  chain?: string;
+  address?: string;
+  key?: string;
+  label?: string;
+  summary: string;
+  importanceReason: string[];
+  observedFacts: string[];
+  inferredInterpretations: string[];
+  confidence: number;
+  importanceScore: number;
+  observedAt: string;
+  coverageStartAt?: string;
+  coverageEndAt?: string;
+  coverageWindowDays: number;
+  evidence: Array<{
+    type: string;
+    value?: string;
+    confidence?: number;
+    observedAt?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  nextWatch: Array<{
+    subjectType: string;
+    chain?: string;
+    address?: string;
+    token?: string;
+    label?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+};
+
+export type FindingsFeedPreview = {
+  mode: "unavailable" | "live";
+  source: "boundary-unavailable" | "live-api";
+  route: string;
+  generatedAt: string;
+  statusMessage: string;
+  items: FindingPreview[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+
+export type WalletLabelPreview = {
+  key: string;
+  name: string;
+  class: "verified" | "inferred" | "behavioral";
+  entityType: string;
+  source: string;
+  confidence: number;
+  evidenceSummary: string;
+  observedAt: string;
+};
+
+export type WalletBriefPreview = {
+  mode: "unavailable" | "live";
+  source: "boundary-unavailable" | "live-api";
+  route: string;
+  chain: "evm" | "solana";
+  address: string;
+  displayName: string;
+  statusMessage: string;
+  aiSummary: string;
+  keyFindings: FindingPreview[];
+  verifiedLabels: WalletLabelPreview[];
+  probableLabels: WalletLabelPreview[];
+  behavioralLabels: WalletLabelPreview[];
+  topCounterparties: WalletSummaryCounterpartyPreview[];
+  recentFlow: WalletSummaryRecentFlowPreview;
+  enrichment?: WalletSummaryEnrichmentPreview;
+  indexing: WalletSummaryIndexingPreview;
+  latestSignals: WalletSummaryLatestSignalPreview[];
+  scores: WalletSummaryScorePreview[];
+};
+
+export type EntityInterpretationMemberPreview = {
+  chain: "evm" | "solana";
+  address: string;
+  displayName: string;
+  latestActivityAt?: string;
+  verifiedLabels: WalletLabelPreview[];
+  probableLabels: WalletLabelPreview[];
+  behavioralLabels: WalletLabelPreview[];
+};
+
+export type EntityInterpretationPreview = {
+  mode: "unavailable" | "live";
+  source: "boundary-unavailable" | "live-api";
+  route: string;
+  entityKey: string;
+  entityType: string;
+  displayName: string;
+  walletCount: number;
+  latestActivityAt?: string;
+  statusMessage: string;
+  members: EntityInterpretationMemberPreview[];
+  findings: FindingPreview[];
 };
 
 export function shouldPollIndexedWalletSummary(
@@ -756,6 +859,126 @@ type SearchEnvelope = {
   } | null;
 };
 
+type FindingsFeedApiResponse = {
+  generatedAt: string;
+  items: FindingPreview[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+
+type FindingsFeedEnvelope = {
+  success: boolean;
+  data: FindingsFeedApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type WalletBriefApiResponse = {
+  chain: "evm" | "solana";
+  address: string;
+  displayName: string;
+  aiSummary: string;
+  keyFindings?: FindingPreview[];
+  verifiedLabels?: WalletLabelPreview[];
+  probableLabels?: WalletLabelPreview[];
+  behavioralLabels?: WalletLabelPreview[];
+  topCounterparties?: Array<{
+    chain: "evm" | "solana";
+    address: string;
+    entityKey?: string;
+    entityType?: string;
+    entityLabel?: string;
+    interactionCount: number;
+    inboundCount?: number;
+    outboundCount?: number;
+    inboundAmount?: string;
+    outboundAmount?: string;
+    primaryToken?: string;
+    tokenBreakdowns?: Array<{
+      symbol: string;
+      inboundAmount?: string;
+      outboundAmount?: string;
+    }>;
+    directionLabel?: string;
+    firstSeenAt?: string;
+    latestActivityAt: string;
+  }>;
+  recentFlow?: {
+    incomingTxCount7d: number;
+    outgoingTxCount7d: number;
+    incomingTxCount30d: number;
+    outgoingTxCount30d: number;
+    netDirection7d: string;
+    netDirection30d: string;
+  };
+  enrichment?: {
+    provider: string;
+    netWorthUsd: string;
+    nativeBalance: string;
+    nativeBalanceFormatted: string;
+    activeChains: string[];
+    activeChainCount: number;
+    holdings?: Array<{
+      symbol: string;
+      tokenAddress?: string;
+      balance?: string;
+      balanceFormatted?: string;
+      valueUsd?: string;
+      portfolioPercentage?: number;
+      isNative?: boolean;
+    }>;
+    holdingCount?: number;
+    source: string;
+    updatedAt: string;
+  };
+  indexing?: {
+    status: "ready" | "indexing";
+    lastIndexedAt?: string;
+    coverageStartAt?: string;
+    coverageEndAt?: string;
+    coverageWindowDays?: number;
+  };
+  latestSignals?: Array<{
+    name: string;
+    value: number;
+    rating: "low" | "medium" | "high";
+    label: string;
+    source: string;
+    observedAt: string;
+  }>;
+  scores?: WalletSummaryApiScore[];
+};
+
+type WalletBriefEnvelope = {
+  success: boolean;
+  data: WalletBriefApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type EntityInterpretationApiResponse = {
+  entityKey: string;
+  entityType: string;
+  displayName: string;
+  walletCount: number;
+  latestActivityAt?: string;
+  members?: EntityInterpretationMemberPreview[];
+  findings?: FindingPreview[];
+};
+
+type EntityInterpretationEnvelope = {
+  success: boolean;
+  data: EntityInterpretationApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
 type AlertInboxApiItem = {
   id: string;
   alertRuleId: string;
@@ -1114,6 +1337,17 @@ export type WalletGraphRequest = {
 
 export type WalletDetailRequest = WalletSummaryRequest;
 
+export type WalletBriefRequest = WalletSummaryRequest;
+
+export type FindingsFeedRequest = {
+  cursor?: string;
+  types?: string[];
+};
+
+export type EntityInterpretationRequest = {
+  entityKey: string;
+};
+
 export type ClusterDetailRequest = {
   clusterId: string;
 };
@@ -1132,6 +1366,22 @@ type LoadWalletGraphPreviewOptions = {
   request?: WalletGraphRequest;
 };
 
+type LoadWalletBriefPreviewOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  fallback?: WalletBriefPreview;
+  request?: WalletBriefRequest;
+  requestHeaders?: HeadersInit;
+};
+
+type LoadFindingsFeedPreviewOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  fallback?: FindingsFeedPreview;
+  request?: FindingsFeedRequest;
+  requestHeaders?: HeadersInit;
+};
+
 type LoadSearchPreviewOptions = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -1145,6 +1395,14 @@ type LoadClusterDetailPreviewOptions = {
   fetchImpl?: typeof fetch;
   fallback?: ClusterDetailPreview;
   request?: ClusterDetailRequest;
+};
+
+type LoadEntityInterpretationPreviewOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  fallback?: EntityInterpretationPreview;
+  request?: EntityInterpretationRequest;
+  requestHeaders?: HeadersInit;
 };
 
 type LoadFirstConnectionFeedPreviewOptions = {
@@ -1209,6 +1467,7 @@ type LoadAdminConsolePreviewOptions = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
   fallback?: AdminConsolePreview;
+  requestHeaders?: HeadersInit;
 };
 
 type CreateAdminSuppressionOptions = {
@@ -1234,8 +1493,14 @@ export type AdminConsoleMutationResult = {
 };
 
 export const walletSummaryRoute = "GET /v1/wallets/:chain/:address/summary";
+export const walletBriefRoute = "GET /v1/wallets/:chain/:address/brief";
 export const walletGraphRoute = "GET /v1/wallets/:chain/:address/graph";
 export const clusterDetailRoute = "GET /v1/clusters/:clusterId";
+export const findingsFeedRoute = "GET /v1/findings";
+export const entityInterpretationRoute = "GET /v1/entity/:id";
+export const analystWalletBriefRoute = "GET /v1/analyst/wallets/:chain/:address/brief";
+export const analystFindingsRoute = "GET /v1/analyst/findings";
+export const analystEntityInterpretationRoute = "GET /v1/analyst/entity/:id";
 export const shadowExitFeedRoute = "GET /v1/signals/shadow-exits";
 export const firstConnectionFeedRoute = "GET /v1/signals/first-connections";
 export const searchRoute = "GET /v1/search";
@@ -1261,7 +1526,15 @@ const walletSummaryRequest: WalletSummaryRequest = {
 const walletGraphRequest: WalletGraphRequest = {
   chain: "evm",
   address: "0x8f1d9c72be9f2a8ec6d3b9ac1e5d7c4289a1031f",
-  depthRequested: 2,
+  depthRequested: 1,
+};
+
+const walletBriefRequest: WalletBriefRequest = walletSummaryRequest;
+
+const findingsFeedRequest: FindingsFeedRequest = {};
+
+const entityInterpretationRequest: EntityInterpretationRequest = {
+  entityKey: "curated:exchange:binance",
 };
 
 const clusterDetailRequest: ClusterDetailRequest = {
@@ -1288,6 +1561,10 @@ export function buildWalletDetailHref(request: WalletDetailRequest): string {
 
 export function buildClusterDetailHref(request: ClusterDetailRequest): string {
   return `/clusters/${encodeURIComponent(request.clusterId)}`;
+}
+
+export function buildEntityDetailHref(entityKey: string): string {
+  return `/entity/${encodeURIComponent(entityKey)}`;
 }
 
 export function buildProductSearchHref(query: string): string {
@@ -1359,6 +1636,34 @@ function buildWalletSummaryUrl(
   return new URL(path, resolvedBaseUrl).toString();
 }
 
+function buildWalletBriefUrl(
+  request: WalletSummaryRequest,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/wallets/${request.chain}/${request.address}/brief`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAnalystWalletBriefUrl(
+  request: WalletSummaryRequest,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/analyst/wallets/${request.chain}/${request.address}/brief`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
 function buildWalletGraphUrl(
   request: WalletGraphRequest,
   apiBaseUrl?: string,
@@ -1373,6 +1678,81 @@ function buildWalletGraphUrl(
   const url = new URL(path, resolvedBaseUrl);
   url.searchParams.set("depth", String(request.depthRequested));
   return url.toString();
+}
+
+function buildFindingsFeedUrl(
+  apiBaseUrl?: string,
+  cursor?: string,
+  types?: string[],
+): string {
+  const path = "/v1/findings";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  const params = new URLSearchParams();
+  if (cursor?.trim()) {
+    params.set("cursor", cursor.trim());
+  }
+  for (const type of types ?? []) {
+    const trimmed = type.trim();
+    if (trimmed) {
+      params.append("type", trimmed);
+    }
+  }
+
+  if (!resolvedBaseUrl) {
+    return params.size > 0 ? `${path}?${params.toString()}` : path;
+  }
+
+  const url = new URL(path, resolvedBaseUrl);
+  params.forEach((value, key) => url.searchParams.append(key, value));
+  return url.toString();
+}
+
+function buildAnalystFindingsUrl(
+  apiBaseUrl?: string,
+  cursor?: string,
+  types?: string[],
+): string {
+  const path = "/v1/analyst/findings";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  const params = new URLSearchParams();
+  if (cursor?.trim()) {
+    params.set("cursor", cursor.trim());
+  }
+  for (const type of types ?? []) {
+    const trimmed = type.trim();
+    if (trimmed) {
+      params.append("type", trimmed);
+    }
+  }
+
+  if (!resolvedBaseUrl) {
+    return params.size > 0 ? `${path}?${params.toString()}` : path;
+  }
+
+  const url = new URL(path, resolvedBaseUrl);
+  params.forEach((value, key) => url.searchParams.append(key, value));
+  return url.toString();
+}
+
+function buildEntityInterpretationUrl(entityKey: string, apiBaseUrl?: string): string {
+  const path = `/v1/entity/${encodeURIComponent(entityKey)}`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAnalystEntityInterpretationUrl(
+  entityKey: string,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/analyst/entity/${encodeURIComponent(entityKey)}`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+  return new URL(path, resolvedBaseUrl).toString();
 }
 
 function buildSearchUrl(
@@ -1637,6 +2017,7 @@ function mapWalletSummaryResponse(
     address: response.address,
     label: response.displayName,
     ...(response.clusterId ? { clusterId: response.clusterId } : {}),
+    counterparties: response.counterparties ?? 0,
     statusMessage:
       "Live backend data loaded from GET /v1/wallets/:chain/:address/summary.",
     topCounterparties: (response.topCounterparties ?? []).map(
@@ -1725,6 +2106,163 @@ function mapWalletSummaryResponse(
       rating: score.rating,
       tone: mapEvidenceTone(score),
     })),
+  };
+}
+
+function cloneFindingPreview(item: FindingPreview): FindingPreview {
+  return {
+    ...item,
+    importanceReason: [...item.importanceReason],
+    observedFacts: [...item.observedFacts],
+    inferredInterpretations: [...item.inferredInterpretations],
+    evidence: item.evidence.map((part) => ({
+      ...part,
+      ...(part.metadata ? { metadata: { ...part.metadata } } : {}),
+    })),
+    nextWatch: item.nextWatch.map((part) => ({ ...part })),
+  };
+}
+
+function cloneWalletLabelPreview(item: WalletLabelPreview): WalletLabelPreview {
+  return {
+    ...item,
+  };
+}
+
+function mapWalletBriefResponse(
+  response: WalletBriefApiResponse,
+  source: WalletBriefPreview["source"],
+): WalletBriefPreview {
+  return {
+    mode: "live",
+    source,
+    route: walletBriefRoute,
+    chain: response.chain,
+    address: response.address,
+    displayName: response.displayName,
+    statusMessage:
+      "Live backend data loaded from GET /v1/wallets/:chain/:address/brief.",
+    aiSummary: response.aiSummary,
+    keyFindings: (response.keyFindings ?? []).map(cloneFindingPreview),
+    verifiedLabels: (response.verifiedLabels ?? []).map(cloneWalletLabelPreview),
+    probableLabels: (response.probableLabels ?? []).map(cloneWalletLabelPreview),
+    behavioralLabels: (response.behavioralLabels ?? []).map(
+      cloneWalletLabelPreview,
+    ),
+    topCounterparties: (response.topCounterparties ?? []).map((counterparty) => ({
+      chain: counterparty.chain,
+      chainLabel: formatChainLabel(counterparty.chain),
+      address: counterparty.address,
+      ...(counterparty.entityKey
+        ? { entityKey: counterparty.entityKey }
+        : {}),
+      ...(counterparty.entityType
+        ? { entityType: counterparty.entityType }
+        : {}),
+      ...(counterparty.entityLabel
+        ? { entityLabel: counterparty.entityLabel }
+        : {}),
+      interactionCount: counterparty.interactionCount,
+      inboundCount: counterparty.inboundCount ?? 0,
+      outboundCount: counterparty.outboundCount ?? 0,
+      inboundAmount: counterparty.inboundAmount ?? "0",
+      outboundAmount: counterparty.outboundAmount ?? "0",
+      primaryToken: counterparty.primaryToken ?? "",
+      tokenBreakdowns: (counterparty.tokenBreakdowns ?? []).map((token) => ({
+        symbol: token.symbol,
+        inboundAmount: token.inboundAmount ?? "0",
+        outboundAmount: token.outboundAmount ?? "0",
+      })),
+      directionLabel: counterparty.directionLabel ?? "mixed",
+      firstSeenAt: counterparty.firstSeenAt ?? "",
+      latestActivityAt: counterparty.latestActivityAt,
+    })),
+    recentFlow: {
+      incomingTxCount7d: response.recentFlow?.incomingTxCount7d ?? 0,
+      outgoingTxCount7d: response.recentFlow?.outgoingTxCount7d ?? 0,
+      incomingTxCount30d: response.recentFlow?.incomingTxCount30d ?? 0,
+      outgoingTxCount30d: response.recentFlow?.outgoingTxCount30d ?? 0,
+      netDirection7d: response.recentFlow?.netDirection7d ?? "balanced",
+      netDirection30d: response.recentFlow?.netDirection30d ?? "balanced",
+    },
+    ...(response.enrichment
+      ? {
+          enrichment: {
+            provider: response.enrichment.provider,
+            netWorthUsd: response.enrichment.netWorthUsd,
+            nativeBalance: response.enrichment.nativeBalance,
+            nativeBalanceFormatted: response.enrichment.nativeBalanceFormatted,
+            activeChains: response.enrichment.activeChains ?? [],
+            activeChainCount: response.enrichment.activeChainCount ?? 0,
+            holdings: (response.enrichment.holdings ?? []).map((holding) => ({
+              symbol: holding.symbol,
+              tokenAddress: holding.tokenAddress ?? "",
+              balance: holding.balance ?? "",
+              balanceFormatted: holding.balanceFormatted ?? "",
+              valueUsd: holding.valueUsd ?? "",
+              portfolioPercentage: holding.portfolioPercentage ?? 0,
+              isNative: holding.isNative ?? false,
+            })),
+            holdingCount:
+              response.enrichment.holdingCount ??
+              response.enrichment.holdings?.length ??
+              0,
+            source: response.enrichment.source,
+            updatedAt: response.enrichment.updatedAt,
+          },
+        }
+      : {}),
+    indexing: {
+      status: response.indexing?.status ?? "ready",
+      lastIndexedAt: response.indexing?.lastIndexedAt ?? "",
+      coverageStartAt: response.indexing?.coverageStartAt ?? "",
+      coverageEndAt: response.indexing?.coverageEndAt ?? "",
+      coverageWindowDays: response.indexing?.coverageWindowDays ?? 0,
+    },
+    latestSignals: (response.latestSignals ?? []).map((signal) => ({
+      name: signal.name,
+      value: signal.value,
+      rating: signal.rating,
+      label: signal.label,
+      source: signal.source,
+      observedAt: signal.observedAt,
+    })),
+    scores: (response.scores ?? []).map((score) => ({
+      name: score.name,
+      value: score.value,
+      rating: score.rating,
+      tone: mapEvidenceTone(score),
+    })),
+  };
+}
+
+function mapEntityInterpretationResponse(
+  response: EntityInterpretationApiResponse,
+  source: EntityInterpretationPreview["source"],
+): EntityInterpretationPreview {
+  return {
+    mode: "live",
+    source,
+    route: entityInterpretationRoute,
+    entityKey: response.entityKey,
+    entityType: response.entityType,
+    displayName: response.displayName,
+    walletCount: response.walletCount,
+    statusMessage:
+      "Live backend data loaded from GET /v1/entity/:id.",
+    ...(response.latestActivityAt
+      ? { latestActivityAt: response.latestActivityAt }
+      : {}),
+    members: (response.members ?? []).map((member) => ({
+      chain: member.chain,
+      address: member.address,
+      displayName: member.displayName,
+      ...(member.latestActivityAt ? { latestActivityAt: member.latestActivityAt } : {}),
+      verifiedLabels: (member.verifiedLabels ?? []).map(cloneWalletLabelPreview),
+      probableLabels: (member.probableLabels ?? []).map(cloneWalletLabelPreview),
+      behavioralLabels: (member.behavioralLabels ?? []).map(cloneWalletLabelPreview),
+    })),
+    findings: (response.findings ?? []).map(cloneFindingPreview),
   };
 }
 
@@ -1901,6 +2439,22 @@ function mapFirstConnectionFeedResponse(
     statusMessage:
       "Live backend data loaded from GET /v1/signals/first-connections.",
     items,
+  };
+}
+
+function mapFindingsFeedResponse(
+  response: FindingsFeedApiResponse,
+  source: FindingsFeedPreview["source"],
+): FindingsFeedPreview {
+  return {
+    mode: "live",
+    source,
+    route: findingsFeedRoute,
+    generatedAt: response.generatedAt,
+    statusMessage: "Live backend data loaded from GET /v1/findings.",
+    items: (response.items ?? []).map(cloneFindingPreview),
+    ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}),
+    hasMore: response.hasMore,
   };
 }
 
@@ -2219,6 +2773,7 @@ function createUnavailableWalletSummaryPreview(
     label: request.address
       ? compactAddress(request.address)
       : "Search a wallet",
+    counterparties: 0,
     statusMessage:
       "Live wallet summary is not available yet. Background indexing or API recovery may still be in progress.",
     topCounterparties: [],
@@ -2239,6 +2794,106 @@ function createUnavailableWalletSummaryPreview(
     },
     latestSignals: [],
     scores: [],
+  };
+}
+
+function createUnavailableWalletBriefPreview(
+  request: WalletBriefRequest = walletBriefRequest,
+): WalletBriefPreview {
+  return {
+    mode: "unavailable",
+    source: "boundary-unavailable",
+    route: walletBriefRoute,
+    chain: request.chain,
+    address: request.address,
+    displayName: request.address ? compactAddress(request.address) : "Search a wallet",
+    statusMessage:
+      "Live wallet brief is unavailable until the wallet brief API responds.",
+    aiSummary:
+      "Live wallet brief is unavailable until the wallet brief API responds.",
+    keyFindings: [],
+    verifiedLabels: [],
+    probableLabels: [],
+    behavioralLabels: [],
+    topCounterparties: [],
+    recentFlow: {
+      incomingTxCount7d: 0,
+      outgoingTxCount7d: 0,
+      incomingTxCount30d: 0,
+      outgoingTxCount30d: 0,
+      netDirection7d: "balanced",
+      netDirection30d: "balanced",
+    },
+    indexing: {
+      status: "indexing",
+      lastIndexedAt: "",
+      coverageStartAt: "",
+      coverageEndAt: "",
+      coverageWindowDays: 0,
+    },
+    latestSignals: [],
+    scores: [],
+  };
+}
+
+function createUnavailableAnalystWalletBriefPreview(
+  request: WalletBriefRequest = walletBriefRequest,
+): WalletBriefPreview {
+  return {
+    ...createUnavailableWalletBriefPreview(request),
+    route: analystWalletBriefRoute,
+  };
+}
+
+function createUnavailableFindingsFeedPreview(
+  request: FindingsFeedRequest = findingsFeedRequest,
+): FindingsFeedPreview {
+  return {
+    mode: "unavailable",
+    source: "boundary-unavailable",
+    route: findingsFeedRoute,
+    generatedAt: "",
+    statusMessage:
+      "Live findings feed is unavailable until the findings API responds.",
+    items: [],
+    ...(request.cursor ? { nextCursor: request.cursor } : {}),
+    hasMore: false,
+  };
+}
+
+function createUnavailableAnalystFindingsPreview(
+  request: FindingsFeedRequest = findingsFeedRequest,
+): FindingsFeedPreview {
+  return {
+    ...createUnavailableFindingsFeedPreview(request),
+    route: analystFindingsRoute,
+  };
+}
+
+function createUnavailableEntityInterpretationPreview(
+  request: EntityInterpretationRequest = entityInterpretationRequest,
+): EntityInterpretationPreview {
+  return {
+    mode: "unavailable",
+    source: "boundary-unavailable",
+    route: entityInterpretationRoute,
+    entityKey: request.entityKey,
+    entityType: "unknown",
+    displayName: request.entityKey,
+    walletCount: 0,
+    statusMessage:
+      "Live entity interpretation is unavailable until the entity API responds.",
+    members: [],
+    findings: [],
+  };
+}
+
+function createUnavailableAnalystEntityInterpretationPreview(
+  request: EntityInterpretationRequest = entityInterpretationRequest,
+): EntityInterpretationPreview {
+  return {
+    ...createUnavailableEntityInterpretationPreview(request),
+    route: analystEntityInterpretationRoute,
   };
 }
 
@@ -2486,6 +3141,42 @@ export function getWalletSummaryPreview(
   return createUnavailableWalletSummaryPreview(request);
 }
 
+export function getWalletBriefPreview(
+  request: WalletBriefRequest = walletBriefRequest,
+): WalletBriefPreview {
+  return createUnavailableWalletBriefPreview(request);
+}
+
+export function getAnalystWalletBriefPreview(
+  request: WalletBriefRequest = walletBriefRequest,
+): WalletBriefPreview {
+  return createUnavailableAnalystWalletBriefPreview(request);
+}
+
+export function getFindingsFeedPreview(
+  request: FindingsFeedRequest = findingsFeedRequest,
+): FindingsFeedPreview {
+  return createUnavailableFindingsFeedPreview(request);
+}
+
+export function getAnalystFindingsPreview(
+  request: FindingsFeedRequest = findingsFeedRequest,
+): FindingsFeedPreview {
+  return createUnavailableAnalystFindingsPreview(request);
+}
+
+export function getEntityInterpretationPreview(
+  request: EntityInterpretationRequest = entityInterpretationRequest,
+): EntityInterpretationPreview {
+  return createUnavailableEntityInterpretationPreview(request);
+}
+
+export function getAnalystEntityInterpretationPreview(
+  request: EntityInterpretationRequest = entityInterpretationRequest,
+): EntityInterpretationPreview {
+  return createUnavailableAnalystEntityInterpretationPreview(request);
+}
+
 export function getClusterDetailPreview(
   request: ClusterDetailRequest = clusterDetailRequest,
 ): ClusterDetailPreview {
@@ -2718,6 +3409,147 @@ export async function loadWalletSummaryPreview({
   }
 }
 
+export async function loadWalletBriefPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = walletBriefRequest,
+  requestHeaders,
+}: LoadWalletBriefPreviewOptions = {}): Promise<WalletBriefPreview> {
+  const nextFallback = fallback ?? createUnavailableWalletBriefPreview(request);
+  const endpoint = buildWalletBriefUrl(request, apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+        Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as WalletBriefEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapWalletBriefResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
+export async function loadAnalystWalletBriefPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = walletBriefRequest,
+  requestHeaders,
+}: LoadWalletBriefPreviewOptions = {}): Promise<WalletBriefPreview> {
+  const nextFallback =
+    fallback ?? createUnavailableAnalystWalletBriefPreview(request);
+  const endpoint = buildAnalystWalletBriefUrl(request, apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as WalletBriefEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapWalletBriefResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
+export async function loadFindingsFeedPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = findingsFeedRequest,
+  requestHeaders,
+}: LoadFindingsFeedPreviewOptions = {}): Promise<FindingsFeedPreview> {
+  const nextFallback = fallback ?? createUnavailableFindingsFeedPreview(request);
+  const endpoint = buildFindingsFeedUrl(apiBaseUrl, request.cursor, request.types);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+        Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as FindingsFeedEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapFindingsFeedResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
+export async function loadAnalystFindingsPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = findingsFeedRequest,
+  requestHeaders,
+}: LoadFindingsFeedPreviewOptions = {}): Promise<FindingsFeedPreview> {
+  const nextFallback = fallback ?? createUnavailableAnalystFindingsPreview(request);
+  const endpoint = buildAnalystFindingsUrl(apiBaseUrl, request.cursor, request.types);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as FindingsFeedEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapFindingsFeedResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
 export async function loadWalletGraphPreview({
   apiBaseUrl,
   fetchImpl = fetch,
@@ -2788,6 +3620,78 @@ export async function loadClusterDetailPreview({
     }
 
     return mapClusterDetailResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
+export async function loadEntityInterpretationPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = entityInterpretationRequest,
+  requestHeaders,
+}: LoadEntityInterpretationPreviewOptions = {}): Promise<EntityInterpretationPreview> {
+  const nextFallback =
+    fallback ?? createUnavailableEntityInterpretationPreview(request);
+  const endpoint = buildEntityInterpretationUrl(request.entityKey, apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+        Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as EntityInterpretationEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapEntityInterpretationResponse(payload.data, "live-api");
+  } catch {
+    return nextFallback;
+  }
+}
+
+export async function loadAnalystEntityInterpretationPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  fallback,
+  request = entityInterpretationRequest,
+  requestHeaders,
+}: LoadEntityInterpretationPreviewOptions = {}): Promise<EntityInterpretationPreview> {
+  const nextFallback =
+    fallback ?? createUnavailableAnalystEntityInterpretationPreview(request);
+  const endpoint = buildAnalystEntityInterpretationUrl(request.entityKey, apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return nextFallback;
+    }
+
+    const payload = (await response.json()) as EntityInterpretationEnvelope;
+    if (!payload.success || !payload.data) {
+      return nextFallback;
+    }
+
+    return mapEntityInterpretationResponse(payload.data, "live-api");
   } catch {
     return nextFallback;
   }
@@ -3509,6 +4413,7 @@ export async function loadAdminConsolePreview({
   apiBaseUrl,
   fetchImpl = fetch,
   fallback,
+  requestHeaders,
 }: LoadAdminConsolePreviewOptions = {}): Promise<AdminConsolePreview> {
   const fallbackPreview = fallback ?? createUnavailableAdminConsolePreview();
   const labelsEndpoint = buildAdminLabelsUrl(apiBaseUrl);
@@ -3527,12 +4432,36 @@ export async function loadAdminConsolePreview({
       curatedListsResponse,
       auditLogsResponse,
     ] = await Promise.all([
-      fetchImpl(labelsEndpoint, { method: "GET", cache: "no-store" }),
-      fetchImpl(suppressionsEndpoint, { method: "GET", cache: "no-store" }),
-      fetchImpl(quotasEndpoint, { method: "GET", cache: "no-store" }),
-      fetchImpl(observabilityEndpoint, { method: "GET", cache: "no-store" }),
-      fetchImpl(curatedListsEndpoint, { method: "GET", cache: "no-store" }),
-      fetchImpl(auditLogsEndpoint, { method: "GET", cache: "no-store" }),
+      fetchImpl(labelsEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(suppressionsEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(quotasEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(observabilityEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(curatedListsEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(auditLogsEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
     ]);
 
     if (

@@ -1,4 +1,4 @@
-import type { Tone } from "@whalegraph/ui";
+import type { Tone } from "@flowintel/ui";
 
 import type {
   WalletGraphNeighborhoodSummaryPreview,
@@ -178,10 +178,16 @@ export function buildWalletGraphVisualModel({
   // Custom Force-Directed Physics Simulation (Static)
   const simulatedPositions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
 
-  sideNodes.forEach((node) => {
+  sideNodes.forEach((node, index) => {
+    const lane = index % 5;
+    const ring = Math.floor(index / 5);
+    const laneOffset = lane - 2;
+    const side = ring % 2 === 0 ? 1 : -1;
+    const spread = Math.floor(ring / 2);
+
     simulatedPositions.set(node.id, {
-      x: primaryX + (Math.random() - 0.5) * 400,
-      y: primaryY + (Math.random() - 0.5) * 400,
+      x: centerX + side * (260 + spread * 120),
+      y: centerY + laneOffset * 132 + spread * 28,
       vx: 0,
       vy: 0,
     });
@@ -337,12 +343,17 @@ export function buildWalletGraphVisualModel({
     .sort((left, right) => {
       return edgeDisplayPriority(right) - edgeDisplayPriority(left);
     });
+  const visibleEdgeBudget = resolveVisibleEdgeBudget({
+    nodeCount: nodes.length,
+    activeEdgeCount: activeEdges.length,
+    densityCapped,
+  });
   const visibleEdgeIds = new Set(
     activeEdges
-      .slice(0, MAX_VISIBLE_EDGES)
+      .slice(0, visibleEdgeBudget)
       .map((edge) => buildVisibleEdgeId(edge)),
   );
-  const hiddenEdgeCount = Math.max(activeEdges.length - MAX_VISIBLE_EDGES, 0);
+  const hiddenEdgeCount = Math.max(activeEdges.length - visibleEdgeBudget, 0);
   const edgeViewModels = baseEdgeViewModels.map((edge) => ({
     ...edge,
     visible: visibleEdgeIds.has(buildVisibleEdgeId(edge)),
@@ -1013,5 +1024,20 @@ function buildSummaryCards({
   ];
 }
 
-const MAX_VISIBLE_EDGES = 8;
 const ROW_GAP = 48;
+
+function resolveVisibleEdgeBudget({
+  nodeCount,
+  activeEdgeCount,
+  densityCapped,
+}: {
+  nodeCount: number;
+  activeEdgeCount: number;
+  densityCapped?: boolean;
+}): number {
+  const scaledBudget = densityCapped
+    ? Math.max(12, nodeCount * 3)
+    : Math.max(18, nodeCount * 4);
+
+  return Math.min(activeEdgeCount, Math.min(48, scaledBudget));
+}

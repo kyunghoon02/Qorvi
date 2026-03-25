@@ -1,6 +1,6 @@
 import React from "react";
 
-import { Badge, Pill, type Tone } from "@whalegraph/ui";
+import { Badge, Pill, type Tone } from "@flowintel/ui";
 
 import type { ClusterDetailPreview } from "../../../lib/api-boundary";
 

@@ -8,30 +8,49 @@ import {
   adminObservabilityRoute,
   adminProviderQuotasRoute,
   adminSuppressionsRoute,
+  analystEntityInterpretationRoute,
+  analystFindingsRoute,
+  analystWalletBriefRoute,
   alertDeliveryChannelsRoute,
   alertInboxRoute,
   alertRulesCollectionRoute,
+  buildEntityDetailHref,
   buildClusterDetailHref,
   buildProductSearchHref,
   clusterDetailRoute,
   createAdminSuppression,
   deleteAdminSuppression,
   deriveWalletGraphPreviewFromSummary,
+  entityInterpretationRoute,
   firstConnectionFeedRoute,
+  findingsFeedRoute,
+  getAnalystEntityInterpretationPreview,
+  getAnalystFindingsPreview,
+  getAnalystWalletBriefPreview,
+  getEntityInterpretationPreview,
   getAdminConsolePreview,
   getAlertCenterPreview,
   getClusterDetailPreview,
   getFirstConnectionFeedPreview,
+  getFindingsFeedPreview,
   getShadowExitFeedPreview,
+  getWalletBriefPreview,
   getWalletGraphPreview,
   getWalletSummaryPreview,
   loadAdminConsolePreview,
   loadAlertCenterPreview,
+  loadAnalystEntityInterpretationPreview,
+  loadAnalystFindingsPreview,
+  loadAnalystWalletBriefPreview,
   loadClusterDetailPreview,
+  loadEntityInterpretationPreview,
   loadFirstConnectionFeedPreview,
+  loadFindingsFeedPreview,
   loadShadowExitFeedPreview,
+  loadWalletBriefPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
+  walletBriefRoute,
   shadowExitFeedRoute,
   shouldPersistSearchPreviewToUrl,
   shouldPollIndexedWalletSummary,
@@ -117,6 +136,28 @@ test("admin console routes stay aligned with the backend contract", () => {
   assert.equal(adminAuditLogsRoute, "GET /v1/admin/audit-logs");
 });
 
+test("findings, wallet brief, and entity interpretation routes stay aligned with the backend contract", () => {
+  assert.equal(findingsFeedRoute, "GET /v1/findings");
+  assert.equal(walletBriefRoute, "GET /v1/wallets/:chain/:address/brief");
+  assert.equal(entityInterpretationRoute, "GET /v1/entity/:id");
+});
+
+test("analyst tool routes stay aligned with the backend contract", () => {
+  assert.equal(analystFindingsRoute, "GET /v1/analyst/findings");
+  assert.equal(
+    analystWalletBriefRoute,
+    "GET /v1/analyst/wallets/:chain/:address/brief",
+  );
+  assert.equal(analystEntityInterpretationRoute, "GET /v1/analyst/entity/:id");
+});
+
+test("entity detail href encodes the entity key", () => {
+  assert.equal(
+    buildEntityDetailHref("curated:exchange:binance"),
+    "/entity/curated%3Aexchange%3Abinance",
+  );
+});
+
 test("loadWalletSummaryPreview falls back when the backend is unavailable", async () => {
   const fallback = getWalletSummaryPreview();
   const preview = await loadWalletSummaryPreview({
@@ -131,6 +172,7 @@ test("loadWalletSummaryPreview falls back when the backend is unavailable", asyn
   assert.equal(preview.address, fallback.address);
   assert.equal(preview.chainLabel, "EVM");
   assert.equal(preview.topCounterparties.length, 0);
+  assert.equal(preview.counterparties, 0);
   assert.equal(preview.recentFlow.netDirection7d, "balanced");
   assert.equal(preview.enrichment, undefined);
   assert.equal(preview.latestSignals.length, 0);
@@ -231,6 +273,7 @@ test("loadWalletSummaryPreview maps live backend data when available", async () 
   assert.equal(preview.source, "live-api");
   assert.equal(preview.label, "Live Whale");
   assert.equal(preview.chainLabel, "EVM");
+  assert.equal(preview.counterparties, 7);
   assert.equal(preview.topCounterparties.length, 1);
   assert.equal(preview.topCounterparties[0]?.interactionCount, 11);
   assert.equal(preview.topCounterparties[0]?.inboundCount, 0);
@@ -244,6 +287,633 @@ test("loadWalletSummaryPreview maps live backend data when available", async () 
   assert.equal(preview.indexing.status, "ready");
   assert.equal(preview.indexing.coverageWindowDays, 78);
   assert.equal(preview.scores[0]?.tone, "emerald");
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("get and load findings feed previews stay aligned with the backend contract", async () => {
+  const fallback = getFindingsFeedPreview({
+    cursor: "cursor_1",
+    types: ["smart_money_convergence"],
+  });
+  let requestedUrl = "";
+  const preview = await loadFindingsFeedPreview({
+    request: {
+      cursor: "cursor_1",
+      types: ["smart_money_convergence", "exit_preparation"],
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            generatedAt: "2026-03-23T00:00:00.000Z",
+            nextCursor: "cursor_2",
+            hasMore: true,
+            items: [
+              {
+                id: "finding_1",
+                type: "smart_money_convergence",
+                subjectType: "wallet",
+                chain: "evm",
+                address: "0x1234567890abcdef1234567890abcdef12345678",
+                label: "Live Whale",
+                summary: "Strong convergence across the last 24 hours.",
+                importanceReason: ["quality wallets matched on the same token"],
+                observedFacts: ["3 wallets entered the same token"],
+                inferredInterpretations: ["coordinated accumulation is likely"],
+                confidence: 0.91,
+                importanceScore: 0.88,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageStartAt: "2026-03-01T00:00:00.000Z",
+                coverageEndAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [
+                  {
+                    type: "graph_signal",
+                    value: "shared counterparty cluster",
+                    confidence: 0.83,
+                    observedAt: "2026-03-23T00:00:00.000Z",
+                    metadata: { source: "rule-engine" },
+                  },
+                ],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "cross-chain",
+                      confidence: 0.66,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.mode, "unavailable");
+  assert.equal(fallback.route, findingsFeedRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.items.length, 1);
+  assert.equal(preview.items[0]?.type, "smart_money_convergence");
+  assert.equal(preview.items[0]?.confidence, 0.91);
+  assert.equal(preview.items[0]?.evidence[0]?.type, "graph_signal");
+  assert.equal(preview.items[0]?.nextWatch[0]?.metadata?.route, "cross-chain");
+  assert.equal(preview.nextCursor, "cursor_2");
+  assert.equal(preview.hasMore, true);
+  assert.match(requestedUrl, /\/v1\/findings\?cursor=cursor_1&type=smart_money_convergence&type=exit_preparation$/);
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("analyst findings preview loader preserves richer evidence metadata", async () => {
+  const fallback = getAnalystFindingsPreview({
+    cursor: "cursor_1",
+    types: ["smart_money_convergence"],
+  });
+  let requestedUrl = "";
+  const preview = await loadAnalystFindingsPreview({
+    request: {
+      cursor: "cursor_1",
+      types: ["smart_money_convergence", "exit_preparation"],
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            generatedAt: "2026-03-23T00:00:00.000Z",
+            nextCursor: "cursor_2",
+            hasMore: true,
+            items: [
+              {
+                id: "finding_analyst_1",
+                type: "smart_money_convergence",
+                subjectType: "wallet",
+                chain: "evm",
+                address: "0x1234567890abcdef1234567890abcdef12345678",
+                label: "Analyst Whale",
+                summary: "Strong convergence across the last 24 hours.",
+                importanceReason: ["quality wallets matched on the same token"],
+                observedFacts: ["3 wallets entered the same token"],
+                inferredInterpretations: ["coordinated accumulation is likely"],
+                confidence: 0.91,
+                importanceScore: 0.88,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageStartAt: "2026-03-01T00:00:00.000Z",
+                coverageEndAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [
+                  {
+                    type: "graph_signal",
+                    value: "shared counterparty cluster",
+                    confidence: 0.83,
+                    observedAt: "2026-03-23T00:00:00.000Z",
+                    metadata: { source: "rule-engine" },
+                  },
+                ],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "cross-chain",
+                      confidence: 0.66,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.route, analystFindingsRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.items.length, 1);
+  assert.equal(preview.items[0]?.type, "smart_money_convergence");
+  assert.equal(preview.items[0]?.confidence, 0.91);
+  assert.equal(preview.items[0]?.evidence[0]?.metadata?.source, "rule-engine");
+  assert.equal(preview.items[0]?.nextWatch[0]?.metadata?.route, "cross-chain");
+  assert.equal(preview.nextCursor, "cursor_2");
+  assert.equal(preview.hasMore, true);
+  assert.match(requestedUrl, /\/v1\/analyst\/findings\?cursor=cursor_1&type=smart_money_convergence&type=exit_preparation$/);
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("get and load wallet brief previews stay aligned with the backend contract", async () => {
+  const fallback = getWalletBriefPreview();
+  let requestedUrl = "";
+  const preview = await loadWalletBriefPreview({
+    request: {
+      chain: "evm",
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            chain: "evm",
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            displayName: "Live Whale",
+            aiSummary: "Wallet is in a coordinated accumulation phase.",
+            keyFindings: [
+              {
+                id: "finding_1",
+                type: "smart_money_convergence",
+                subjectType: "wallet",
+                chain: "evm",
+                address: "0x1234567890abcdef1234567890abcdef12345678",
+                label: "Live Whale",
+                summary: "Strong convergence across the last 24 hours.",
+                importanceReason: ["quality wallets matched on the same token"],
+                observedFacts: ["3 wallets entered the same token"],
+                inferredInterpretations: ["coordinated accumulation is likely"],
+                confidence: 0.91,
+                importanceScore: 0.88,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "cross-chain",
+                      confidence: 0.66,
+                    },
+                  },
+                ],
+              },
+            ],
+            verifiedLabels: [
+              {
+                key: "verified:exchange:binance",
+                name: "Binance",
+                class: "verified",
+                entityType: "exchange",
+                source: "curated",
+                confidence: 0.99,
+                evidenceSummary: "Manually verified exchange wallet.",
+                observedAt: "2026-03-22T00:00:00.000Z",
+              },
+            ],
+            probableLabels: [
+              {
+                key: "inferred:fund:adjacent",
+                name: "Fund adjacent",
+                class: "inferred",
+                entityType: "fund",
+                source: "heuristic",
+                confidence: 0.74,
+                evidenceSummary: "Repeated co-movement with known fund wallets.",
+                observedAt: "2026-03-22T00:00:00.000Z",
+              },
+            ],
+            behavioralLabels: [
+              {
+                key: "behavioral:early_rotator",
+                name: "Early rotator",
+                class: "behavioral",
+                entityType: "behavior",
+                source: "rule-engine",
+                confidence: 0.81,
+                evidenceSummary: "Moved into multiple new tokens before volume expansion.",
+                observedAt: "2026-03-22T00:00:00.000Z",
+              },
+            ],
+            topCounterparties: [
+              {
+                chain: "evm",
+                address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                entityKey: "verified:exchange:binance",
+                entityType: "exchange",
+                entityLabel: "Binance",
+                interactionCount: 12,
+                inboundCount: 4,
+                outboundCount: 8,
+                inboundAmount: "12",
+                outboundAmount: "44",
+                primaryToken: "USDC",
+                tokenBreakdowns: [
+                  {
+                    symbol: "USDC",
+                    inboundAmount: "12",
+                    outboundAmount: "44",
+                  },
+                ],
+                directionLabel: "outbound",
+                firstSeenAt: "2026-03-01T00:00:00.000Z",
+                latestActivityAt: "2026-03-23T00:00:00.000Z",
+              },
+            ],
+            recentFlow: {
+              incomingTxCount7d: 1,
+              outgoingTxCount7d: 4,
+              incomingTxCount30d: 3,
+              outgoingTxCount30d: 10,
+              netDirection7d: "outbound",
+              netDirection30d: "outbound",
+            },
+            enrichment: {
+              provider: "moralis",
+              netWorthUsd: "201.30",
+              nativeBalance: "0.120",
+              nativeBalanceFormatted: "0.120 ETH",
+              activeChains: ["Ethereum"],
+              activeChainCount: 1,
+              holdings: [],
+              holdingCount: 0,
+              source: "live",
+              updatedAt: "2026-03-23T00:00:00.000Z",
+            },
+            indexing: {
+              status: "ready",
+              lastIndexedAt: "2026-03-23T00:00:00.000Z",
+              coverageStartAt: "2026-01-01T00:00:00.000Z",
+              coverageEndAt: "2026-03-23T00:00:00.000Z",
+              coverageWindowDays: 180,
+            },
+            latestSignals: [
+              {
+                name: "shadow_exit_risk",
+                value: 37,
+                rating: "medium",
+                label: "bridge movement",
+                source: "shadow-exit-snapshot",
+                observedAt: "2026-03-23T00:00:00.000Z",
+              },
+            ],
+            scores: [
+              {
+                name: "cluster_score",
+                value: 91,
+                rating: "high",
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.mode, "unavailable");
+  assert.equal(fallback.route, walletBriefRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.aiSummary, "Wallet is in a coordinated accumulation phase.");
+  assert.equal(preview.keyFindings.length, 1);
+  assert.equal(preview.keyFindings[0]?.nextWatch[0]?.metadata?.route, "cross-chain");
+  assert.equal(preview.verifiedLabels[0]?.class, "verified");
+  assert.equal(preview.probableLabels[0]?.class, "inferred");
+  assert.equal(preview.behavioralLabels[0]?.class, "behavioral");
+  assert.equal(preview.topCounterparties[0]?.chainLabel, "EVM");
+  assert.equal(preview.indexing.coverageWindowDays, 180);
+  assert.equal(preview.latestSignals[0]?.source, "shadow-exit-snapshot");
+  assert.equal(preview.scores[0]?.tone, "emerald");
+  assert.match(requestedUrl, /\/v1\/wallets\/evm\/0x1234567890abcdef1234567890abcdef12345678\/brief$/);
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("analyst wallet brief preview loader preserves richer evidence metadata", async () => {
+  const fallback = getAnalystWalletBriefPreview();
+  let requestedUrl = "";
+  const preview = await loadAnalystWalletBriefPreview({
+    request: {
+      chain: "evm",
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            chain: "evm",
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            displayName: "Analyst Whale",
+            aiSummary: "Wallet is in a coordinated accumulation phase.",
+            keyFindings: [
+              {
+                id: "finding_analyst_1",
+                type: "smart_money_convergence",
+                subjectType: "wallet",
+                chain: "evm",
+                address: "0x1234567890abcdef1234567890abcdef12345678",
+                label: "Analyst Whale",
+                summary: "Strong convergence across the last 24 hours.",
+                importanceReason: ["quality wallets matched on the same token"],
+                observedFacts: ["3 wallets entered the same token"],
+                inferredInterpretations: ["coordinated accumulation is likely"],
+                confidence: 0.91,
+                importanceScore: 0.88,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "cross-chain",
+                      confidence: 0.66,
+                    },
+                  },
+                ],
+              },
+            ],
+            verifiedLabels: [],
+            probableLabels: [],
+            behavioralLabels: [],
+            topCounterparties: [],
+            recentFlow: {
+              incomingTxCount7d: 1,
+              outgoingTxCount7d: 4,
+              incomingTxCount30d: 3,
+              outgoingTxCount30d: 10,
+              netDirection7d: "outbound",
+              netDirection30d: "outbound",
+            },
+            indexing: {
+              status: "ready",
+              lastIndexedAt: "2026-03-23T00:00:00.000Z",
+              coverageStartAt: "2026-01-01T00:00:00.000Z",
+              coverageEndAt: "2026-03-23T00:00:00.000Z",
+              coverageWindowDays: 180,
+            },
+            latestSignals: [],
+            scores: [],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.route, analystWalletBriefRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.keyFindings[0]?.nextWatch[0]?.metadata?.route, "cross-chain");
+  assert.match(requestedUrl, /\/v1\/analyst\/wallets\/evm\/0x1234567890abcdef1234567890abcdef12345678\/brief$/);
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("get and load entity interpretation previews stay aligned with the backend contract", async () => {
+  const fallback = getEntityInterpretationPreview({
+    entityKey: "curated:exchange:binance",
+  });
+  let requestedUrl = "";
+  const preview = await loadEntityInterpretationPreview({
+    request: {
+      entityKey: "curated:exchange:binance",
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            entityKey: "curated:exchange:binance",
+            entityType: "exchange",
+            displayName: "Binance",
+            walletCount: 2,
+            latestActivityAt: "2026-03-23T00:00:00.000Z",
+            members: [
+              {
+                chain: "evm",
+                address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                displayName: "Binance Hot Wallet",
+                latestActivityAt: "2026-03-23T00:00:00.000Z",
+                verifiedLabels: [
+                  {
+                    key: "verified:exchange:binance",
+                    name: "Binance",
+                    class: "verified",
+                    entityType: "exchange",
+                    source: "curated",
+                    confidence: 0.99,
+                    evidenceSummary: "Manually verified exchange wallet.",
+                    observedAt: "2026-03-22T00:00:00.000Z",
+                  },
+                ],
+                probableLabels: [],
+                behavioralLabels: [],
+              },
+            ],
+            findings: [
+              {
+                id: "finding_1",
+                type: "exchange_pressure",
+                subjectType: "entity",
+                key: "curated:exchange:binance",
+                label: "Binance",
+                summary: "Deposit pressure has increased over the last 24 hours.",
+                importanceReason: ["repeated exchange-adjacent inflows"],
+                observedFacts: ["fan-in from multiple wallets"],
+                inferredInterpretations: ["exchange pressure rising"],
+                confidence: 0.82,
+                importanceScore: 0.77,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "exchange-pressure",
+                      confidence: 0.71,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.mode, "unavailable");
+  assert.equal(fallback.route, entityInterpretationRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.entityKey, "curated:exchange:binance");
+  assert.equal(preview.entityType, "exchange");
+  assert.equal(preview.walletCount, 2);
+  assert.equal(preview.members.length, 1);
+  assert.equal(preview.members[0]?.verifiedLabels[0]?.class, "verified");
+  assert.equal(preview.findings.length, 1);
+  assert.equal(preview.findings[0]?.type, "exchange_pressure");
+  assert.equal(preview.findings[0]?.nextWatch[0]?.metadata?.route, "exchange-pressure");
+  assert.match(requestedUrl, /\/v1\/entity\/curated%3Aexchange%3Abinance$/);
+  assert.match(preview.statusMessage, /live backend data/i);
+});
+
+test("analyst entity interpretation preview loader preserves richer evidence metadata", async () => {
+  const fallback = getAnalystEntityInterpretationPreview({
+    entityKey: "curated:exchange:binance",
+  });
+  let requestedUrl = "";
+  const preview = await loadAnalystEntityInterpretationPreview({
+    request: {
+      entityKey: "curated:exchange:binance",
+    },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            entityKey: "curated:exchange:binance",
+            entityType: "exchange",
+            displayName: "Binance",
+            walletCount: 2,
+            latestActivityAt: "2026-03-23T00:00:00.000Z",
+            members: [],
+            findings: [
+              {
+                id: "finding_analyst_1",
+                type: "exchange_pressure",
+                subjectType: "entity",
+                key: "curated:exchange:binance",
+                label: "Binance",
+                summary: "Deposit pressure has increased over the last 24 hours.",
+                importanceReason: ["repeated exchange-adjacent inflows"],
+                observedFacts: ["fan-in from multiple wallets"],
+                inferredInterpretations: ["exchange pressure rising"],
+                confidence: 0.82,
+                importanceScore: 0.77,
+                observedAt: "2026-03-23T00:00:00.000Z",
+                coverageWindowDays: 180,
+                evidence: [],
+                nextWatch: [
+                  {
+                    subjectType: "wallet",
+                    chain: "evm",
+                    address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    label: "Follow-up wallet",
+                    metadata: {
+                      route: "exchange-pressure",
+                      confidence: 0.71,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(fallback.route, analystEntityInterpretationRoute);
+  assert.equal(preview.mode, "live");
+  assert.equal(preview.source, "live-api");
+  assert.equal(preview.entityKey, "curated:exchange:binance");
+  assert.equal(preview.findings[0]?.nextWatch[0]?.metadata?.route, "exchange-pressure");
+  assert.match(requestedUrl, /\/v1\/analyst\/entity\/curated%3Aexchange%3Abinance$/);
   assert.match(preview.statusMessage, /live backend data/i);
 });
 
@@ -412,7 +1082,7 @@ test("loadWalletGraphPreview falls back when the backend is unavailable", async 
 
   assert.equal(preview.mode, "unavailable");
   assert.equal(preview.source, fallback.source);
-  assert.equal(preview.depthRequested, 2);
+  assert.equal(preview.depthRequested, 1);
   assert.equal(preview.depthResolved, 0);
   assert.equal(preview.densityCapped, false);
   assert.equal(preview.nodes.length, 0);
@@ -433,7 +1103,7 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
           data: {
             chain: "evm",
             address: "0x1234567890abcdef1234567890abcdef12345678",
-            depthRequested: 2,
+            depthRequested: 1,
             depthResolved: 1,
             densityCapped: true,
             nodes: [
@@ -466,10 +1136,10 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
     },
   });
 
-  assert.match(requestedUrl, /\/graph\?depth=2$/);
+  assert.match(requestedUrl, /\/graph\?depth=1$/);
   assert.equal(preview.mode, "live");
   assert.equal(preview.source, "live-api");
-  assert.equal(preview.depthRequested, 2);
+  assert.equal(preview.depthRequested, 1);
   assert.equal(preview.depthResolved, 1);
   assert.equal(preview.densityCapped, true);
   assert.equal(preview.nodes[0]?.id, "wallet_root");
@@ -536,6 +1206,7 @@ test("deriveWalletGraphPreviewFromSummary builds a usable graph from summary cou
     address: "0x1234567890abcdef1234567890abcdef12345678",
     label: "Live Whale",
     clusterId: "cluster_seed_whales",
+    counterparties: 12,
     statusMessage: "Live summary loaded.",
     topCounterparties: [
       {

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 
 import {
   deriveWalletGraphPreviewFromSummary,
+  loadAnalystWalletBriefPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
 } from "../../../../lib/api-boundary";
@@ -39,12 +40,16 @@ export default async function WalletDetailPage({
     return <InvalidWalletRoute />;
   }
 
-  const [summary, loadedGraph] = await Promise.all([
+  const [summary, brief, loadedGraph] = await Promise.all([
     loadWalletSummaryPreview({ request }),
+    loadAnalystWalletBriefPreview({
+      request,
+      ...(requestHeaders ? { requestHeaders } : {}),
+    }),
     loadWalletGraphPreview({
       request: {
         ...request,
-        depthRequested: 2,
+        depthRequested: 1,
       },
     }),
   ]);
@@ -53,7 +58,7 @@ export default async function WalletDetailPage({
       ? deriveWalletGraphPreviewFromSummary({
           request: {
             ...request,
-            depthRequested: 2,
+            depthRequested: 1,
           },
           summary,
           fallback: loadedGraph,
@@ -64,6 +69,7 @@ export default async function WalletDetailPage({
     <WalletDetailScreen
       request={request}
       summary={summary}
+      brief={brief}
       graph={graph}
       {...(requestHeaders ? { requestHeaders } : {})}
     />

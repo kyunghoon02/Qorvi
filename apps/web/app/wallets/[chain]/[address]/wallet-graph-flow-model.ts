@@ -1,10 +1,6 @@
 import { MarkerType, Position, type Viewport } from "@xyflow/react";
 
-import {
-  buildClusterDetailHref,
-  buildProductSearchHref,
-  buildWalletDetailHref,
-} from "../../../../lib/api-boundary";
+import { resolveWalletGraphNodeAction } from "./wallet-force-graph-model";
 import type {
   WalletGraphFlowEdge,
   WalletGraphFlowNode,
@@ -56,7 +52,7 @@ function buildFlowNode(node: WalletGraphVisualNode): WalletGraphFlowNode {
       kindLabel: node.kindLabel,
       tone: node.tone,
       isPrimary: node.isPrimary,
-      ...resolveNodeAction(node),
+      ...resolveWalletGraphNodeAction(node),
     },
   };
 }
@@ -93,38 +89,4 @@ function buildFlowEdge(edge: WalletGraphVisualEdge): WalletGraphFlowEdge {
       strokeWidth: edge.strokeWidth,
     },
   };
-}
-
-function resolveNodeAction(
-  node: WalletGraphVisualNode,
-): Pick<WalletGraphFlowNode["data"], "actionHref" | "actionLabel"> {
-  if (node.kind === "wallet" && node.chain && node.address) {
-    return {
-      actionHref: buildWalletDetailHref({
-        chain: node.chain,
-        address: node.address,
-      }),
-      actionLabel: node.isPrimary ? "Open wallet detail" : "Open wallet",
-    };
-  }
-
-  if (node.kind === "cluster") {
-    const clusterId = node.id.startsWith("cluster:")
-      ? node.id.slice("cluster:".length)
-      : node.id;
-
-    return {
-      actionHref: buildClusterDetailHref({ clusterId }),
-      actionLabel: "Open cluster",
-    };
-  }
-
-  if (node.kind === "entity") {
-    return {
-      actionHref: buildProductSearchHref(node.label),
-      actionLabel: "Search label",
-    };
-  }
-
-  return {};
 }

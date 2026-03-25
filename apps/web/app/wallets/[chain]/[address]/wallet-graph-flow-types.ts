@@ -1,4 +1,4 @@
-import type { Tone } from "@whalegraph/ui";
+import type { Tone } from "@flowintel/ui";
 import type { Edge, Node } from "@xyflow/react";
 
 export type WalletGraphFlowNodeData = {

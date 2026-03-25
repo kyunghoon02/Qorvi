@@ -7,10 +7,14 @@ import {
   buildWalletDetailViewModel,
   filterAndSortRelatedAddresses,
   mergeWalletGraphPreviews,
+  resolveExpandableGraphNodeIds,
   resolveGraphExpansionState,
   resolveSelectedGraphEntityContext,
 } from "../app/wallets/[chain]/[address]/wallet-detail-screen";
 import {
+  type WalletGraphPreview,
+  type WalletBriefPreview,
+  type WalletSummaryPreview,
   buildWalletDetailHref,
   resolveWalletDetailHrefFromSummaryRoute,
   resolveWalletSummaryRequestFromRoute,
@@ -19,7 +23,7 @@ import {
 function createSummaryFixture(request: {
   chain: "evm" | "solana";
   address: string;
-}) {
+}): WalletSummaryPreview {
   return {
     mode: "live" as const,
     source: "live-api" as const,
@@ -30,6 +34,7 @@ function createSummaryFixture(request: {
     label: "Seed Whale",
     clusterId: "cluster_seed_whales",
     statusMessage: "Live summary loaded.",
+    counterparties: 74,
     topCounterparties: [
       {
         chain: request.chain,
@@ -184,14 +189,14 @@ function createSummaryFixture(request: {
 function createGraphFixture(request: {
   chain: "evm" | "solana";
   address: string;
-}) {
+}): WalletGraphPreview {
   return {
     mode: "live" as const,
     source: "live-api" as const,
     route: "GET /v1/wallets/:chain/:address/graph",
     chain: request.chain === "evm" ? ("EVM" as const) : ("SOLANA" as const),
     address: request.address,
-    depthRequested: 2,
+    depthRequested: 1,
     depthResolved: 1,
     densityCapped: true,
     statusMessage: "Live relationship data loaded.",
@@ -272,6 +277,82 @@ function createGraphFixture(request: {
   };
 }
 
+function createBriefFixture(request: {
+  chain: "evm" | "solana";
+  address: string;
+}): WalletBriefPreview {
+  return {
+    mode: "live" as const,
+    source: "live-api" as const,
+    route: "GET /v1/wallets/:chain/:address/brief",
+    chain: request.chain,
+    address: request.address,
+    displayName: "Seed Whale",
+    statusMessage: "Live brief loaded.",
+    aiSummary: "A structured interpretation bundle is available.",
+    keyFindings: [
+      {
+        id: "finding_1",
+        type: "coordinated_accumulation",
+        subjectType: "wallet",
+        chain: request.chain,
+        address: request.address,
+        summary: "Coordinated accumulation detected",
+        importanceReason: ["Shared counterparties and repeated entry timing."],
+        observedFacts: [
+          "3 counterparties accelerated inbound flow",
+          "Same destination recurs across 2 hops",
+        ],
+        inferredInterpretations: [
+          "Possible cohort accumulation",
+          "Likely early convergence",
+        ],
+        confidence: 0.86,
+        importanceScore: 0.9,
+        observedAt: "2026-03-21T00:00:00Z",
+        coverageWindowDays: 30,
+        evidence: [
+          {
+            type: "transfer_flow",
+            value: "Counterparty fan-in",
+            confidence: 0.9,
+            observedAt: "2026-03-21T00:00:00Z",
+          },
+        ],
+        nextWatch: [
+          {
+            subjectType: "wallet",
+            chain: request.chain,
+            address: "0x1111111111111111111111111111111111111111",
+            label: "Follow-up wallet",
+          },
+        ],
+      },
+    ],
+    verifiedLabels: [],
+    probableLabels: [],
+    behavioralLabels: [],
+    topCounterparties: [],
+    recentFlow: {
+      incomingTxCount7d: 1,
+      outgoingTxCount7d: 2,
+      incomingTxCount30d: 4,
+      outgoingTxCount30d: 7,
+      netDirection7d: "outbound",
+      netDirection30d: "outbound",
+    },
+    indexing: {
+      status: "ready" as const,
+      lastIndexedAt: "2026-03-21T00:00:00Z",
+      coverageStartAt: "2026-02-20T00:00:00Z",
+      coverageEndAt: "2026-03-21T00:00:00Z",
+      coverageWindowDays: 30,
+    },
+    latestSignals: [],
+    scores: [],
+  };
+}
+
 test("wallet detail helpers derive canonical routes from summary routes", () => {
   const request = resolveWalletSummaryRequestFromRoute(
     "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/summary",
@@ -329,6 +410,9 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.equal(viewModel.summaryScores[0]?.name, "cluster_score");
   assert.equal(viewModel.summaryScores[0]?.tone, "emerald");
   assert.equal(viewModel.relatedAddresses.length, 3);
+  assert.equal(viewModel.relatedAddressCountAvailable, 74);
+  assert.equal(viewModel.relatedAddressCountShown, 3);
+  assert.equal(viewModel.relatedAddressCountLabel, "Showing 3 of 74 indexed");
   assert.equal(viewModel.relatedAddresses[0]?.interactionCount, 18);
   assert.equal(viewModel.relatedAddresses[0]?.directionLabel, "outbound");
   assert.equal(viewModel.relatedAddresses[0]?.outboundCount, 12);
@@ -341,6 +425,7 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.equal(viewModel.latestSignals[0]?.name, "cluster_score");
   assert.equal(viewModel.indexing.status, "indexing");
   assert.equal(viewModel.indexing.coverageWindowLabel, "Warming up");
+  assert.equal(viewModel.indexing.actionLabel, "Continue indexing");
   assert.equal(
     viewModel.relatedAddresses[0]?.href,
     "/wallets/evm/0xf5042e6ffac5a625d4e7848e0b01373d8eb9e222",
@@ -350,6 +435,11 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.equal(viewModel.graphEdgeCount, 2);
   assert.equal(viewModel.graphSnapshotSourceLabel, "Graph snapshot");
   assert.equal(viewModel.graphSnapshotGeneratedAt, "2026-03-21T00:00:00Z");
+  assert.ok(viewModel.aiBrief.headline.length > 0);
+  assert.ok(viewModel.aiBrief.summary.length > 0);
+  assert.ok(viewModel.aiBrief.keyFindings.length > 0);
+  assert.ok(viewModel.aiBrief.evidence.length > 0);
+  assert.ok(viewModel.aiBrief.nextWatch.length > 0);
   assert.equal(viewModel.graphNodes[0]?.kindLabel, "wallet");
   assert.equal(viewModel.graphEdges[0]?.sourceLabel, "Seed Whale");
   assert.equal(viewModel.graphRelationships[0]?.primaryToken, "USDC");
@@ -358,6 +448,41 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.match(
     viewModel.graphRelationships[0]?.evidenceSummary ?? "",
     /Observed transfer activity in both directions|Summary-derived/i,
+  );
+});
+
+test("buildWalletDetailViewModel prefers live brief bundles when available", () => {
+  const request = {
+    chain: "evm" as const,
+    address: "0x1234567890abcdef1234567890abcdef12345678",
+  };
+
+  const viewModel = buildWalletDetailViewModel({
+    request,
+    summary: createSummaryFixture(request),
+    brief: createBriefFixture(request),
+    graph: createGraphFixture(request),
+  });
+
+  assert.equal(viewModel.aiBrief.headline, "Seed Whale AI brief");
+  assert.equal(
+    viewModel.aiBrief.summary,
+    "A structured interpretation bundle is available.",
+  );
+  assert.ok(
+    viewModel.aiBrief.keyFindings.some((item) =>
+      item.includes("Coordinated accumulation detected"),
+    ),
+  );
+  assert.ok(
+    viewModel.aiBrief.evidence.some((item) =>
+      item.includes("Counterparty fan-in"),
+    ),
+  );
+  assert.ok(
+    viewModel.aiBrief.nextWatch.some((item) =>
+      item.includes("Follow-up wallet"),
+    ),
   );
 });
 
@@ -439,6 +564,30 @@ test("filterAndSortRelatedAddresses applies direction filter and stable sort key
   );
 });
 
+test("buildWalletDetailViewModel labels ready coverage expansion clearly", () => {
+  const request = {
+    chain: "evm" as const,
+    address: "0x1234567890abcdef1234567890abcdef12345678",
+  };
+  const summary = createSummaryFixture(request);
+  summary.indexing = {
+    status: "ready" as const,
+    lastIndexedAt: "2026-03-21T00:00:00Z",
+    coverageStartAt: "2025-09-22T00:00:00Z",
+    coverageEndAt: "2026-03-21T00:00:00Z",
+    coverageWindowDays: 180,
+  };
+
+  const viewModel = buildWalletDetailViewModel({
+    request,
+    summary,
+    graph: createGraphFixture(request),
+  });
+
+  assert.equal(viewModel.indexing.coverageWindowLabel, "180 days");
+  assert.equal(viewModel.indexing.actionLabel, "Expand coverage");
+});
+
 test("mergeWalletGraphPreviews dedupes nodes and edges while widening summary depth", () => {
   const baseGraph = createGraphFixture({
     chain: "evm",
@@ -449,8 +598,8 @@ test("mergeWalletGraphPreviews dedupes nodes and edges while widening summary de
     mode: "live" as const,
     source: "live-api" as const,
     address: "0xf5042e6ffac5a625d4e7848e0b01373d8eb9e222",
-    depthRequested: 2,
-    depthResolved: 2,
+    depthRequested: 1,
+    depthResolved: 1,
     nodes: [
       ...baseGraph.nodes,
       {
@@ -475,7 +624,7 @@ test("mergeWalletGraphPreviews dedupes nodes and edges while widening summary de
 
   const merged = mergeWalletGraphPreviews(baseGraph, expansionGraph);
   assert.equal(merged.mode, "live");
-  assert.equal(merged.depthResolved, 2);
+  assert.equal(merged.depthResolved, 1);
   assert.ok(merged.nodes.some((node) => node.id === "wallet_second_hop"));
   assert.ok(
     merged.edges.some(
@@ -487,7 +636,7 @@ test("mergeWalletGraphPreviews dedupes nodes and edges while widening summary de
   assert.equal(merged.neighborhoodSummary.walletNodeCount, 3);
 });
 
-test("resolveGraphExpansionState enforces stop rules and local expansion budgets", () => {
+test("resolveGraphExpansionState enforces stop rules and hop budgets", () => {
   const request = {
     chain: "evm" as const,
     address: "0x1234567890abcdef1234567890abcdef12345678",
@@ -502,26 +651,125 @@ test("resolveGraphExpansionState enforces stop rules and local expansion budgets
     selectedNode: viewModel.graphNodes[0] ?? null,
     expandedGraphNeighborhoodKeys: [],
     graphNodeCount: viewModel.graphNodeCount,
+    graphNodes: viewModel.graphNodes,
+    relatedAddresses: viewModel.relatedAddresses,
   });
   assert.equal(walletState.canExpand, true);
-  assert.match(walletState.reason, /Expand one more wallet neighborhood/i);
+  assert.match(walletState.reason, /Expand the next hop/i);
 
   const clusterState = resolveGraphExpansionState({
     selectedNode:
       viewModel.graphNodes.find((node) => node.kind === "cluster") ?? null,
     expandedGraphNeighborhoodKeys: [],
     graphNodeCount: viewModel.graphNodeCount,
+    graphNodes: viewModel.graphNodes,
+    relatedAddresses: viewModel.relatedAddresses,
   });
-  assert.equal(clusterState.canExpand, false);
-  assert.match(clusterState.reason, /stop expansion/i);
+  assert.equal(clusterState.canExpand, true);
+  assert.match(clusterState.reason, /Show cluster members/i);
 
   const budgetState = resolveGraphExpansionState({
     selectedNode: viewModel.graphNodes[0] ?? null,
-    expandedGraphNeighborhoodKeys: ["evm:0xabc", "evm:0xdef"],
+    expandedGraphNeighborhoodKeys: Array.from({ length: 20 }, (_, index) =>
+      `evm:0x${index.toString(16)}`,
+    ),
     graphNodeCount: viewModel.graphNodeCount,
+    graphNodes: viewModel.graphNodes,
+    relatedAddresses: viewModel.relatedAddresses,
   });
   assert.equal(budgetState.canExpand, false);
-  assert.match(budgetState.reason, /budget reached/i);
+  assert.match(budgetState.reason, /Global hop budget reached/i);
+  assert.equal(budgetState.hopBudget, 20);
+});
+
+test("resolveExpandableGraphNodeIds returns wallet and cluster nodes that can still expand", () => {
+  const request = {
+    chain: "evm" as const,
+    address: "0x1234567890abcdef1234567890abcdef12345678",
+  };
+  const viewModel = buildWalletDetailViewModel({
+    request,
+    summary: createSummaryFixture(request),
+    graph: createGraphFixture(request),
+  });
+
+  const expandableNodeIds = resolveExpandableGraphNodeIds({
+    graphNodes: viewModel.graphNodes,
+    expandedGraphNeighborhoodKeys: [],
+    graphNodeCount: viewModel.graphNodeCount,
+    relatedAddresses: viewModel.relatedAddresses,
+  });
+
+  assert.deepEqual(expandableNodeIds, [
+    "wallet_root",
+    "cluster_seed",
+    "counterparty_seed",
+  ]);
+
+  const exhaustedNodeIds = resolveExpandableGraphNodeIds({
+    graphNodes: viewModel.graphNodes,
+    expandedGraphNeighborhoodKeys: Array.from({ length: 20 }, (_, index) => `evm:0x${index}`),
+    graphNodeCount: viewModel.graphNodeCount,
+    relatedAddresses: viewModel.relatedAddresses,
+  });
+
+  assert.deepEqual(exhaustedNodeIds, []);
+});
+
+test("resolveGraphExpansionState expands entity nodes when indexed wallets share the entity", () => {
+  const selectedNode = {
+    id: "entity:heuristic:opensea",
+    kind: "entity" as const,
+    label: "OpenSea",
+    tone: "amber" as const,
+    kindLabel: "entity",
+    isPrimary: false,
+  };
+  const graphNodes = [
+    {
+      id: "wallet_root",
+      kind: "wallet" as const,
+      chain: "evm" as const,
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+      label: "Seed Whale",
+      tone: "emerald" as const,
+      kindLabel: "wallet",
+      isPrimary: true,
+    },
+    selectedNode,
+  ];
+  const relatedAddresses = [
+    {
+      chainLabel: "EVM",
+      address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      entityKey: "heuristic:opensea",
+      entityType: "marketplace",
+      entityLabel: "OpenSea",
+      interactionCount: 7,
+      inboundCount: 0,
+      outboundCount: 7,
+      inboundAmount: "0",
+      outboundAmount: "14.5",
+      primaryToken: "ETH",
+      tokenBreakdowns: [],
+      tokenBreakdownCount: 0,
+      directionLabel: "outbound",
+      firstSeenAt: "2026-03-01T00:00:00Z",
+      latestActivityAt: "2026-03-20T00:00:00Z",
+      href: "/wallets/evm/0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    },
+  ];
+
+  const entityState = resolveGraphExpansionState({
+    selectedNode,
+    expandedGraphNeighborhoodKeys: [],
+    graphNodeCount: graphNodes.length,
+    graphNodes,
+    relatedAddresses,
+  });
+
+  assert.equal(entityState.canExpand, true);
+  assert.match(entityState.reason, /Show indexed wallets linked to this entity/i);
 });
 
 test("resolveSelectedGraphEntityContext exposes linked entities and entity search pivots", () => {

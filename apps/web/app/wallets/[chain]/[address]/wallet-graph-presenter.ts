@@ -1,6 +1,6 @@
 "use client";
 
-import type { Tone } from "@whalegraph/ui";
+import type { Tone } from "@flowintel/ui";
 
 import type {
   WalletGraphPreview,
