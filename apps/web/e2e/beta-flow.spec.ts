@@ -12,7 +12,7 @@ const authHeaders = {
   "X-Clerk-Session-Id": "session_123",
   "X-Clerk-Role": "user",
 };
-const persistedAuthHeaderStorageKey = "whalegraph.forwarded-auth-headers";
+const persistedAuthHeaderStorageKey = "flowintel.forwarded-auth-headers";
 
 async function seedBrowserAuth(page: Page) {
   await page.addInitScript((headers) => {
@@ -21,7 +21,7 @@ async function seedBrowserAuth(page: Page) {
       value,
     ]);
     window.sessionStorage.setItem(
-      "whalegraph.forwarded-auth-headers",
+      "flowintel.forwarded-auth-headers",
       JSON.stringify(normalizedEntries),
     );
 

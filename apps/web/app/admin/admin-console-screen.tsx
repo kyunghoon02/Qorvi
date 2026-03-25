@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { Badge, Pill, type Tone } from "@whalegraph/ui";
+import { Badge, Pill, type Tone } from "@flowintel/ui";
 
 import {
   type AdminConsolePreview,
   createAdminSuppression,
   deleteAdminSuppression,
 } from "../../lib/api-boundary";
+import { useClerkRequestHeaders } from "../../lib/clerk-client-auth";
 
 const toneByQuotaStatus: Record<
   AdminConsolePreview["quotas"][number]["status"],
@@ -216,6 +217,7 @@ export function AdminConsoleScreen({
   const [suppressionTarget, setSuppressionTarget] = useState("");
   const [suppressionReason, setSuppressionReason] = useState("");
   const [suppressionExpiresAt, setSuppressionExpiresAt] = useState("");
+  const getRequestHeaders = useClerkRequestHeaders();
 
   useEffect(() => {
     setCurrentPreview(preview);
@@ -228,11 +230,13 @@ export function AdminConsoleScreen({
   async function handleCreateSuppression(): Promise<void> {
     setPendingKey("suppression:create");
     setMutationMessage("");
+    const requestHeaders = await getRequestHeaders();
     const result = await createAdminSuppression({
       scope: suppressionScope,
       target: suppressionTarget,
       reason: suppressionReason,
       expiresAt: suppressionExpiresAt,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
     setPendingKey("");
     setMutationMessage(result.message);
@@ -251,8 +255,10 @@ export function AdminConsoleScreen({
   async function handleDeleteSuppression(suppressionID: string): Promise<void> {
     setPendingKey(`suppression:${suppressionID}:delete`);
     setMutationMessage("");
+    const requestHeaders = await getRequestHeaders();
     const result = await deleteAdminSuppression({
       suppressionId: suppressionID,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
     setPendingKey("");
     setMutationMessage(result.message);

@@ -6,6 +6,7 @@ import {
   type BillingPlanId,
   createBillingCheckoutSession,
 } from "../../lib/account-billing";
+import { useClerkRequestHeaders } from "../../lib/clerk-client-auth";
 
 type BillingCheckoutActionProps = {
   tier: BillingPlanId;
@@ -22,6 +23,7 @@ export function BillingCheckoutAction({
 }: BillingCheckoutActionProps) {
   const [status, setStatus] = useState<string>("");
   const [pending, setPending] = useState(false);
+  const getRequestHeaders = useClerkRequestHeaders();
 
   async function handleCheckout() {
     if (typeof window === "undefined") {
@@ -32,10 +34,12 @@ export function BillingCheckoutAction({
     setStatus("");
 
     const origin = window.location.origin;
+    const requestHeaders = await getRequestHeaders();
     const result = await createBillingCheckoutSession({
       tier,
       successUrl: `${origin}/account?checkout=success`,
       cancelUrl: `${origin}/account?checkout=cancel`,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
 
     if (result.ok && result.redirectUrl) {

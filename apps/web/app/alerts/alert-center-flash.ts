@@ -1,4 +1,4 @@
-import type { Tone } from "@whalegraph/ui";
+import type { Tone } from "@flowintel/ui";
 
 export type TrackedWalletAlertQueryState = {
   status: "idle" | "success";

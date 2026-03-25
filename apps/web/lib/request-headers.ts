@@ -2,26 +2,63 @@ const forwardedAuthHeaderNames = [
   "x-clerk-user-id",
   "x-clerk-session-id",
   "x-clerk-role",
-  "x-whalegraph-plan",
+  "x-flowintel-plan",
 ] as const;
+const bearerAuthorizationHeaderName = "authorization";
 const clientForwardedAuthHeadersStorageKey =
-  "whalegraph.forwarded-auth-headers";
+  "flowintel.forwarded-auth-headers";
+
+export type ForwardedAuthHeaderInput = {
+  bearerToken: string | undefined;
+  userId: string | undefined;
+  sessionId: string | undefined;
+  role: string | undefined;
+  plan: string | undefined;
+};
+
+export function createForwardedAuthHeaders({
+  bearerToken,
+  userId,
+  sessionId,
+  role,
+  plan,
+}: ForwardedAuthHeaderInput): HeadersInit | undefined {
+  const nextHeaders = new Headers();
+
+  if (bearerToken?.trim()) {
+    nextHeaders.set(
+      bearerAuthorizationHeaderName,
+      `Bearer ${bearerToken.trim()}`,
+    );
+  }
+  if (userId?.trim()) {
+    nextHeaders.set("x-clerk-user-id", userId.trim());
+  }
+  if (sessionId?.trim()) {
+    nextHeaders.set("x-clerk-session-id", sessionId.trim());
+  }
+  if (role?.trim()) {
+    nextHeaders.set("x-clerk-role", role.trim());
+  }
+  if (plan?.trim()) {
+    nextHeaders.set("x-flowintel-plan", plan.trim());
+  }
+
+  return Array.from(nextHeaders.keys()).length > 0 ? nextHeaders : undefined;
+}
 
 export function buildForwardedAuthHeaders(
   requestHeaders: Pick<Headers, "get">,
 ): HeadersInit | undefined {
-  const nextHeaders = new Headers();
-
-  for (const headerName of forwardedAuthHeaderNames) {
-    const value = requestHeaders.get(headerName)?.trim();
-    if (!value) {
-      continue;
-    }
-
-    nextHeaders.set(headerName, value);
-  }
-
-  return Array.from(nextHeaders.keys()).length > 0 ? nextHeaders : undefined;
+  return createForwardedAuthHeaders({
+    bearerToken: normalizeBearerToken(
+      requestHeaders.get(bearerAuthorizationHeaderName),
+    ),
+    userId: requestHeaders.get("x-clerk-user-id") ?? undefined,
+    sessionId: requestHeaders.get("x-clerk-session-id") ?? undefined,
+    role: requestHeaders.get("x-clerk-role") ?? undefined,
+    plan: requestHeaders.get("x-flowintel-plan") ?? undefined,
+  });
 }
 
 export function mergeRequestHeaders(
@@ -54,7 +91,10 @@ export function persistClientForwardedAuthHeaders(
 
   const nextHeaders = new Headers(requestHeaders);
   const persistedEntries = Array.from(nextHeaders.entries()).filter(
-    ([, value]) => value.trim() !== "",
+    ([key, value]) =>
+      forwardedAuthHeaderNames.includes(
+        key as (typeof forwardedAuthHeaderNames)[number],
+      ) && value.trim() !== "",
   );
 
   if (persistedEntries.length === 0) {
@@ -89,4 +129,20 @@ export function readClientForwardedAuthHeaders(): HeadersInit | undefined {
   } catch {
     return undefined;
   }
+}
+
+function normalizeBearerToken(
+  authorizationHeader: string | null,
+): string | undefined {
+  const value = authorizationHeader?.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.toLowerCase().startsWith("bearer ")) {
+    const token = value.slice("bearer ".length).trim();
+    return token || undefined;
+  }
+
+  return value;
 }

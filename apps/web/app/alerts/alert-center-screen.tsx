@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { Badge, Pill, type Tone } from "@whalegraph/ui";
+import { Badge, Pill, type Tone } from "@flowintel/ui";
 
 import {
   type AlertCenterPreview,
   updateAlertInboxEvent,
   updateAlertRuleMutation,
 } from "../../lib/api-boundary";
+import { useClerkRequestHeaders } from "../../lib/clerk-client-auth";
 
 const toneBySeverity: Record<
   AlertCenterPreview["inbox"][number]["severity"],
@@ -333,6 +334,7 @@ export function AlertCenterScreen({
   const [currentPreview, setCurrentPreview] = useState(preview);
   const [mutationMessage, setMutationMessage] = useState("");
   const [pendingActionKey, setPendingActionKey] = useState("");
+  const getRequestHeaders = useClerkRequestHeaders();
 
   useEffect(() => {
     setCurrentPreview(preview);
@@ -350,9 +352,11 @@ export function AlertCenterScreen({
   ): Promise<void> {
     setPendingActionKey(`event:${item.id}`);
     setMutationMessage("");
+    const requestHeaders = await getRequestHeaders();
     const result = await updateAlertInboxEvent({
       eventId: item.id,
       isRead: !item.isRead,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
     setPendingActionKey("");
     setMutationMessage(result.message);
@@ -370,10 +374,12 @@ export function AlertCenterScreen({
   ): Promise<void> {
     setPendingActionKey(`rule:${rule.id}:${action}`);
     setMutationMessage("");
+    const requestHeaders = await getRequestHeaders();
     const result = await updateAlertRuleMutation({
       ruleId: rule.id,
       action,
       currentRule: rule,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
     setPendingActionKey("");
     setMutationMessage(result.message);

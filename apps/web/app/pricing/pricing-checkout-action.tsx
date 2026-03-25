@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 
-import { Badge } from "@whalegraph/ui";
+import { Badge } from "@flowintel/ui";
 
 import {
   type BillingPlanId,
   createBillingCheckoutSession,
   pricingPageRoute,
 } from "../../lib/account-billing";
+import { useClerkRequestHeaders } from "../../lib/clerk-client-auth";
 
 type PricingCheckoutActionProps = {
   planId: BillingPlanId;
@@ -26,6 +27,7 @@ export function PricingCheckoutAction({
   const [statusMessage, setStatusMessage] = useState("");
   const [checkoutUrl, setCheckoutUrl] = useState<string | undefined>();
   const [isPending, setIsPending] = useState(false);
+  const getRequestHeaders = useClerkRequestHeaders();
   const isCurrentPlan = currentPlan === planId;
 
   async function handleCheckout() {
@@ -38,10 +40,12 @@ export function PricingCheckoutAction({
     setCheckoutUrl(undefined);
 
     const origin = window.location.origin;
+    const requestHeaders = await getRequestHeaders();
     const result = await createBillingCheckoutSession({
       tier: planId,
       successUrl: `${origin}/account?checkout=success&plan=${planId}`,
       cancelUrl: `${origin}${pricingPageRoute}?checkout=cancel&plan=${planId}`,
+      ...(requestHeaders ? { requestHeaders } : {}),
     });
 
     setIsPending(false);

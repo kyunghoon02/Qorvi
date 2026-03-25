@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
+import { ClerkAuthChrome } from "./components/clerk-auth-chrome";
+
 export const metadata: Metadata = {
-  title: "WhaleGraph",
+  title: "FlowIntel",
   description:
-    "WhaleGraph product scaffold for wallet intelligence exploration.",
+    "FlowIntel product scaffold for wallet intelligence exploration.",
 };
 
 export default function RootLayout({
@@ -17,7 +19,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ClerkAuthChrome>{children}</ClerkAuthChrome>
+      </body>
     </html>
   );
 }

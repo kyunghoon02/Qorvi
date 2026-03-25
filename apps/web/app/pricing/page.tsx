@@ -1,10 +1,8 @@
-import { headers } from "next/headers";
-
 import {
   loadBillingAccountPreview,
   normalizeBillingCheckoutQueryState,
 } from "../../lib/account-billing";
-import { buildForwardedAuthHeaders } from "../../lib/request-headers";
+import { buildClerkRequestHeaders } from "../../lib/clerk-server-auth";
 
 import { PricingScreen } from "./pricing-screen";
 
@@ -15,7 +13,7 @@ type PricingPageProps = {
 };
 
 export default async function PricingPage({ searchParams }: PricingPageProps) {
-  const requestHeaders = buildForwardedAuthHeaders(headers());
+  const requestHeaders = await buildClerkRequestHeaders();
   const resolvedSearchParams = searchParams
     ? await Promise.resolve(searchParams)
     : undefined;

@@ -1,7 +1,5 @@
-import { headers } from "next/headers";
-
 import { loadAlertCenterPreview } from "../../lib/api-boundary";
-import { buildForwardedAuthHeaders } from "../../lib/request-headers";
+import { buildClerkRequestHeaders } from "../../lib/clerk-server-auth";
 import {
   buildTrackedWalletAlertFlash,
   normalizeTrackedWalletAlertQueryState,
@@ -83,7 +81,7 @@ function normalizeCursor(
 export default async function AlertCenterPage({
   searchParams,
 }: AlertCenterPageProps) {
-  const requestHeaders = buildForwardedAuthHeaders(headers());
+  const requestHeaders = await buildClerkRequestHeaders();
   const resolvedSearchParams = searchParams
     ? await Promise.resolve(searchParams)
     : undefined;
