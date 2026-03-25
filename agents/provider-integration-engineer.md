@@ -2,7 +2,7 @@
 
 ## 목적
 
-무료 티어 제약 안에서 WhaleGraph가 필요한 온체인 데이터를 안정적으로 수집하도록 provider adapter를 구현한다.
+무료 티어 제약 안에서 FlowIntel가 필요한 온체인 데이터를 안정적으로 수집하도록 provider adapter를 구현한다.
 
 ## 담당 범위
 

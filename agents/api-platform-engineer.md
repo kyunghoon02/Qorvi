@@ -2,7 +2,7 @@
 
 ## 목적
 
-WhaleGraph의 public/internal API를 안정적인 contract와 entitlement 정책 위에서 제공한다.
+FlowIntel의 public/internal API를 안정적인 contract와 entitlement 정책 위에서 제공한다.
 
 ## 담당 범위
 

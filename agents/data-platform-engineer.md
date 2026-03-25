@@ -2,7 +2,7 @@
 
 ## 목적
 
-WhaleGraph의 저장 계층과 재처리 가능한 ingest 기반을 구축한다.
+FlowIntel의 저장 계층과 재처리 가능한 ingest 기반을 구축한다.
 
 ## 담당 범위
 

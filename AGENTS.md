@@ -144,11 +144,11 @@ mcp-configs/     — 14 MCP server configurations
 tests/           — Test suite
 ```
 
-## WhaleGraph Project Subagents
+## FlowIntel Project Subagents
 
-This repo defines project-specific subagents under [agents/README.md](/Users/kh/Github/WhaleGraph/agents/README.md).
+This repo defines project-specific subagents under [agents/README.md](/Users/kh/Github/FlowIntel/agents/README.md).
 
-Use these for WhaleGraph feature delivery alongside the default ECC agents:
+Use these for FlowIntel feature delivery alongside the default ECC agents:
 
 | Project Subagent | Focus |
 | --- | --- |
@@ -161,7 +161,7 @@ Use these for WhaleGraph feature delivery alongside the default ECC agents:
 | ops-admin-engineer | labeling, suppression, curated lists, quota monitor |
 | billing-launch-engineer | Stripe, pricing, observability, beta launch gates |
 
-These subagents map directly to the workstreams defined in [plan.md](/Users/kh/Github/WhaleGraph/plan.md).
+These subagents map directly to the workstreams defined in [plan.md](/Users/kh/Github/FlowIntel/plan.md).
 
 ## Success Metrics
 

@@ -16,7 +16,7 @@ Usage: ./scripts/dev-stack.sh [--no-worker] [--worker-mode MODE]
 
 Options:
   --no-worker          Start only docker infra + api + web
-  --worker-mode MODE   Override WHALEGRAPH_WORKER_MODE for this run
+  --worker-mode MODE   Override FLOWINTEL_WORKER_MODE for this run
   --help               Show this message
 EOF
 }
@@ -54,12 +54,12 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-export POSTGRES_URL="${WHALEGRAPH_LOCAL_POSTGRES_URL:-postgres://postgres:postgres@localhost:5433/whalegraph}"
-export NEO4J_URL="${WHALEGRAPH_LOCAL_NEO4J_URL:-bolt://localhost:8687}"
-export NEO4J_USERNAME="${WHALEGRAPH_LOCAL_NEO4J_USERNAME:-neo4j}"
-export NEO4J_PASSWORD="${WHALEGRAPH_LOCAL_NEO4J_PASSWORD:-neo4jpassword}"
-export REDIS_URL="${WHALEGRAPH_LOCAL_REDIS_URL:-redis://localhost:6379}"
-export WHALEGRAPH_DEV_STACK_WORKER_MODE="$WORKER_MODE_VALUE"
+export POSTGRES_URL="${FLOWINTEL_LOCAL_POSTGRES_URL:-postgres://postgres:postgres@localhost:5433/flowintel}"
+export NEO4J_URL="${FLOWINTEL_LOCAL_NEO4J_URL:-bolt://localhost:8687}"
+export NEO4J_USERNAME="${FLOWINTEL_LOCAL_NEO4J_USERNAME:-neo4j}"
+export NEO4J_PASSWORD="${FLOWINTEL_LOCAL_NEO4J_PASSWORD:-neo4jpassword}"
+export REDIS_URL="${FLOWINTEL_LOCAL_REDIS_URL:-redis://localhost:6379}"
+export FLOWINTEL_DEV_STACK_WORKER_MODE="$WORKER_MODE_VALUE"
 
 cleanup() {
   local exit_code=$?
@@ -103,7 +103,7 @@ wait_for_any() {
   done
 }
 
-stop_whalegraph_listener_on_port() {
+stop_flowintel_listener_on_port() {
   local port="$1"
   local pids
 
@@ -117,11 +117,11 @@ stop_whalegraph_listener_on_port() {
     local cwd_info
     cwd_info="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null || true)"
     if printf '%s\n' "$cwd_info" | grep -Fq "n$ROOT_DIR"; then
-      echo "Stopping stale WhaleGraph listener on port $port (pid=$pid)..."
+      echo "Stopping stale FlowIntel listener on port $port (pid=$pid)..."
       kill "$pid" >/dev/null 2>&1 || true
       sleep 1
     else
-      echo "Port $port is already used by a non-WhaleGraph process (pid=$pid)."
+      echo "Port $port is already used by a non-FlowIntel process (pid=$pid)."
     fi
   done
 }
@@ -132,16 +132,16 @@ docker compose -f "$COMPOSE_FILE" up -d
 echo "Applying local migrations..."
 ./scripts/dev-migrate.sh
 
-stop_whalegraph_listener_on_port 4000
-stop_whalegraph_listener_on_port 3000
+stop_flowintel_listener_on_port 4000
+stop_flowintel_listener_on_port 3000
 
 echo "Starting API on http://localhost:4000 ..."
 corepack pnpm dev:api &
 API_PID=$!
 
 if [[ "$RUN_WORKER" == "true" ]]; then
-  echo "Starting worker loop mode: $WHALEGRAPH_DEV_STACK_WORKER_MODE ..."
-  ./scripts/dev-worker-loop.sh --worker-mode "$WHALEGRAPH_DEV_STACK_WORKER_MODE" &
+  echo "Starting worker loop mode: $FLOWINTEL_DEV_STACK_WORKER_MODE ..."
+  ./scripts/dev-worker-loop.sh --worker-mode "$FLOWINTEL_DEV_STACK_WORKER_MODE" &
   WORKER_PID=$!
 fi
 
@@ -149,9 +149,9 @@ echo "Starting web on http://localhost:3000 ..."
 corepack pnpm dev:web &
 WEB_PID=$!
 
-echo "WhaleGraph dev stack is starting."
+echo "FlowIntel dev stack is starting."
 if [[ "$RUN_WORKER" == "true" ]]; then
-  echo "Worker mode: $WHALEGRAPH_DEV_STACK_WORKER_MODE (loop)"
+  echo "Worker mode: $FLOWINTEL_DEV_STACK_WORKER_MODE (loop)"
 else
   echo "Worker mode: disabled"
 fi

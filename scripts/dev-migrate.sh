@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/infra/docker/docker-compose.yml"
 POSTGRES_USER="postgres"
-POSTGRES_DB="whalegraph"
+POSTGRES_DB="flowintel"
 NEO4J_USER="neo4j"
 NEO4J_PASSWORD="neo4jpassword"
 NEO4J_DB="neo4j"

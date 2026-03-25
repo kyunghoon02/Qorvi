@@ -17,7 +17,7 @@ const nextConfig = {
       },
     ];
   },
-  transpilePackages: ["@whalegraph/ui"],
+  transpilePackages: ["@flowintel/ui"],
 };
 
 export default nextConfig;

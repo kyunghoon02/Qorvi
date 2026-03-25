@@ -1,5 +1,5 @@
 {
-  "name": "@whalegraph/web",
+  "name": "@flowintel/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,13 +13,16 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.4",
+    "@clerk/nextjs": "^6.39.1",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
-    "@whalegraph/ui": "workspace:*",
+    "@flowintel/ui": "workspace:*",
     "@xyflow/react": "^12.10.1",
     "next": "14.2.20",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-force-graph-2d": "^1.29.1",
     "three": "^0.183.2"
   },
   "devDependencies": {

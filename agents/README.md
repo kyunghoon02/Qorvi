@@ -1,6 +1,6 @@
-# WhaleGraph Subagents
+# FlowIntel Subagents
 
-이 디렉터리는 [plan.md](/Users/kh/Github/WhaleGraph/plan.md)에 맞춰 WhaleGraph 개발을 병렬로 진행하기 위한 프로젝트 전용 subagent 정의를 담는다.
+이 디렉터리는 [plan.md](/Users/kh/Github/FlowIntel/plan.md)에 맞춰 FlowIntel 개발을 병렬로 진행하기 위한 프로젝트 전용 subagent 정의를 담는다.
 
 ## 사용 원칙
 
@@ -43,4 +43,4 @@
 5. 보안 검토: `security-reviewer`
 6. E2E 플로우 검증: `e2e-runner`
 
-각 프로젝트 subagent는 위 기본 에이전트를 대체하는 것이 아니라, WhaleGraph 도메인에 맞는 책임 분리를 제공하는 역할이다.
+각 프로젝트 subagent는 위 기본 에이전트를 대체하는 것이 아니라, FlowIntel 도메인에 맞는 책임 분리를 제공하는 역할이다.

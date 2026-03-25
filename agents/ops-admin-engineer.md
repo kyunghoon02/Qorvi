@@ -2,7 +2,7 @@
 
 ## 목적
 
-WhaleGraph를 운영 가능한 제품으로 만들기 위해 labeling, suppression, curated list, quota, audit 체계를 구축한다.
+FlowIntel를 운영 가능한 제품으로 만들기 위해 labeling, suppression, curated list, quota, audit 체계를 구축한다.
 
 ## 담당 범위
 

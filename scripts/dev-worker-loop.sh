@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_WORKER_MODE="wallet-backfill-drain-batch"
 WORKER_MODE_VALUE="$DEFAULT_WORKER_MODE"
-INTERVAL_SECONDS="${WHALEGRAPH_DEV_STACK_WORKER_INTERVAL_SECONDS:-5}"
+INTERVAL_SECONDS="${FLOWINTEL_DEV_STACK_WORKER_INTERVAL_SECONDS:-5}"
 
 usage() {
   cat <<'EOF'
@@ -57,23 +57,23 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-export POSTGRES_URL="${WHALEGRAPH_LOCAL_POSTGRES_URL:-postgres://postgres:postgres@localhost:5433/whalegraph}"
-export NEO4J_URL="${WHALEGRAPH_LOCAL_NEO4J_URL:-bolt://localhost:8687}"
-export NEO4J_USERNAME="${WHALEGRAPH_LOCAL_NEO4J_USERNAME:-neo4j}"
-export NEO4J_PASSWORD="${WHALEGRAPH_LOCAL_NEO4J_PASSWORD:-neo4jpassword}"
-export REDIS_URL="${WHALEGRAPH_LOCAL_REDIS_URL:-redis://localhost:6379}"
+export POSTGRES_URL="${FLOWINTEL_LOCAL_POSTGRES_URL:-postgres://postgres:postgres@localhost:5433/flowintel}"
+export NEO4J_URL="${FLOWINTEL_LOCAL_NEO4J_URL:-bolt://localhost:8687}"
+export NEO4J_USERNAME="${FLOWINTEL_LOCAL_NEO4J_USERNAME:-neo4j}"
+export NEO4J_PASSWORD="${FLOWINTEL_LOCAL_NEO4J_PASSWORD:-neo4jpassword}"
+export REDIS_URL="${FLOWINTEL_LOCAL_REDIS_URL:-redis://localhost:6379}"
 
-if [[ -n "${WHALEGRAPH_DEV_STACK_WORKER_MODE:-}" ]]; then
-  WORKER_MODE_VALUE="$WHALEGRAPH_DEV_STACK_WORKER_MODE"
+if [[ -n "${FLOWINTEL_DEV_STACK_WORKER_MODE:-}" ]]; then
+  WORKER_MODE_VALUE="$FLOWINTEL_DEV_STACK_WORKER_MODE"
 fi
 
-export WHALEGRAPH_WORKER_MODE="$WORKER_MODE_VALUE"
+export FLOWINTEL_WORKER_MODE="$WORKER_MODE_VALUE"
 
-echo "Starting dev worker loop (mode=$WHALEGRAPH_WORKER_MODE, interval=${INTERVAL_SECONDS}s)..."
+echo "Starting dev worker loop (mode=$FLOWINTEL_WORKER_MODE, interval=${INTERVAL_SECONDS}s)..."
 
 while true; do
   if ! corepack pnpm dev:workers; then
-    echo "Worker run failed for mode=$WHALEGRAPH_WORKER_MODE; retrying in ${INTERVAL_SECONDS}s..." >&2
+    echo "Worker run failed for mode=$FLOWINTEL_WORKER_MODE; retrying in ${INTERVAL_SECONDS}s..." >&2
   fi
 
   sleep "$INTERVAL_SECONDS"
