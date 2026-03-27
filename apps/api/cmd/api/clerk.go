@@ -33,6 +33,11 @@ type clerkJWTVerifier struct {
 	fetchedAt time.Time
 }
 
+type developmentClerkVerifier struct {
+	jwtVerifier    auth.ClerkVerifier
+	headerVerifier auth.ClerkVerifier
+}
+
 type clerkJWTHeader struct {
 	Algorithm string `json:"alg"`
 	KeyID     string `json:"kid"`
@@ -102,7 +107,21 @@ func buildClerkVerifier(cfg config.Config) (auth.ClerkVerifier, error) {
 		return nil, err
 	}
 
+	if strings.EqualFold(strings.TrimSpace(cfg.API.NodeEnv), "development") {
+		return developmentClerkVerifier{
+			jwtVerifier:    verifier,
+			headerVerifier: auth.NewHeaderClerkVerifierWithConfig(cfg.API.ClerkVerification),
+		}, nil
+	}
+
 	return verifier, nil
+}
+
+func (v developmentClerkVerifier) Verify(r *http.Request) (auth.ClerkPrincipal, error) {
+	if _, err := extractClerkSessionToken(r); err == nil {
+		return v.jwtVerifier.Verify(r)
+	}
+	return v.headerVerifier.Verify(r)
 }
 
 func shouldUseLegacyClerkVerifier(cfg config.Config) bool {

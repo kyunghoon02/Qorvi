@@ -153,6 +153,49 @@ func TestBuildClerkVerifierFallsBackToLegacyHeadersInDevelopment(t *testing.T) {
 	}
 }
 
+func TestBuildClerkVerifierAllowsLegacyHeadersInDevelopmentWithoutBearer(t *testing.T) {
+	t.Parallel()
+
+	privateKey := mustRSAKey(t)
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"keys": []map[string]any{
+				jwkFromPublicKey("test-key", &privateKey.PublicKey),
+			},
+		})
+	}))
+	defer jwksServer.Close()
+
+	verifier, err := buildClerkVerifier(config.Config{
+		API: sharedconfig.APIEnv{
+			NodeEnv:    "development",
+			AppBaseURL: "http://localhost:3000",
+			ClerkVerification: sharedconfig.ClerkVerificationConfig{
+				IssuerURL:        "https://clerk.flowintel.com",
+				JWKSURL:          jwksServer.URL,
+				Audience:         "flowintel",
+				ClockSkewSeconds: 60,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected verifier, got %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/watchlists", nil)
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	principal, err := verifier.Verify(req)
+	if err != nil {
+		t.Fatalf("expected legacy header verification, got %v", err)
+	}
+	if principal.UserID != "user_123" || principal.Role != "user" {
+		t.Fatalf("unexpected principal %#v", principal)
+	}
+}
+
 func mustRSAKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 
