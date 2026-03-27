@@ -9,9 +9,9 @@
 2. 병렬 작업은 `Depends On`이 겹치지 않는 범위에서만 진행한다.
 3. 모든 기능 task는 구현 전 API/schema contract를 먼저 확인한다.
 4. 점수, 라벨링, 알림 관련 변경은 `ops-admin-engineer` 검토를 포함한다.
-5. 배포 직전 task는 `billing-launch-engineer`의 release gate 체크 없이는 완료 처리하지 않는다.
+5. 배포 직전 task는 `billing-launch-engineer`와 `ops-admin-engineer`의 production gate 체크 없이는 완료 처리하지 않는다.
 6. 앞으로 product-facing task는 mock, fabricated preview data, local seed record를 새로 추가하지 않는다. 구현이 미완인 경우에도 실제 `loading`, `indexing`, `empty`, `unavailable`, `error` 상태를 정의하고 그 상태를 기준으로 작업한다.
-7. beta open 준비는 local `.env`와 target deployment env를 분리해 관리한다. beta preflight는 target env file을 직접 검증할 수 있어야 한다.
+7. production deployment 준비는 local `.env`와 target deployment env를 분리해 관리한다. production preflight는 target env file을 직접 검증할 수 있어야 한다.
 
 ## 2. 상태 규칙
 
@@ -30,13 +30,16 @@
 | Sprint 2 | AI wallet brief MVP |
 | Sprint 3 | behavior cohort, distribution & exit risk |
 | Sprint 4 | early convergence, findings delivery, entity interpretation |
-| Sprint 5 | alerts, admin, launch hardening |
+| Sprint 5 | alerts, admin, production hardening |
 
 ## 4. Task List
 
 ## Current Strategic Next
 
-아래 task를 기존 launch/billing 마감보다 우선한다. FlowIntel의 기본 제품 경험은 이제 `검색 -> 그래프`가 아니라 `findings -> brief -> evidence` 순서로 구현한다.
+아래 task를 기존 launch/billing 마감보다 우선한다. FlowIntel의 기본 제품 경험은 이제 `검색 -> 그래프`가 아니라 `findings -> brief -> evidence` 순서로 구현하며, 모든 active task는 production deployment 전제를 기준으로 마감한다.
+
+우선 참고 문서:
+- [/Users/kh/Github/FlowIntel/flowintel-ai/engine-hardening-roadmap.md](/Users/kh/Github/FlowIntel/flowintel-ai/engine-hardening-roadmap.md)
 
 ### WG-044 AI Findings Generation Baseline
 
@@ -151,10 +154,114 @@
   - findings feed query parsing이 repeated `type=` 형식까지 읽도록 정리됨
   - deterministic analyst tool endpoint 3종(`counterparties`, `graph`, `behavior-patterns`)이 실제 backend route로 연결됨
   - finding drill-down endpoint 3종(`detail`, `evidence-timeline`, `historical-analogs`)이 실제 backend route로 연결됨
-  - 다음 focus는 evidence timeline에 richer tx/path/entity refs를 넣고, historical analogs에 outcome scoring을 붙이는 것
+  - `counterparties`가 이제 `returnedCount`, `requestedLimit`, `minInteractions`를 함께 반환해 analyst tool 호출 결과를 그대로 재사용 가능
+  - `behavior-patterns`가 `keyFindings`, `entryFeatures`, `returnedCount`를 함께 반환해 label/finding/entry-outcome 맥락을 한 번에 소비 가능
+  - `evidence-timeline`이 treasury/MM path-quality metadata와 early-entry outcome items를 top-level field로 lift하고, `next_watch`도 timeline item으로 노출
+  - `historical-analogs`가 `similarityScore`, `matchedFeatures`, `similarAnalogCount`를 반환해 analyst surface에서 유사도 설명이 가능
 - Definition of Done:
   - analyst-prefixed read routes가 실서빙 경로로 동작함
-  - baseline deterministic tool endpoints가 실서빙 경로로 동작함
+  - deterministic tool/drill-down 응답이 analyst surface에서 추가 재조합 없이 바로 소비 가능함
+
+### WG-050 Bridge and Exchange Evidence Engine
+
+- Status: `Done`
+- Owner: `provider-integration-engineer`
+- Support: `data-platform-engineer`, `intelligence-engineer`
+- Depends On: `WG-048`, `WG-049`
+- Deliverables:
+  - `wallet_bridge_links`
+  - `wallet_bridge_features_daily`
+  - `wallet_exchange_flow_features_daily`
+  - `bridge_link_confirmation`, `deposit_like_path`, `exchange_pressure_ratio` evidence
+  - stronger `cross_chain_rotation` / `cex_deposit_pressure` finding rules
+- Current State:
+  - migration `0017_bridge_exchange_evidence.sql` 추가
+  - `packages/db/bridge_exchange_evidence.go`에서 bridge/exchange path observation + daily feature store 구현
+  - shadow-exit snapshot worker가 bridge/exchange evidence store를 읽고 findings/timeline bundle에 `tx/path/entity/counterparty ref`를 materialize
+  - analyst finding timeline이 evidence metadata에서 `txRef`, `pathRef`, `entityRef`, `counterpartyRef`를 직접 반환
+- Definition of Done:
+  - bridge/exchange finding이 single-touch heuristic가 아니라 recurrence + path evidence를 요구함
+  - analyst drill-down에서 tx/path/entity ref를 함께 반환함
+
+### WG-051 Treasury Redistribution and MM Handoff Engine
+
+- Status: `Done`
+- Owner: `intelligence-engineer`
+- Support: `provider-integration-engineer`, `ops-admin-engineer`
+- Depends On: `WG-050`
+- Deliverables:
+  - `wallet_treasury_features_daily`
+  - `wallet_mm_features_daily`
+  - `treasury_anchor_match`, `treasury_fanout_signature`, `project_to_mm_path`, `inventory_rotation_pattern` evidence
+  - stronger `treasury_redistribution` / `suspected_mm_handoff` finding rules
+- Current State:
+  - migration `0018_treasury_mm_evidence.sql` 추가
+  - `packages/db/treasury_mm_evidence.go`에서 treasury/MM path observation + daily feature store baseline 구현
+  - shadow-exit snapshot worker가 treasury/MM evidence store를 읽고 `treasury_redistribution` / `suspected_mm_handoff` gating과 evidence bundle을 강화
+  - treasury/MM finding bundle이 `entityRef`, `downstreamRef`, `pathRef`, `txRef`를 직접 포함하고, `suspected_mm_handoff`는 이제 root fund/treasury anchor 없이 발화하지 않음
+  - direct `RunSnapshot` 경로에서는 label-only treasury/MM interpretation을 더 이상 만들지 않고, treasury/MM evidence report가 있는 snapshot만 interpretation finding을 발화
+  - `treasury_redistribution`는 `anchor + operational fanout + stronger market path`, `suspected_mm_handoff`는 `root anchor + project_to_mm + post-handoff evidence`를 최소 조건으로 요구하도록 tightened
+  - migration `0020_treasury_mm_path_quality.sql` 추가
+  - treasury market path를 `exchange / bridge / MM`로 분리하고, MM post-handoff를 `exchange touch / bridge touch`로 나눠 path-quality feature store를 더 세분화
+  - `treasury_operational_distribution`과 `project_to_mm_contact`를 explicit path kind로 분리해, operational-only treasury flow와 contact-only MM adjacency를 confirmed finding과 구분
+  - migration `0021_treasury_mm_contact_refinement.sql` 추가
+  - treasury operational flow를 `internal ops / external ops`로, MM contact-only flow를 `routed candidate / adjacency`로 다시 분해해 confirmed path 전단의 약한 신호를 더 세밀하게 구분
+  - `project_to_mm_routed_candidate`는 이제 actual downstream continuation이 관찰될 때만 생성되고, treasury external ops도 `market-adjacent / non-market`로 더 세분화
+  - treasury external ops는 `direct / routed market-adjacent` confidence ladder를 갖고, MM contact-only도 `desk / liquidity / router` subtype을 path kind에 남김
+  - treasury/MM path metadata가 `sourceSubtype`, `downstreamSubtype`, `pathStrength`, `confidenceTier`를 포함하도록 보강됨
+  - analyst `evidence-timeline`이 treasury/MM path-quality metadata를 top-level field로 lift하고, `next_watch`를 timeline 항목으로 포함해 drill-down에서 직접 소비 가능
+  - bridge-only weak treasury path, post-handoff 없는 MM contact, bridge-only MM downstream without rotation/repeat를 suppress하는 회귀 테스트 추가
+  - `RunSnapshotForWallet` 기준 treasury/MM evidence-backed finding regression test 추가
+- Definition of Done:
+  - treasury/MM finding이 label presence만으로 발화하지 않음
+  - anchor + flow/path evidence가 최소 조건이 됨
+
+### WG-052 Early Rotation and High Conviction Redefinition
+
+- Status: `Done`
+- Owner: `intelligence-engineer`
+- Support: `data-platform-engineer`, `product-ui-engineer`
+- Depends On: `WG-050`, `WG-051`
+- Deliverables:
+  - `wallet_entry_features_daily`
+  - `first_entry_before_crowding`, `quality_wallet_overlap`, `persistence_after_entry`, `repeat_early_entry_success` evidence
+  - `early_rotation_pattern` rename/redefinition
+  - stronger `high_conviction_entry` / later `high_conviction_holder` contract
+- Current State:
+  - first-connection snapshot report가 `quality_wallet_overlap_count`, `first_entry_before_crowding_count`, `best_lead_hours_before_peers`, `persistence_after_entry_proxy_count`, `top_counterparties`를 함께 materialize
+  - `high_conviction_entry` gate가 novelty-only 조건에서 `quality overlap + first entry before crowding + persistence/repeat proxy` 중심으로 재작성됨
+  - signal payload와 finding bundle이 richer early-entry evidence를 함께 싣도록 보강되고, top counterparty overlap evidence가 `leadHoursBeforePeers`까지 포함함
+  - `wallet_entry_features_daily` migration/store baseline 추가, first-connection snapshot worker가 early-entry evidence를 daily feature row로도 upsert
+  - wallet brief API가 latest entry features를 실제로 읽고, finding이 비어 있을 때도 early-entry overlap 문구를 deterministic brief에 반영
+  - wallet brief/feed wording이 top counterparty overlap ref와 lead/persistence evidence를 직접 쓰도록 보강
+  - `repeatEarlyEntrySuccess`가 overlap 강도, lead hour, persistence, repeatable counterparty를 모두 만족할 때만 서도록 보수화
+  - candidate semantics도 `qualified overlap / qualified first-entry / qualified persistence` 기준으로 올라가 raw peer hit를 바로 고확신 evidence로 쓰지 않음
+  - `wallet_entry_features_daily`가 `sustained overlap`과 `strong lead`를 별도 feature로 저장하고, high-conviction gate와 brief/feed wording이 이를 직접 사용
+  - first-connection feed reader가 latest `wallet_entry_features_daily`를 직접 조인해 `quality overlap / first entry before crowding / best lead / persistence / repeat success / top counterparty overlap` evidence를 recommendation과 score evidence에 우선 반영
+  - worker가 이전 early-entry row를 later pass로 다시 읽어 `post_window_follow_through`, `max_post_window_persistence_hours`, `short_lived_overlap_count`, `holding_persistence_state`, `outcome_resolved_at` metadata를 성숙시키는 baseline 추가
+  - wallet brief/feed가 이제 `holding_persistence_state` 기준으로 `sustained / monitoring / short-lived` wording을 구분하고, short-lived early-entry를 high-conviction처럼 말하지 않도록 보수화
+  - `repeatEarlyEntrySuccess`가 현재 snapshot proxy만이 아니라 과거 `sustained` outcome row를 다시 읽는 historical repeat quality를 반영하고, high-conviction finding confidence / next-watch ranking도 그 결과를 사용
+  - analyst `evidence-timeline`이 latest `wallet_entry_features_daily`를 읽어 `quality overlap`, `first entry before crowding`, `best lead`, `holding persistence state`, `repeat early-entry quality`, `top counterparty overlap`을 timeline item으로 직접 노출
+- Definition of Done:
+  - alpha score alias가 아니라 entry/persistence/outcome evidence 기반 finding으로 동작함
+  - wallet brief, findings feed, analyst drill-down에서 evidence-driven wording과 outcome-aware context를 일관되게 사용함
+
+### WG-053 Pre-listing and Early Entry Engine
+
+- Status: `Todo`
+- Owner: `intelligence-engineer`
+- Support: `data-platform-engineer`, `provider-integration-engineer`
+- Depends On: `WG-052`
+- Deliverables:
+  - `token_entry_features_daily`
+  - `first_entry_before_listing`, `quality_wallet_overlap`, `entry_persistence`, `listing_event_linkage` evidence
+  - pre-listing accumulation / early-entry finding contract
+- Current State:
+  - later backlog only
+  - 현재 active priority가 아니며, `WG-050`~`WG-052` core engine hardening 이후에만 착수
+- Definition of Done:
+  - token-first early-entry signal이 wallet alpha alias가 아니라 독립 evidence engine으로 동작함
+  - listing/TGE/event linkage와 quality-wallet overlap이 finding bundle에 직접 포함됨
 
 ## Sprint 0
 
@@ -165,11 +272,11 @@
 - Support: `billing-launch-engineer`
 - Depends On: 없음
 - Deliverables:
-  - beta scope matrix
+  - production scope matrix
   - Must/Should/Later 분류표
   - provider budget sheet 초안
 - Definition of Done:
-  - beta 필수 기능 범위가 문서로 고정됨
+  - production launch 필수 기능 범위가 문서로 고정됨
   - 비목표 기능이 별도 목록으로 분리됨
 
 ### WG-002 Domain Contract Baseline
@@ -784,8 +891,8 @@
   - current state: `apps/api` checkout session endpoint, public `GET /v1/billing/plans`, billing webhook endpoint baseline 완료, Postgres/in-memory billing account persistence baseline 완료, webhook reconciliation으로 `/v1/account` plan override 가능, `.env.example` Stripe env와 `/account`/`/pricing` checkout route 정합성 반영 완료, live Stripe HTTP client baseline과 `billing_checkout_sessions` / `billing_subscriptions` / `billing_subscription_reconciliations` persistence baseline 완료, worker `billing-subscription-sync` mode로 subscription status sync baseline 완료
 - Launch Policy:
   - billing capability는 구현 완료 상태로 유지한다.
-  - 하지만 beta open에서는 Stripe를 blocker로 두지 않고, invite-only/free beta를 우선한다.
-  - Stripe activation과 checkout closeout은 post-beta monetization track으로 다룬다.
+  - 초기 production launch에서는 Stripe activation을 필수 blocker로 두지 않고, entitlement policy와 운영 흐름을 우선 안정화한다.
+  - Stripe activation과 checkout closeout은 post-launch monetization track으로 다룬다.
 - Definition of Done:
   - 최소 1개 유료 플랜 결제가 가능
 
@@ -884,7 +991,7 @@
 
 ## 6. Critical Path
 
-beta를 가장 늦추는 경로는 아래다.
+production launch를 가장 늦추는 경로는 아래다.
 
 1. `WG-003` -> `WG-006` -> `WG-007` -> `WG-011`
 2. `WG-011` -> `WG-014` + `WG-015` -> `WG-018`
@@ -899,12 +1006,13 @@ beta를 가장 늦추는 경로는 아래다.
 
 현재 저장소 상태에서 다음부터는 아래 순서를 그대로 따른다.
 
-1. `beta open env unblock`
-   - `beta:open:prep` blocker로 나온 runtime secret/env 값 채우기
-2. `beta open`
-   - target environment에서 `corepack pnpm beta:open:prep` 재실행
-3. `operator sign-off`
-   - admin/ops/billing handoff 최종 확인
+1. analyst tool layer / finding drill-down production hardening
+   - evidence timeline, historical analogs, wallet/entity drill-down을 analyst surface에서 바로 소비 가능한 수준으로 보강
+2. `production deployment readiness`
+   - `corepack pnpm prod:*` 엔트리포인트, `/.env.production.example`, production runbook 세트를 기준으로 target environment preflight, replay, rollback, operator sign-off 최종 확인
+
+참고:
+- `WG-053 Pre-listing and Early Entry Engine`은 later backlog로만 유지한다. 현재 구현 우선순위는 아니다.
 
 위 순서는 다음 세션에서도 기본 우선순위로 유지한다. 새로운 아이디어가 생겨도, 문서에 명시적으로 재정렬하기 전에는 이 순서를 깨지 않는다.
 ## AI Workspace
