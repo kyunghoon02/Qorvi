@@ -45,6 +45,59 @@ func (r *fakeFirstConnectionCandidateReader) ReadFirstConnectionCandidateMetrics
 	return r.metrics, nil
 }
 
+type fakeWalletEntryFeaturesStore struct {
+	entries                []db.WalletEntryFeaturesUpsert
+	err                    error
+	priorSnapshot          db.WalletEntryFeaturesSnapshot
+	priorErr               error
+	followThrough          db.WalletEntryFeatureFollowThrough
+	followThroughErr       error
+	followThroughQuery     db.WalletEntryFeatureFollowThroughQuery
+	historicalOutcomeCount int
+	historicalOutcomeErr   error
+}
+
+func (s *fakeWalletEntryFeaturesStore) UpsertWalletEntryFeatures(_ context.Context, entry db.WalletEntryFeaturesUpsert) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.entries = append(s.entries, entry)
+	return nil
+}
+
+func (s *fakeWalletEntryFeaturesStore) ReadLatestWalletEntryFeaturesBefore(
+	_ context.Context,
+	_ db.WalletRef,
+	_ time.Time,
+) (db.WalletEntryFeaturesSnapshot, error) {
+	if s.priorErr != nil {
+		return db.WalletEntryFeaturesSnapshot{}, s.priorErr
+	}
+	return s.priorSnapshot, nil
+}
+
+func (s *fakeWalletEntryFeaturesStore) ReadWalletEntryFeatureFollowThrough(
+	_ context.Context,
+	query db.WalletEntryFeatureFollowThroughQuery,
+) (db.WalletEntryFeatureFollowThrough, error) {
+	s.followThroughQuery = query
+	if s.followThroughErr != nil {
+		return db.WalletEntryFeatureFollowThrough{}, s.followThroughErr
+	}
+	return s.followThrough, nil
+}
+
+func (s *fakeWalletEntryFeaturesStore) ReadHistoricalSustainedEntryOutcomeCount(
+	_ context.Context,
+	_ db.WalletRef,
+	_ time.Time,
+) (int, error) {
+	if s.historicalOutcomeErr != nil {
+		return 0, s.historicalOutcomeErr
+	}
+	return s.historicalOutcomeCount, nil
+}
+
 func TestFirstConnectionSnapshotServiceRunSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -140,22 +193,42 @@ func TestFirstConnectionSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 
 	signals := &fakeSignalEventStore{}
 	wallets := &fakeWalletStore{}
+	entryFeatures := &fakeWalletEntryFeaturesStore{}
 	candidates := &fakeFirstConnectionCandidateReader{
 		metrics: db.FirstConnectionCandidateMetrics{
-			WalletID:                "wallet_1",
-			Chain:                   domain.ChainEVM,
-			Address:                 "0x1234567890abcdef1234567890abcdef12345678",
-			WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
-			FirstSeenCounterparties: 3,
-			NewCommonEntries:        2,
-			HotFeedMentions:         4,
+			WalletID:                          "wallet_1",
+			Chain:                             domain.ChainEVM,
+			Address:                           "0x1234567890abcdef1234567890abcdef12345678",
+			WindowEnd:                         time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			FirstSeenCounterparties:           3,
+			NewCommonEntries:                  2,
+			HotFeedMentions:                   4,
+			QualityWalletOverlapCount:         1,
+			SustainedOverlapCounterpartyCount: 1,
+			StrongLeadCounterpartyCount:       1,
+			FirstEntryBeforeCrowdingCount:     1,
+			BestLeadHoursBeforePeers:          12,
+			PersistenceAfterEntryProxyCount:   1,
+			TopCounterparties: []db.FirstConnectionCandidateCounterparty{
+				{
+					Chain:                domain.ChainEVM,
+					Address:              "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					InteractionCount:     2,
+					FirstActivityAt:      time.Date(2026, time.March, 20, 7, 0, 0, 0, time.UTC),
+					LatestActivityAt:     time.Date(2026, time.March, 20, 9, 0, 0, 0, time.UTC),
+					LeadHoursBeforePeers: 12,
+					PeerWalletCount:      2,
+					PeerTxCount:          3,
+				},
+			},
 		},
 	}
 	service := FirstConnectionSnapshotService{
-		Wallets:    wallets,
-		Candidates: candidates,
-		Signals:    signals,
-		JobRuns:    &fakeJobRunStore{},
+		Wallets:       wallets,
+		Candidates:    candidates,
+		EntryFeatures: entryFeatures,
+		Signals:       signals,
+		JobRuns:       &fakeJobRunStore{},
 	}
 
 	report, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
@@ -180,6 +253,103 @@ func TestFirstConnectionSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 	}
 	if got := signals.entries[0].Payload["new_common_entries"]; got != 2 {
 		t.Fatalf("unexpected new_common_entries payload %v", got)
+	}
+	if len(entryFeatures.entries) != 1 {
+		t.Fatalf("expected wallet entry feature upsert, got %#v", entryFeatures.entries)
+	}
+	if entryFeatures.entries[0].QualityWalletOverlapCount != 1 ||
+		entryFeatures.entries[0].SustainedOverlapCounterpartyCount != 1 ||
+		entryFeatures.entries[0].StrongLeadCounterpartyCount != 1 ||
+		entryFeatures.entries[0].FirstEntryBeforeCrowdingCount != 1 ||
+		entryFeatures.entries[0].BestLeadHoursBeforePeers != 12 {
+		t.Fatalf("unexpected wallet entry feature payload %#v", entryFeatures.entries[0])
+	}
+}
+
+func TestFirstConnectionSnapshotServiceMaturesPriorEntryFeatures(t *testing.T) {
+	t.Parallel()
+
+	signals := &fakeSignalEventStore{}
+	wallets := &fakeWalletStore{}
+	entryFeatures := &fakeWalletEntryFeaturesStore{
+		historicalOutcomeCount: 1,
+		priorSnapshot: db.WalletEntryFeaturesSnapshot{
+			WalletID:                          "wallet_1",
+			Chain:                             domain.ChainEVM,
+			Address:                           "0x1234567890abcdef1234567890abcdef12345678",
+			WindowStartAt:                     time.Date(2026, time.March, 18, 9, 10, 11, 0, time.UTC),
+			WindowEndAt:                       time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+			QualityWalletOverlapCount:         2,
+			SustainedOverlapCounterpartyCount: 1,
+			StrongLeadCounterpartyCount:       1,
+			FirstEntryBeforeCrowdingCount:     1,
+			BestLeadHoursBeforePeers:          18,
+			PersistenceAfterEntryProxyCount:   1,
+			RepeatEarlyEntrySuccess:           true,
+			TopCounterparties: []db.WalletEntryFeatureCounterparty{
+				{
+					Chain:                domain.ChainEVM,
+					Address:              "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					InteractionCount:     3,
+					PeerWalletCount:      2,
+					PeerTxCount:          4,
+					LeadHoursBeforePeers: 18,
+				},
+			},
+		},
+		followThrough: db.WalletEntryFeatureFollowThrough{
+			PostWindowFollowThroughCount:  2,
+			MaxPostWindowPersistenceHours: 36,
+			ShortLivedOverlapCount:        0,
+		},
+	}
+	candidates := &fakeFirstConnectionCandidateReader{
+		metrics: db.FirstConnectionCandidateMetrics{
+			WalletID:                          "wallet_1",
+			Chain:                             domain.ChainEVM,
+			Address:                           "0x1234567890abcdef1234567890abcdef12345678",
+			WindowEnd:                         time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			FirstSeenCounterparties:           3,
+			NewCommonEntries:                  2,
+			HotFeedMentions:                   4,
+			QualityWalletOverlapCount:         2,
+			SustainedOverlapCounterpartyCount: 1,
+			StrongLeadCounterpartyCount:       1,
+			FirstEntryBeforeCrowdingCount:     1,
+			BestLeadHoursBeforePeers:          12,
+			PersistenceAfterEntryProxyCount:   1,
+		},
+	}
+	service := FirstConnectionSnapshotService{
+		Wallets:       wallets,
+		Candidates:    candidates,
+		EntryFeatures: entryFeatures,
+		Signals:       signals,
+		JobRuns:       &fakeJobRunStore{},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+	if len(entryFeatures.entries) != 2 {
+		t.Fatalf("expected mature+current entry feature upserts, got %#v", entryFeatures.entries)
+	}
+	matured := entryFeatures.entries[0]
+	if matured.HoldingPersistenceState != "sustained" {
+		t.Fatalf("expected sustained maturity, got %#v", matured)
+	}
+	if matured.PostWindowFollowThroughCount != 2 || matured.MaxPostWindowPersistenceHours != 36 {
+		t.Fatalf("unexpected matured follow-through %#v", matured)
+	}
+	if entryFeatures.followThroughQuery.WalletID != "wallet_1" {
+		t.Fatalf("expected follow-through query to use prior wallet, got %#v", entryFeatures.followThroughQuery)
+	}
+	if entryFeatures.entries[1].HistoricalSustainedOutcomeCount != 1 {
+		t.Fatalf("expected current row to carry historical sustained outcome count, got %#v", entryFeatures.entries[1])
 	}
 }
 
