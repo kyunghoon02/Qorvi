@@ -221,6 +221,33 @@ func NewFindingStoreFromClients(clients *StorageClients) *PostgresFindingStore {
 	return NewPostgresFindingStoreFromPool(clients.Postgres)
 }
 
+func NewWalletBridgeExchangeEvidenceStoreFromClients(clients *StorageClients) *PostgresWalletBridgeExchangeEvidenceStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletBridgeExchangeEvidenceStoreFromPool(clients.Postgres)
+}
+
+func NewWalletTreasuryMMEvidenceStoreFromClients(clients *StorageClients) *PostgresWalletTreasuryMMEvidenceStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletTreasuryMMEvidenceStoreFromPool(
+		clients.Postgres,
+		NewWalletLabelingStoreFromClients(clients),
+	)
+}
+
+func NewWalletEntryFeaturesStoreFromClients(clients *StorageClients) *PostgresWalletEntryFeaturesStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresWalletEntryFeaturesStoreFromPool(clients.Postgres)
+}
+
 func NewEntityInterpretationReaderFromClients(clients *StorageClients) *PostgresEntityInterpretationReader {
 	if clients == nil {
 		return nil
