@@ -34,6 +34,70 @@ func (r *fakeShadowExitCandidateReader) ReadShadowExitCandidateMetrics(
 	return r.metrics, nil
 }
 
+type fakeBridgeExchangeEvidenceStore struct {
+	ref      db.WalletRef
+	window   time.Duration
+	report   db.WalletBridgeExchangeEvidenceReport
+	replaced []db.WalletBridgeExchangeEvidenceReport
+	err      error
+}
+
+func (s *fakeBridgeExchangeEvidenceStore) ReadWalletBridgeExchangeEvidence(
+	_ context.Context,
+	ref db.WalletRef,
+	window time.Duration,
+) (db.WalletBridgeExchangeEvidenceReport, error) {
+	s.ref = ref
+	s.window = window
+	if s.err != nil {
+		return db.WalletBridgeExchangeEvidenceReport{}, s.err
+	}
+	return s.report, nil
+}
+
+func (s *fakeBridgeExchangeEvidenceStore) ReplaceWalletBridgeExchangeEvidence(
+	_ context.Context,
+	report db.WalletBridgeExchangeEvidenceReport,
+) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.replaced = append(s.replaced, report)
+	return nil
+}
+
+type fakeTreasuryMMEvidenceStore struct {
+	ref      db.WalletRef
+	window   time.Duration
+	report   db.WalletTreasuryMMEvidenceReport
+	replaced []db.WalletTreasuryMMEvidenceReport
+	err      error
+}
+
+func (s *fakeTreasuryMMEvidenceStore) ReadWalletTreasuryMMEvidence(
+	_ context.Context,
+	ref db.WalletRef,
+	window time.Duration,
+) (db.WalletTreasuryMMEvidenceReport, error) {
+	s.ref = ref
+	s.window = window
+	if s.err != nil {
+		return db.WalletTreasuryMMEvidenceReport{}, s.err
+	}
+	return s.report, nil
+}
+
+func (s *fakeTreasuryMMEvidenceStore) ReplaceWalletTreasuryMMEvidence(
+	_ context.Context,
+	report db.WalletTreasuryMMEvidenceReport,
+) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.replaced = append(s.replaced, report)
+	return nil
+}
+
 func TestShadowExitSnapshotServiceRunSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -112,11 +176,56 @@ func TestShadowExitSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 			},
 		},
 	}
+	bridgeExchange := &fakeBridgeExchangeEvidenceStore{
+		report: db.WalletBridgeExchangeEvidenceReport{
+			WalletID:      "wallet_fixture",
+			Chain:         domain.ChainEVM,
+			Address:       "0x1234567890abcdef1234567890abcdef12345678",
+			WindowStartAt: time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+			WindowEndAt:   time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			BridgeFeatures: db.WalletBridgeFeatures{
+				BridgeOutboundCount:       3,
+				ConfirmedDestinationCount: 2,
+				BridgeOutflowShare:        0.82,
+				BridgeRecurrenceDays:      2,
+			},
+			ExchangeFeatures: db.WalletExchangeFlowFeatures{
+				ExchangeOutboundCount:  2,
+				DepositLikePathCount:   2,
+				ExchangeOutflowShare:   0.64,
+				ExchangeRecurrenceDays: 2,
+			},
+		},
+	}
+	treasuryMM := &fakeTreasuryMMEvidenceStore{
+		report: db.WalletTreasuryMMEvidenceReport{
+			WalletID:         "wallet_fixture",
+			Chain:            domain.ChainEVM,
+			Address:          "0x1234567890abcdef1234567890abcdef12345678",
+			WindowStartAt:    time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+			WindowEndAt:      time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			HasTreasuryLabel: true,
+			TreasuryFeatures: db.WalletTreasuryFeatures{
+				AnchorMatchCount:          1,
+				FanoutSignatureCount:      3,
+				TreasuryToMarketPathCount: 2,
+			},
+			MMFeatures: db.WalletMMFeatures{
+				MMAnchorMatchCount:           1,
+				InventoryRotationCount:       1,
+				ProjectToMMPathCount:         1,
+				PostHandoffDistributionCount: 1,
+				RepeatMMCounterpartyCount:    1,
+			},
+		},
+	}
 	service := ShadowExitSnapshotService{
-		Wallets:    wallets,
-		Candidates: candidates,
-		Signals:    signals,
-		JobRuns:    jobRuns,
+		Wallets:        wallets,
+		Candidates:     candidates,
+		BridgeExchange: bridgeExchange,
+		TreasuryMM:     treasuryMM,
+		Signals:        signals,
+		JobRuns:        jobRuns,
 		Now: func() time.Time {
 			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
 		},
@@ -139,17 +248,35 @@ func TestShadowExitSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 	if candidates.window != 24*time.Hour {
 		t.Fatalf("unexpected candidate window %v", candidates.window)
 	}
+	if bridgeExchange.window != 24*time.Hour {
+		t.Fatalf("unexpected bridge/exchange evidence window %v", bridgeExchange.window)
+	}
 	if report.WalletID != "wallet_fixture" {
 		t.Fatalf("unexpected wallet id %q", report.WalletID)
 	}
 	if report.FanOutCandidateCount24h != 3 {
 		t.Fatalf("unexpected fan-out candidate count %d", report.FanOutCandidateCount24h)
 	}
-	if report.OutflowRatio != 0.8 {
+	if report.OutflowRatio != 0.82 {
 		t.Fatalf("unexpected outflow ratio %.2f", report.OutflowRatio)
 	}
 	if report.BridgeEscapeCount != 2 {
 		t.Fatalf("unexpected bridge escape count %d", report.BridgeEscapeCount)
+	}
+	if report.BridgeConfirmedDestinationCount != 2 {
+		t.Fatalf("unexpected confirmed destination count %d", report.BridgeConfirmedDestinationCount)
+	}
+	if report.DepositLikePathCount != 2 {
+		t.Fatalf("unexpected deposit-like path count %d", report.DepositLikePathCount)
+	}
+	if report.ExchangeRecurrenceDays != 2 {
+		t.Fatalf("unexpected exchange recurrence days %d", report.ExchangeRecurrenceDays)
+	}
+	if report.TreasuryAnchorMatchCount != 1 || report.TreasuryToMarketPathCount != 2 {
+		t.Fatalf("unexpected treasury feature counts %#v", report)
+	}
+	if report.ProjectToMMPathCount != 1 || report.PostHandoffDistributionCount != 1 {
+		t.Fatalf("unexpected mm feature counts %#v", report)
 	}
 	if !report.TreasuryWhitelistDiscount {
 		t.Fatal("expected treasury whitelist discount to be true")
@@ -166,6 +293,12 @@ func TestShadowExitSnapshotServiceRunSnapshotForWallet(t *testing.T) {
 	}
 	if got := payload["bridge_escape_count"]; got != 2 {
 		t.Fatalf("unexpected bridge_escape_count payload %v", got)
+	}
+	if len(bridgeExchange.replaced) != 1 {
+		t.Fatalf("expected 1 bridge/exchange evidence replace call, got %d", len(bridgeExchange.replaced))
+	}
+	if len(treasuryMM.replaced) != 1 {
+		t.Fatalf("expected 1 treasury/mm evidence replace call, got %d", len(treasuryMM.replaced))
 	}
 }
 

@@ -17,33 +17,66 @@ const workerModeShadowExitSnapshot = "shadow-exit-snapshot"
 const shadowExitSnapshotSignalType = "shadow_exit_snapshot"
 
 type ShadowExitSnapshotService struct {
-	Wallets    WalletEnsurer
-	Candidates db.ShadowExitCandidateReader
-	Signals    db.SignalEventStore
-	Labels     db.WalletLabelReader
-	Findings   db.FindingStore
-	Cache      db.WalletSummaryCache
-	Alerts     AlertSignalDispatcher
-	JobRuns    db.JobRunStore
-	Now        func() time.Time
+	Wallets        WalletEnsurer
+	Candidates     db.ShadowExitCandidateReader
+	BridgeExchange db.WalletBridgeExchangeEvidenceReadWriter
+	TreasuryMM     db.WalletTreasuryMMEvidenceReadWriter
+	Signals        db.SignalEventStore
+	Labels         db.WalletLabelReader
+	Findings       db.FindingStore
+	Cache          db.WalletSummaryCache
+	Alerts         AlertSignalDispatcher
+	JobRuns        db.JobRunStore
+	Now            func() time.Time
 }
 
 type ShadowExitSnapshotReport struct {
-	WalletID                  string
-	Chain                     string
-	Address                   string
-	ScoreName                 string
-	ScoreValue                int
-	ScoreRating               string
-	ObservedAt                string
-	BridgeTransfers           int
-	CEXProximityCount         int
-	FanOutCount               int
-	FanOutCandidateCount24h   int
-	OutflowRatio              float64
-	BridgeEscapeCount         int
-	TreasuryWhitelistDiscount bool
-	InternalRebalanceDiscount bool
+	WalletID                                 string
+	Chain                                    string
+	Address                                  string
+	ScoreName                                string
+	ScoreValue                               int
+	ScoreRating                              string
+	ObservedAt                               string
+	BridgeTransfers                          int
+	CEXProximityCount                        int
+	FanOutCount                              int
+	FanOutCandidateCount24h                  int
+	OutflowRatio                             float64
+	BridgeEscapeCount                        int
+	BridgeConfirmedDestinationCount          int
+	BridgeOutflowShare                       float64
+	BridgeRecurrenceDays                     int
+	ExchangeOutboundCount                    int
+	DepositLikePathCount                     int
+	ExchangeOutflowShare                     float64
+	ExchangeRecurrenceDays                   int
+	TreasuryAnchorMatchCount                 int
+	TreasuryFanoutSignatureCount             int
+	TreasuryOperationalDistributionCount     int
+	TreasuryRebalanceDiscountCount           int
+	TreasuryToMarketPathCount                int
+	TreasuryToExchangePathCount              int
+	TreasuryToBridgePathCount                int
+	TreasuryToMMPathCount                    int
+	TreasuryDistinctMarketCounterpartyCount  int
+	TreasuryOperationalOnlyDistributionCount int
+	TreasuryInternalOpsDistributionCount     int
+	TreasuryExternalOpsDistributionCount     int
+	TreasuryExternalMarketAdjacentCount      int
+	TreasuryExternalNonMarketCount           int
+	MMAnchorMatchCount                       int
+	InventoryRotationCount                   int
+	ProjectToMMPathCount                     int
+	ProjectToMMContactCount                  int
+	ProjectToMMRoutedCandidateCount          int
+	ProjectToMMAdjacencyCount                int
+	PostHandoffDistributionCount             int
+	PostHandoffExchangeTouchCount            int
+	PostHandoffBridgeTouchCount              int
+	RepeatMMCounterpartyCount                int
+	TreasuryWhitelistDiscount                bool
+	InternalRebalanceDiscount                bool
 }
 
 func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intelligence.ShadowExitSignal) (ShadowExitSnapshotReport, error) {
@@ -98,23 +131,30 @@ func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intel
 		return ShadowExitSnapshotReport{}, err
 	}
 	reportPreview := ShadowExitSnapshotReport{
-		WalletID:                  signal.WalletID,
-		Chain:                     string(signal.Chain),
-		Address:                   signal.Address,
-		ScoreName:                 string(score.Name),
-		ScoreValue:                score.Value,
-		ScoreRating:               string(score.Rating),
-		ObservedAt:                snapshotObservedAt,
-		BridgeTransfers:           signal.BridgeTransfers,
-		CEXProximityCount:         signal.CEXProximityCount,
-		FanOutCount:               signal.FanOutCount,
-		FanOutCandidateCount24h:   signal.FanOut24hCount,
-		OutflowRatio:              signal.OutflowRatio,
-		BridgeEscapeCount:         signal.BridgeEscapeCount,
-		TreasuryWhitelistDiscount: signal.TreasuryWhitelistDiscount,
-		InternalRebalanceDiscount: signal.InternalRebalanceDiscount,
+		WalletID:                        signal.WalletID,
+		Chain:                           string(signal.Chain),
+		Address:                         signal.Address,
+		ScoreName:                       string(score.Name),
+		ScoreValue:                      score.Value,
+		ScoreRating:                     string(score.Rating),
+		ObservedAt:                      snapshotObservedAt,
+		BridgeTransfers:                 signal.BridgeTransfers,
+		CEXProximityCount:               signal.CEXProximityCount,
+		FanOutCount:                     signal.FanOutCount,
+		FanOutCandidateCount24h:         signal.FanOut24hCount,
+		OutflowRatio:                    signal.OutflowRatio,
+		BridgeEscapeCount:               signal.BridgeEscapeCount,
+		BridgeConfirmedDestinationCount: 0,
+		BridgeOutflowShare:              0,
+		BridgeRecurrenceDays:            0,
+		ExchangeOutboundCount:           0,
+		DepositLikePathCount:            0,
+		ExchangeOutflowShare:            0,
+		ExchangeRecurrenceDays:          0,
+		TreasuryWhitelistDiscount:       signal.TreasuryWhitelistDiscount,
+		InternalRebalanceDiscount:       signal.InternalRebalanceDiscount,
 	}
-	for _, finding := range shadowExitFindingEntries(reportPreview, score) {
+	for _, finding := range shadowExitFindingEntries(reportPreview, score, nil) {
 		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
 			return ShadowExitSnapshotReport{}, err
 		}
@@ -132,7 +172,7 @@ func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intel
 		30,
 		labels,
 		score,
-		shadowExitInterpretationContext(reportPreview, score),
+		shadowExitInterpretationContext(reportPreview, score, nil, nil),
 	) {
 		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
 			return ShadowExitSnapshotReport{}, err
@@ -248,23 +288,209 @@ func (s ShadowExitSnapshotService) RunSnapshotForWallet(
 		return ShadowExitSnapshotReport{}, err
 	}
 
+	var bridgeExchangeReport *db.WalletBridgeExchangeEvidenceReport
+	if s.BridgeExchange != nil {
+		report, err := s.BridgeExchange.ReadWalletBridgeExchangeEvidence(ctx, normalizedRef, 24*time.Hour)
+		if err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		if err := s.BridgeExchange.ReplaceWalletBridgeExchangeEvidence(ctx, report); err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		bridgeExchangeReport = &report
+	}
+	var treasuryMMReport *db.WalletTreasuryMMEvidenceReport
+	if s.TreasuryMM != nil {
+		report, err := s.TreasuryMM.ReadWalletTreasuryMMEvidence(ctx, normalizedRef, 24*time.Hour)
+		if err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		if err := s.TreasuryMM.ReplaceWalletTreasuryMMEvidence(ctx, report); err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		treasuryMMReport = &report
+	}
+
+	bridgeTransfers := int(candidate.BridgeRelatedCount)
+	bridgeEscapeCount := int(candidate.BridgeRelatedCount)
+	cexProximityCount := int(candidate.CEXProximityCount)
+	outflowRatio := candidate.OutflowRatio
+	bridgeConfirmedDestinationCount := 0
+	bridgeOutflowShare := 0.0
+	bridgeRecurrenceDays := 0
+	exchangeOutboundCount := 0
+	depositLikePathCount := 0
+	exchangeOutflowShare := 0.0
+	exchangeRecurrenceDays := 0
+	treasuryAnchorMatchCount := 0
+	treasuryFanoutSignatureCount := 0
+	treasuryToMarketPathCount := 0
+	treasuryOperationalDistributionCount := 0
+	treasuryRebalanceDiscountCount := 0
+	mmAnchorMatchCount := 0
+	inventoryRotationCount := 0
+	projectToMMPathCount := 0
+	postHandoffDistributionCount := 0
+	postHandoffExchangeTouchCount := 0
+	postHandoffBridgeTouchCount := 0
+	repeatMMCounterpartyCount := 0
+	treasuryToExchangePathCount := 0
+	treasuryToBridgePathCount := 0
+	treasuryToMMPathCount := 0
+	treasuryDistinctMarketCounterpartyCount := 0
+	treasuryOperationalOnlyDistributionCount := 0
+	treasuryInternalOpsDistributionCount := 0
+	treasuryExternalOpsDistributionCount := 0
+	treasuryExternalMarketAdjacentCount := 0
+	treasuryExternalNonMarketCount := 0
+	projectToMMContactCount := 0
+	projectToMMRoutedCandidateCount := 0
+	projectToMMAdjacencyCount := 0
+	if bridgeExchangeReport != nil {
+		bridgeTransfers = maxInt(bridgeTransfers, bridgeExchangeReport.BridgeFeatures.BridgeOutboundCount)
+		bridgeEscapeCount = maxInt(bridgeEscapeCount, bridgeExchangeReport.BridgeFeatures.ConfirmedDestinationCount)
+		cexProximityCount = maxInt(cexProximityCount, bridgeExchangeReport.ExchangeFeatures.ExchangeOutboundCount)
+		bridgeConfirmedDestinationCount = bridgeExchangeReport.BridgeFeatures.ConfirmedDestinationCount
+		bridgeOutflowShare = bridgeExchangeReport.BridgeFeatures.BridgeOutflowShare
+		bridgeRecurrenceDays = bridgeExchangeReport.BridgeFeatures.BridgeRecurrenceDays
+		exchangeOutboundCount = bridgeExchangeReport.ExchangeFeatures.ExchangeOutboundCount
+		depositLikePathCount = bridgeExchangeReport.ExchangeFeatures.DepositLikePathCount
+		exchangeOutflowShare = bridgeExchangeReport.ExchangeFeatures.ExchangeOutflowShare
+		exchangeRecurrenceDays = bridgeExchangeReport.ExchangeFeatures.ExchangeRecurrenceDays
+		outflowRatio = maxFloat(
+			candidate.OutflowRatio,
+			bridgeExchangeReport.BridgeFeatures.BridgeOutflowShare,
+			bridgeExchangeReport.ExchangeFeatures.ExchangeOutflowShare,
+		)
+	}
+	if treasuryMMReport != nil {
+		treasuryAnchorMatchCount = treasuryMMReport.TreasuryFeatures.AnchorMatchCount
+		treasuryFanoutSignatureCount = treasuryMMReport.TreasuryFeatures.FanoutSignatureCount
+		treasuryOperationalDistributionCount = treasuryMMReport.TreasuryFeatures.OperationalDistributionCount
+		treasuryRebalanceDiscountCount = treasuryMMReport.TreasuryFeatures.RebalanceDiscountCount
+		treasuryToMarketPathCount = treasuryMMReport.TreasuryFeatures.TreasuryToMarketPathCount
+		treasuryToExchangePathCount = treasuryMMReport.TreasuryFeatures.TreasuryToExchangePathCount
+		treasuryToBridgePathCount = treasuryMMReport.TreasuryFeatures.TreasuryToBridgePathCount
+		treasuryToMMPathCount = treasuryMMReport.TreasuryFeatures.TreasuryToMMPathCount
+		treasuryDistinctMarketCounterpartyCount = treasuryMMReport.TreasuryFeatures.DistinctMarketCounterpartyCount
+		treasuryOperationalOnlyDistributionCount = treasuryMMReport.TreasuryFeatures.OperationalOnlyDistributionCount
+		treasuryInternalOpsDistributionCount = treasuryMMReport.TreasuryFeatures.InternalOpsDistributionCount
+		treasuryExternalOpsDistributionCount = treasuryMMReport.TreasuryFeatures.ExternalOpsDistributionCount
+		treasuryExternalMarketAdjacentCount = treasuryMMReport.TreasuryFeatures.ExternalMarketAdjacentCount
+		treasuryExternalNonMarketCount = treasuryMMReport.TreasuryFeatures.ExternalNonMarketCount
+		mmAnchorMatchCount = treasuryMMReport.MMFeatures.MMAnchorMatchCount
+		inventoryRotationCount = treasuryMMReport.MMFeatures.InventoryRotationCount
+		projectToMMPathCount = treasuryMMReport.MMFeatures.ProjectToMMPathCount
+		projectToMMContactCount = treasuryMMReport.MMFeatures.ProjectToMMContactCount
+		projectToMMRoutedCandidateCount = treasuryMMReport.MMFeatures.ProjectToMMRoutedCandidateCount
+		projectToMMAdjacencyCount = treasuryMMReport.MMFeatures.ProjectToMMAdjacencyCount
+		postHandoffDistributionCount = treasuryMMReport.MMFeatures.PostHandoffDistributionCount
+		postHandoffExchangeTouchCount = treasuryMMReport.MMFeatures.PostHandoffExchangeTouchCount
+		postHandoffBridgeTouchCount = treasuryMMReport.MMFeatures.PostHandoffBridgeTouchCount
+		repeatMMCounterpartyCount = treasuryMMReport.MMFeatures.RepeatMMCounterpartyCount
+	}
+
 	signal := intelligence.BuildShadowExitSignalFromInputs(intelligence.ShadowExitDetectorInputs{
 		WalletID:                       identity.WalletID,
 		Chain:                          identity.Chain,
 		Address:                        identity.Address,
 		ObservedAt:                     normalizeShadowExitObservedAt(observedAt, candidate.WindowEnd),
-		BridgeTransfers:                int(candidate.BridgeRelatedCount),
-		CEXProximityCount:              int(candidate.CEXProximityCount),
+		BridgeTransfers:                bridgeTransfers,
+		CEXProximityCount:              cexProximityCount,
 		FanOutCount:                    int(candidate.FanOutCounterpartyCount),
 		FanOutCandidateCount24h:        int(candidate.FanOutCounterpartyCount),
 		OutboundTransferCount24h:       int(candidate.OutboundTxCount),
 		InboundTransferCount24h:        int(candidate.InboundTxCount),
-		BridgeEscapeCount:              int(candidate.BridgeRelatedCount),
+		BridgeEscapeCount:              bridgeEscapeCount,
 		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(candidate.DiscountInputs.RootWhitelist || candidate.DiscountInputs.RootTreasury),
 		InternalRebalanceEvidenceCount: shadowExitBoolToInt(candidate.DiscountInputs.RootInternalRebalance || candidate.InternalRebalanceCounterpartyCount > 0),
 	})
+	score := intelligence.BuildShadowExitRiskScore(signal)
+	report, err := s.RunSnapshot(ctx, signal)
+	if err != nil {
+		return ShadowExitSnapshotReport{}, err
+	}
+	report.OutflowRatio = outflowRatio
+	report.BridgeConfirmedDestinationCount = bridgeConfirmedDestinationCount
+	report.BridgeOutflowShare = bridgeOutflowShare
+	report.BridgeRecurrenceDays = bridgeRecurrenceDays
+	report.ExchangeOutboundCount = exchangeOutboundCount
+	report.DepositLikePathCount = depositLikePathCount
+	report.ExchangeOutflowShare = exchangeOutflowShare
+	report.ExchangeRecurrenceDays = exchangeRecurrenceDays
+	report.TreasuryAnchorMatchCount = treasuryAnchorMatchCount
+	report.TreasuryFanoutSignatureCount = treasuryFanoutSignatureCount
+	report.TreasuryOperationalDistributionCount = treasuryOperationalDistributionCount
+	report.TreasuryRebalanceDiscountCount = treasuryRebalanceDiscountCount
+	report.TreasuryToMarketPathCount = treasuryToMarketPathCount
+	report.TreasuryToExchangePathCount = treasuryToExchangePathCount
+	report.TreasuryToBridgePathCount = treasuryToBridgePathCount
+	report.TreasuryToMMPathCount = treasuryToMMPathCount
+	report.TreasuryDistinctMarketCounterpartyCount = treasuryDistinctMarketCounterpartyCount
+	report.TreasuryOperationalOnlyDistributionCount = treasuryOperationalOnlyDistributionCount
+	report.TreasuryInternalOpsDistributionCount = treasuryInternalOpsDistributionCount
+	report.TreasuryExternalOpsDistributionCount = treasuryExternalOpsDistributionCount
+	report.TreasuryExternalMarketAdjacentCount = treasuryExternalMarketAdjacentCount
+	report.TreasuryExternalNonMarketCount = treasuryExternalNonMarketCount
+	report.MMAnchorMatchCount = mmAnchorMatchCount
+	report.InventoryRotationCount = inventoryRotationCount
+	report.ProjectToMMPathCount = projectToMMPathCount
+	report.ProjectToMMContactCount = projectToMMContactCount
+	report.ProjectToMMRoutedCandidateCount = projectToMMRoutedCandidateCount
+	report.ProjectToMMAdjacencyCount = projectToMMAdjacencyCount
+	report.PostHandoffDistributionCount = postHandoffDistributionCount
+	report.PostHandoffExchangeTouchCount = postHandoffExchangeTouchCount
+	report.PostHandoffBridgeTouchCount = postHandoffBridgeTouchCount
+	report.RepeatMMCounterpartyCount = repeatMMCounterpartyCount
 
-	return s.RunSnapshot(ctx, signal)
+	if bridgeExchangeReport != nil {
+		for _, finding := range shadowExitFindingEntries(report, score, bridgeExchangeReport) {
+			if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+				return ShadowExitSnapshotReport{}, err
+			}
+		}
+		labels, err := readWalletLabelSet(ctx, s.Labels, db.WalletRef{Chain: signal.Chain, Address: signal.Address})
+		if err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		for _, finding := range interpretationFindingsFromLabels(
+			db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+			signal.WalletID,
+			report.ObservedAt,
+			findingConfidenceFromScore(score),
+			float64(score.Value)/100,
+			30,
+			labels,
+			score,
+			shadowExitInterpretationContext(report, score, bridgeExchangeReport, treasuryMMReport),
+		) {
+			if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+				return ShadowExitSnapshotReport{}, err
+			}
+		}
+	}
+	if treasuryMMReport != nil && bridgeExchangeReport == nil {
+		labels, err := readWalletLabelSet(ctx, s.Labels, db.WalletRef{Chain: signal.Chain, Address: signal.Address})
+		if err != nil {
+			return ShadowExitSnapshotReport{}, err
+		}
+		for _, finding := range interpretationFindingsFromLabels(
+			db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+			signal.WalletID,
+			report.ObservedAt,
+			findingConfidenceFromScore(score),
+			float64(score.Value)/100,
+			30,
+			labels,
+			score,
+			shadowExitInterpretationContext(report, score, nil, treasuryMMReport),
+		) {
+			if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
+				return ShadowExitSnapshotReport{}, err
+			}
+		}
+	}
+	return report, nil
 }
 
 func buildShadowExitSnapshotSummary(report ShadowExitSnapshotReport) string {
