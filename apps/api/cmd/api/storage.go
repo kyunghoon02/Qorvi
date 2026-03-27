@@ -66,6 +66,7 @@ func buildWalletBriefService(
 			repository.NewQueryBackedWalletSummaryRepository(nil),
 			nil,
 			repository.NewQueryBackedFindingsRepository(nil),
+			repository.NewQueryBackedWalletEntryFeaturesRepository(nil),
 		)
 	}
 
@@ -81,6 +82,9 @@ func buildWalletBriefService(
 		enricher,
 		repository.NewQueryBackedFindingsRepository(
 			db.NewFindingStoreFromClients(clients),
+		),
+		repository.NewQueryBackedWalletEntryFeaturesRepository(
+			db.NewWalletEntryFeaturesStoreFromClients(clients),
 		),
 	)
 }
@@ -113,6 +117,7 @@ func buildAnalystFindingDrilldownService(
 		return service.NewAnalystFindingDrilldownService(
 			repository.NewQueryBackedFindingsRepository(nil),
 			wallets,
+			repository.NewQueryBackedWalletEntryFeaturesRepository(nil),
 		)
 	}
 	return service.NewAnalystFindingDrilldownService(
@@ -120,6 +125,9 @@ func buildAnalystFindingDrilldownService(
 			db.NewFindingStoreFromClients(clients),
 		),
 		wallets,
+		repository.NewQueryBackedWalletEntryFeaturesRepository(
+			db.NewWalletEntryFeaturesStoreFromClients(clients),
+		),
 	)
 }
 

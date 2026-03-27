@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/flowintel/flowintel/apps/api/internal/auth"
+	"github.com/flowintel/flowintel/apps/api/internal/repository"
 	"github.com/flowintel/flowintel/apps/api/internal/service"
 	"github.com/flowintel/flowintel/packages/db"
 	"github.com/flowintel/flowintel/packages/domain"
@@ -117,6 +118,7 @@ func TestWalletBriefRouteReturnsAIBrief(t *testing.T) {
 			&testWalletSummaryRepository{summary: walletSummaryFixture()},
 			nil,
 			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+			nil,
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -151,6 +153,7 @@ func TestAnalystWalletBriefRouteReturnsAIBrief(t *testing.T) {
 			&testWalletSummaryRepository{summary: walletSummaryFixture()},
 			nil,
 			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+			nil,
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -174,6 +177,108 @@ func TestAnalystWalletBriefRouteReturnsAIBrief(t *testing.T) {
 	}
 	if body.Meta.Freshness.Source != "snapshot" {
 		t.Fatalf("expected snapshot freshness for brief handler, got %q", body.Meta.Freshness.Source)
+	}
+}
+
+func TestWalletBriefRouteIncludesEntryFeaturesWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		WalletBriefs: service.NewWalletBriefService(
+			&testWalletSummaryRepository{summary: walletSummaryFixture()},
+			nil,
+			&testFindingsRepository{},
+			&testWalletEntryFeaturesRepository{entry: repository.WalletEntryFeatures{
+				QualityWalletOverlapCount:         2,
+				SustainedOverlapCounterpartyCount: 1,
+				StrongLeadCounterpartyCount:       1,
+				FirstEntryBeforeCrowdingCount:     1,
+				BestLeadHoursBeforePeers:          14,
+				PersistenceAfterEntryProxyCount:   1,
+				RepeatEarlyEntrySuccess:           true,
+				PostWindowFollowThroughCount:      2,
+				MaxPostWindowPersistenceHours:     32,
+				HoldingPersistenceState:           "sustained",
+				LatestCounterpartyChain:           "evm",
+				LatestCounterpartyAddress:         "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+				TopCounterparties: []repository.WalletEntryFeatureCounterparty{
+					{
+						Chain:                "evm",
+						Address:              "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+						InteractionCount:     3,
+						PeerWalletCount:      2,
+						PeerTxCount:          4,
+						LeadHoursBeforePeers: 14,
+					},
+				},
+			}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/brief", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.WalletBrief]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if body.Data.EntryFeatures == nil {
+		t.Fatal("expected entry features in brief response")
+	}
+	if body.Data.EntryFeatures.BestLeadHoursBeforePeers != 14 {
+		t.Fatalf("unexpected entry feature payload %#v", body.Data.EntryFeatures)
+	}
+	if body.Data.EntryFeatures.HoldingPersistenceState != "sustained" {
+		t.Fatalf("expected sustained entry features, got %#v", body.Data.EntryFeatures)
+	}
+	if len(body.Data.EntryFeatures.TopCounterparties) != 1 {
+		t.Fatalf("expected top counterparties in entry features, got %#v", body.Data.EntryFeatures)
+	}
+	if !strings.Contains(body.Data.AISummary, "0xfeed...feed") || !strings.Contains(body.Data.AISummary, "persisting for up to 32h") {
+		t.Fatalf("expected early-entry ai summary, got %q", body.Data.AISummary)
+	}
+}
+
+func TestWalletBriefRouteMarksShortLivedEntryFeatures(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		WalletBriefs: service.NewWalletBriefService(
+			&testWalletSummaryRepository{summary: walletSummaryFixture()},
+			nil,
+			&testFindingsRepository{},
+			&testWalletEntryFeaturesRepository{entry: repository.WalletEntryFeatures{
+				QualityWalletOverlapCount:     2,
+				FirstEntryBeforeCrowdingCount: 1,
+				BestLeadHoursBeforePeers:      10,
+				HoldingPersistenceState:       "short_lived",
+				ShortLivedOverlapCount:        2,
+				LatestCounterpartyChain:       "evm",
+				LatestCounterpartyAddress:     "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+				TopCounterparties:             []repository.WalletEntryFeatureCounterparty{{Chain: "evm", Address: "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed"}},
+			}},
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/brief", nil)
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.WalletBrief]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !strings.Contains(body.Data.AISummary, "short-lived lead") {
+		t.Fatalf("expected short-lived ai summary, got %q", body.Data.AISummary)
 	}
 }
 
@@ -297,6 +402,9 @@ func TestAnalystWalletCounterpartiesRouteReturnsFilteredItems(t *testing.T) {
 	if body.Data.TotalAvailable == 0 {
 		t.Fatal("expected total available counterparties")
 	}
+	if body.Data.ReturnedCount != 1 || body.Data.RequestedLimit != 1 || body.Data.MinInteractions != 5 {
+		t.Fatalf("expected echoed counterparty filters, got %#v", body.Data)
+	}
 	if body.Meta.Freshness.Source != "analyst-tool" {
 		t.Fatalf("expected analyst-tool freshness source, got %q", body.Meta.Freshness.Source)
 	}
@@ -341,6 +449,14 @@ func TestAnalystBehaviorPatternsRouteReturnsLabelAndFindingContext(t *testing.T)
 			&testWalletSummaryRepository{summary: walletSummaryFixture()},
 			nil,
 			&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+			&testWalletEntryFeaturesRepository{entry: repository.WalletEntryFeatures{
+				QualityWalletOverlapCount:       2,
+				FirstEntryBeforeCrowdingCount:   1,
+				BestLeadHoursBeforePeers:        12,
+				RepeatEarlyEntrySuccess:         true,
+				HistoricalSustainedOutcomeCount: 2,
+				HoldingPersistenceState:         "sustained",
+			}},
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -362,6 +478,15 @@ func TestAnalystBehaviorPatternsRouteReturnsLabelAndFindingContext(t *testing.T)
 	if len(body.Data.Patterns) == 0 {
 		t.Fatal("expected analyst patterns")
 	}
+	if body.Data.ReturnedCount != len(body.Data.Patterns) {
+		t.Fatalf("expected returnedCount to match pattern count, got %#v", body.Data)
+	}
+	if len(body.Data.KeyFindings) == 0 {
+		t.Fatal("expected key findings")
+	}
+	if body.Data.EntryFeatures == nil || body.Data.EntryFeatures.HoldingPersistenceState != "sustained" {
+		t.Fatalf("expected entry feature context, got %#v", body.Data.EntryFeatures)
+	}
 	if len(body.Data.Patterns[0].SupportingFindingTypes) == 0 {
 		t.Fatal("expected supporting finding types")
 	}
@@ -377,6 +502,23 @@ func TestAnalystFindingDetailRouteReturnsCanonicalFinding(t *testing.T) {
 		AnalystFindings: service.NewAnalystFindingDrilldownService(
 			&testFindingsRepository{finding: findingFixture()},
 			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+			&testWalletEntryFeaturesRepository{entry: repository.WalletEntryFeatures{
+				QualityWalletOverlapCount:       2,
+				FirstEntryBeforeCrowdingCount:   1,
+				BestLeadHoursBeforePeers:        12,
+				RepeatEarlyEntrySuccess:         true,
+				HistoricalSustainedOutcomeCount: 2,
+				HoldingPersistenceState:         "sustained",
+				OutcomeResolvedAt:               "2026-03-26T00:00:00Z",
+				TopCounterparties: []repository.WalletEntryFeatureCounterparty{{
+					Chain:                "evm",
+					Address:              "0xcounterparty",
+					InteractionCount:     3,
+					PeerWalletCount:      2,
+					PeerTxCount:          4,
+					LeadHoursBeforePeers: 6,
+				}},
+			}},
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -407,6 +549,23 @@ func TestAnalystFindingEvidenceTimelineRouteReturnsTimeline(t *testing.T) {
 		AnalystFindings: service.NewAnalystFindingDrilldownService(
 			&testFindingsRepository{finding: findingFixture()},
 			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+			&testWalletEntryFeaturesRepository{entry: repository.WalletEntryFeatures{
+				QualityWalletOverlapCount:       2,
+				FirstEntryBeforeCrowdingCount:   1,
+				BestLeadHoursBeforePeers:        12,
+				RepeatEarlyEntrySuccess:         true,
+				HistoricalSustainedOutcomeCount: 2,
+				HoldingPersistenceState:         "sustained",
+				OutcomeResolvedAt:               "2026-03-26T00:00:00Z",
+				TopCounterparties: []repository.WalletEntryFeatureCounterparty{{
+					Chain:                "evm",
+					Address:              "0xcounterparty",
+					InteractionCount:     3,
+					PeerWalletCount:      2,
+					PeerTxCount:          4,
+					LeadHoursBeforePeers: 6,
+				}},
+			}},
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -428,6 +587,54 @@ func TestAnalystFindingEvidenceTimelineRouteReturnsTimeline(t *testing.T) {
 	if len(body.Data.Items) == 0 {
 		t.Fatal("expected timeline items")
 	}
+	foundEvidence := false
+	foundNextWatch := false
+	foundEntryOutcome := false
+	for _, item := range body.Data.Items {
+		if item.TxRef != nil && item.PathRef != nil {
+			foundEvidence = true
+			if item.PathStrength != "confirmed" {
+				t.Fatalf("expected lifted pathStrength, got %#v", item)
+			}
+			if item.ConfidenceTier != "high" {
+				t.Fatalf("expected lifted confidenceTier, got %#v", item)
+			}
+			if item.DownstreamLagSeconds != 1800 {
+				t.Fatalf("expected lifted downstreamLagSeconds, got %#v", item)
+			}
+			if item.Title != "cluster overlap (treasury -> desk)" {
+				t.Fatalf("expected subtype-aware title, got %#v", item)
+			}
+		}
+		if item.Type == "entry_outcome" && item.Title == "holding persistence state" {
+			foundEntryOutcome = true
+			if item.Summary != "sustained" {
+				t.Fatalf("expected sustained entry outcome, got %#v", item)
+			}
+		}
+		if item.Type != "next_watch" {
+			continue
+		}
+		foundNextWatch = true
+		if item.Route != "cross-chain-rotation" {
+			t.Fatalf("expected next-watch route, got %#v", item)
+		}
+		if item.PathRef == nil {
+			t.Fatalf("expected next-watch pathRef, got %#v", item)
+		}
+		if item.DownstreamLagSeconds != 7200 {
+			t.Fatalf("expected next-watch downstreamLagSeconds, got %#v", item)
+		}
+	}
+	if !foundEvidence {
+		t.Fatal("expected evidence timeline item")
+	}
+	if !foundEntryOutcome {
+		t.Fatal("expected entry outcome timeline item")
+	}
+	if !foundNextWatch {
+		t.Fatal("expected next-watch timeline item")
+	}
 }
 
 func TestAnalystHistoricalAnalogsRouteReturnsSameTypeFindings(t *testing.T) {
@@ -447,6 +654,7 @@ func TestAnalystHistoricalAnalogsRouteReturnsSameTypeFindings(t *testing.T) {
 				feed:    domain.FindingsFeedPage{Items: []domain.Finding{finding, analog}},
 			},
 			service.NewWalletSummaryService(&testWalletSummaryRepository{summary: walletSummaryFixture()}, nil),
+			nil,
 		),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -468,8 +676,17 @@ func TestAnalystHistoricalAnalogsRouteReturnsSameTypeFindings(t *testing.T) {
 	if len(body.Data.Items) != 1 {
 		t.Fatalf("expected 1 analog, got %d", len(body.Data.Items))
 	}
-	if body.Data.Items[0].ID != "finding_analog_1" {
-		t.Fatalf("unexpected analog id %q", body.Data.Items[0].ID)
+	if body.Data.SimilarAnalogCount != 1 {
+		t.Fatalf("expected similar analog count, got %#v", body.Data)
+	}
+	if body.Data.Items[0].Finding.ID != "finding_analog_1" {
+		t.Fatalf("unexpected analog id %q", body.Data.Items[0].Finding.ID)
+	}
+	if body.Data.Items[0].SimilarityScore <= 0 {
+		t.Fatalf("expected positive similarity score, got %#v", body.Data.Items[0])
+	}
+	if len(body.Data.Items[0].MatchedFeatures) == 0 {
+		t.Fatalf("expected matched features, got %#v", body.Data.Items[0])
 	}
 }
 
@@ -1292,6 +1509,14 @@ func (r *testWalletSummaryRepository) FindWalletSummary(_ context.Context, _ str
 	return r.summary, nil
 }
 
+type testWalletEntryFeaturesRepository struct {
+	entry repository.WalletEntryFeatures
+}
+
+func (r *testWalletEntryFeaturesRepository) FindLatestWalletEntryFeatures(_ context.Context, _, _ string) (repository.WalletEntryFeatures, error) {
+	return r.entry, nil
+}
+
 type testWalletGraphRepository struct {
 	graph  domain.WalletGraph
 	called bool
@@ -1413,9 +1638,9 @@ func walletSummaryFixture() domain.WalletSummary {
 	latest := time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC)
 
 	return domain.WalletSummary{
-		Chain:            domain.ChainEVM,
-		Address:          "0x1234567890abcdef1234567890abcdef12345678",
-		DisplayName:      "Seed Whale",
+		Chain:       domain.ChainEVM,
+		Address:     "0x1234567890abcdef1234567890abcdef12345678",
+		DisplayName: "Seed Whale",
 		Labels: domain.WalletLabelSet{
 			Inferred: []domain.WalletLabel{
 				{
@@ -1469,7 +1694,7 @@ func walletSummaryFixture() domain.WalletSummary {
 				LatestActivityAt: latest.Format(time.RFC3339),
 			},
 		},
-		Tags:             []string{"wallet-summary", "evm"},
+		Tags: []string{"wallet-summary", "evm"},
 		Scores: []domain.Score{
 			{
 				Name:   domain.ScoreCluster,
@@ -1555,6 +1780,48 @@ func findingFixture() domain.Finding {
 				Value:      "Repeated overlap with new counterparties",
 				Confidence: 0.82,
 				ObservedAt: "2026-03-25T00:00:00Z",
+				Metadata: map[string]any{
+					"route":                "treasury_to_mm_path",
+					"sourceSubtype":        "treasury",
+					"downstreamSubtype":    "desk",
+					"pathStrength":         "confirmed",
+					"confidenceTier":       "high",
+					"downstreamLagSeconds": 1800,
+					"txRef": map[string]any{
+						"chain":      "evm",
+						"address":    "0x1234567890abcdef1234567890abcdef12345678",
+						"txHash":     "0xtxhash123",
+						"observedAt": "2026-03-25T00:00:00Z",
+					},
+					"pathRef": map[string]any{
+						"kind":               "bridge_link_confirmation",
+						"bridgeChain":        "evm",
+						"bridgeAddress":      "0xbridge",
+						"destinationChain":   "solana",
+						"destinationAddress": "So11111111111111111111111111111111111111112",
+					},
+				},
+			},
+		},
+		NextWatch: []domain.NextWatchTarget{
+			{
+				SubjectType: domain.FindingSubjectWallet,
+				Chain:       domain.ChainSolana,
+				Address:     "So11111111111111111111111111111111111111112",
+				Label:       "Destination wallet",
+				Metadata: map[string]any{
+					"route":                "cross-chain-rotation",
+					"pathStrength":         "confirmed",
+					"downstreamSubtype":    "bridge",
+					"downstreamLagSeconds": 7200,
+					"pathRef": map[string]any{
+						"kind":               "bridge_link_confirmation",
+						"bridgeChain":        "evm",
+						"bridgeAddress":      "0xbridge",
+						"destinationChain":   "solana",
+						"destinationAddress": "So11111111111111111111111111111111111111112",
+					},
+				},
 			},
 		},
 	}

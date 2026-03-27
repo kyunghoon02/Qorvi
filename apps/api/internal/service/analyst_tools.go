@@ -14,6 +14,9 @@ type AnalystCounterpartiesResponse struct {
 	DisplayName        string               `json:"displayName"`
 	CoverageWindowDays int                  `json:"coverageWindowDays"`
 	TotalAvailable     int                  `json:"totalAvailable"`
+	ReturnedCount      int                  `json:"returnedCount"`
+	RequestedLimit     int                  `json:"requestedLimit"`
+	MinInteractions    int                  `json:"minInteractions"`
 	Counterparties     []WalletCounterparty `json:"counterparties"`
 }
 
@@ -31,7 +34,10 @@ type AnalystBehaviorPatternsResponse struct {
 	Address            string                   `json:"address"`
 	DisplayName        string                   `json:"displayName"`
 	CoverageWindowDays int                      `json:"coverageWindowDays"`
+	ReturnedCount      int                      `json:"returnedCount"`
 	Patterns           []AnalystBehaviorPattern `json:"patterns"`
+	KeyFindings        []FindingItem            `json:"keyFindings"`
+	EntryFeatures      *WalletEntryFeatures     `json:"entryFeatures,omitempty"`
 	LatestSignals      []WalletLatestSignal     `json:"latestSignals"`
 	Scores             []Score                  `json:"scores"`
 }
@@ -93,6 +99,9 @@ func (s *AnalystToolsService) GetWalletCounterparties(
 		DisplayName:        summary.DisplayName,
 		CoverageWindowDays: summary.Indexing.CoverageWindowDays,
 		TotalAvailable:     summary.Counterparties,
+		ReturnedCount:      len(filtered),
+		RequestedLimit:     limit,
+		MinInteractions:    minInteractions,
 		Counterparties:     filtered,
 	}, nil
 }
@@ -148,7 +157,10 @@ func (s *AnalystToolsService) DetectBehaviorPatterns(
 		Address:            brief.Address,
 		DisplayName:        brief.DisplayName,
 		CoverageWindowDays: brief.Indexing.CoverageWindowDays,
+		ReturnedCount:      len(patterns),
 		Patterns:           patterns,
+		KeyFindings:        append([]FindingItem(nil), brief.KeyFindings...),
+		EntryFeatures:      brief.EntryFeatures,
 		LatestSignals:      brief.LatestSignals,
 		Scores:             brief.Scores,
 	}, nil

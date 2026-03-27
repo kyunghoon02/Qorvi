@@ -135,6 +135,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 			repository.NewQueryBackedWalletSummaryRepository(notFoundWalletSummaryLoader{}),
 			nil,
 			repository.NewQueryBackedFindingsRepository(nil),
+			repository.NewQueryBackedWalletEntryFeaturesRepository(nil),
 		)
 	}
 	if deps.Entities == nil {
@@ -156,6 +157,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 		deps.AnalystFindings = service.NewAnalystFindingDrilldownService(
 			repository.NewQueryBackedFindingsRepository(nil),
 			deps.Wallets,
+			repository.NewQueryBackedWalletEntryFeaturesRepository(nil),
 		)
 	}
 	if deps.Clusters == nil {
