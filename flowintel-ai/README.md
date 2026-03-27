@@ -34,6 +34,8 @@ polluting the core API, worker, and web application paths.
    - Golden cases
    - Replay prompts
    - Scoring rubrics
+4. `engine-hardening-roadmap.md`
+   - Bridge / exchange / treasury / MM / early-conviction engine upgrade plan
 
 ## Relationship to the main repo
 
