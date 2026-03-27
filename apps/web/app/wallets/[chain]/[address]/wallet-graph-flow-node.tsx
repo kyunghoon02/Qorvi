@@ -29,7 +29,9 @@ function WalletGraphFlowNodeComponent({
       />
       <div className="graph-flow-node-chip">{data.kindLabel.toUpperCase()}</div>
       <strong className="graph-flow-node-title">{data.title}</strong>
-      {data.subtitle && <span className="graph-flow-node-subtitle">{data.subtitle}</span>}
+      {data.subtitle && (
+        <span className="graph-flow-node-subtitle">{data.subtitle}</span>
+      )}
     </div>
   );
 }

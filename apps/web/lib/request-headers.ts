@@ -5,8 +5,7 @@ const forwardedAuthHeaderNames = [
   "x-flowintel-plan",
 ] as const;
 const bearerAuthorizationHeaderName = "authorization";
-const clientForwardedAuthHeadersStorageKey =
-  "flowintel.forwarded-auth-headers";
+const clientForwardedAuthHeadersStorageKey = "flowintel.forwarded-auth-headers";
 
 export type ForwardedAuthHeaderInput = {
   bearerToken: string | undefined;

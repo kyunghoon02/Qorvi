@@ -2,11 +2,11 @@ import Link from "next/link";
 
 import { Badge, type Tone } from "@flowintel/ui";
 
-import {
-  type EntityInterpretationPreview,
-  type WalletDetailRequest,
-  type FindingPreview,
-  type WalletLabelPreview,
+import type {
+  EntityInterpretationPreview,
+  FindingPreview,
+  WalletDetailRequest,
+  WalletLabelPreview,
 } from "../../../lib/api-boundary";
 
 const toneByLabelClass: Record<WalletLabelPreview["class"], Tone> = {
@@ -89,7 +89,8 @@ export function EntityScreen({
                     <div>
                       <strong>{member.displayName}</strong>
                       <span>
-                        {member.chain.toUpperCase()} · {shortenAddress(member.address)}
+                        {member.chain.toUpperCase()} ·{" "}
+                        {shortenAddress(member.address)}
                       </span>
                     </div>
                     <Link
@@ -113,7 +114,9 @@ export function EntityScreen({
             ) : (
               <div className="empty-state">
                 <h3>No members available yet</h3>
-                <p>Entity membership will appear here once labels are available.</p>
+                <p>
+                  Entity membership will appear here once labels are available.
+                </p>
               </div>
             )}
           </div>
@@ -126,7 +129,9 @@ export function EntityScreen({
               <span className="preview-kicker">AI interpretation</span>
             </div>
             <div className="preview-state">
-              <span className="detail-state-copy">{entity.findings.length}</span>
+              <span className="detail-state-copy">
+                {entity.findings.length}
+              </span>
             </div>
           </div>
 
@@ -155,7 +160,10 @@ export function EntityScreen({
             ) : (
               <div className="empty-state">
                 <h3>No findings yet</h3>
-                <p>Findings will show up here once the interpretation layer emits them.</p>
+                <p>
+                  Findings will show up here once the interpretation layer emits
+                  them.
+                </p>
               </div>
             )}
           </div>

@@ -235,7 +235,7 @@ test.describe("WG-042 beta flow", () => {
     });
     await page.goto(alertsHref);
 
-    await expect(page).toHaveURL(/\/alerts\?tracked=success/);
+    await expect(page).toHaveURL(/\/alerts\?.*tracked=success/);
     await expect(page.getByText("Wallet tracking active")).toBeVisible();
     await expect(page.getByText(/Watchlist .* and rule /i)).toBeVisible();
   });
@@ -275,13 +275,33 @@ test.describe("WG-042 beta flow", () => {
       customerId: "cus_e2e_account_plan",
     });
 
-    await page.goto("/account");
+    const accountResponse = await request.get(
+      `${apiBaseUrl}/v1/account/entitlements`,
+      {
+        headers: authHeaders,
+      },
+    );
+    await expect(accountResponse).toBeOK();
+    const accountPayload = await accountResponse.json();
+    expect(accountPayload.success).toBeTruthy();
+    expect(accountPayload.data.plan.tier).toBe("team");
+
+    await seedBrowserAuth(page);
+    await page.goto("/account?checkout=success&plan=team");
 
     await expect(
       page.getByRole("heading", { name: "Account & billing" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: /Current plan: Team/i }),
+      page.getByText("Checkout returned", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByText(
+        /refresh this account snapshot to confirm the Team plan once billing reconciliation completes\./i,
+      ),
+    ).toBeVisible();
+    await expect(page.locator(".detail-route-copy").first()).toContainText(
+      "GET /v1/account/entitlements",
+    );
   });
 });

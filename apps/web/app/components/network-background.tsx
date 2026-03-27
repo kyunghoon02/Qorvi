@@ -41,16 +41,16 @@ function ParticleNetwork() {
       const startPos = new THREE.Vector3(
         (Math.random() - 0.5) * 4,
         (Math.random() - 0.5) * 4,
-        (Math.random() - 0.5) * 4 - 2 // Offset backwards slightly less
+        (Math.random() - 0.5) * 4 - 2, // Offset backwards slightly less
       );
       const baseDir = new THREE.Vector3(
         Math.random() - 0.5,
         Math.random() - 0.5,
-        Math.random() - 0.5
+        Math.random() - 0.5,
       ).normalize();
 
       const coreColor = new THREE.Color(
-        palette[Math.floor(Math.random() * palette.length)]
+        palette[Math.floor(Math.random() * palette.length)],
       );
 
       // Root points
@@ -65,7 +65,9 @@ function ParticleNetwork() {
         dir.z += (Math.random() - 0.5) * 0.3;
         dir.normalize();
 
-        const col = coreColor.clone().offsetHSL((Math.random() - 0.5) * 0.1, 0, 0);
+        const col = coreColor
+          .clone()
+          .offsetHSL((Math.random() - 0.5) * 0.1, 0, 0);
         queue.push({
           pos: startPos.clone(),
           dir,
@@ -77,7 +79,11 @@ function ParticleNetwork() {
     }
 
     while (queue.length > 0) {
-      const { pos, dir, step, color, isMain } = queue.shift()!;
+      const strand = queue.shift();
+      if (!strand) {
+        continue;
+      }
+      const { pos, dir, step, color, isMain } = strand;
       if (step > maxSteps) continue;
 
       const length = 0.3 + Math.random() * 0.3;
@@ -107,7 +113,9 @@ function ParticleNetwork() {
         branchDir.z += (Math.random() - 0.5) * 0.8;
         branchDir.normalize();
 
-        const branchColor = color.clone().offsetHSL((Math.random() - 0.5) * 0.15, 0, 0);
+        const branchColor = color
+          .clone()
+          .offsetHSL((Math.random() - 0.5) * 0.15, 0, 0);
         queue.push({
           pos: nextPos.clone(),
           dir: branchDir,
@@ -127,8 +135,14 @@ function ParticleNetwork() {
     }
 
     const pGeo = new THREE.BufferGeometry();
-    pGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pArray), 3));
-    pGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cArray), 3));
+    pGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(pArray), 3),
+    );
+    pGeo.setAttribute(
+      "color",
+      new THREE.BufferAttribute(new Float32Array(cArray), 3),
+    );
 
     const lGeo = new THREE.BufferGeometry();
     if (linePositions.length > 0) {

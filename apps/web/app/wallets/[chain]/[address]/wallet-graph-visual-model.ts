@@ -176,7 +176,10 @@ export function buildWalletGraphVisualModel({
   }
 
   // Custom Force-Directed Physics Simulation (Static)
-  const simulatedPositions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
+  const simulatedPositions = new Map<
+    string,
+    { x: number; y: number; vx: number; vy: number }
+  >();
 
   sideNodes.forEach((node, index) => {
     const lane = index % 5;
@@ -194,7 +197,12 @@ export function buildWalletGraphVisualModel({
   });
 
   if (primaryNode) {
-    simulatedPositions.set(primaryNode.id, { x: primaryX, y: primaryY, vx: 0, vy: 0 });
+    simulatedPositions.set(primaryNode.id, {
+      x: primaryX,
+      y: primaryY,
+      vx: 0,
+      vy: 0,
+    });
   }
 
   // Settings
@@ -211,8 +219,13 @@ export function buildWalletGraphVisualModel({
     // Apply Repulsion
     for (let i = 0; i < simNodes.length; i++) {
       for (let j = i + 1; j < simNodes.length; j++) {
-        const [idA, a] = simNodes[i]!;
-        const [idB, b] = simNodes[j]!;
+        const entryA = simNodes[i];
+        const entryB = simNodes[j];
+        if (!entryA || !entryB) {
+          continue;
+        }
+        const [idA, a] = entryA;
+        const [idB, b] = entryB;
 
         const dx = a.x - b.x;
         const dy = a.y - b.y;
@@ -238,7 +251,7 @@ export function buildWalletGraphVisualModel({
     }
 
     // Apply Springs
-    edges.forEach((edge) => {
+    for (const edge of edges) {
       const source = simulatedPositions.get(edge.sourceId);
       const target = simulatedPositions.get(edge.targetId);
       if (source && target) {
@@ -258,29 +271,32 @@ export function buildWalletGraphVisualModel({
           target.vy -= fy;
         }
       }
-    });
+    }
 
     // Apply Gravity/Center
-    simNodes.forEach(([id, p]) => {
+    for (const [id, p] of simNodes) {
       if (id !== primaryNode?.id) {
         p.vx -= (p.x - centerX) * CENTER_FORCE;
         p.vy -= (p.y - centerY) * CENTER_FORCE;
       }
-    });
+    }
 
     // Integration
-    simNodes.forEach(([id, p]) => {
+    for (const [id, p] of simNodes) {
       if (id !== primaryNode?.id) {
         p.vx *= DAMPING;
         p.vy *= DAMPING;
         p.x += p.vx;
         p.y += p.vy;
       }
-    });
+    }
   }
 
-  sideNodes.forEach((node) => {
-    const pos = simulatedPositions.get(node.id)!;
+  for (const node of sideNodes) {
+    const pos = simulatedPositions.get(node.id);
+    if (!pos) {
+      continue;
+    }
     const w = nodeCardWidth(node);
     const h = nodeCardHeight(node);
     const column = pos.x < centerX ? "left" : "right";
@@ -298,7 +314,7 @@ export function buildWalletGraphVisualModel({
       isPrimary: false,
       column,
     });
-  });
+  }
 
   const orderedNodeViewModels = nodes
     .map((node) => nodeViewModels.get(node.id))

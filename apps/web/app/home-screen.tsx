@@ -162,10 +162,9 @@ export function buildHomeFindingsFeedItems(
       title: `${topCounterparty.directionLabel} counterparty`,
       findingTypeLabel: "Counterparty evidence",
       summary: `${compactAddress(topCounterparty.address)} has ${topCounterparty.interactionCount} indexed interactions and ${topCounterparty.primaryToken} is the dominant token.`,
-      evidenceLabel:
-        topCounterparty.latestActivityAt
-          ? `${topCounterparty.interactionCount} indexed interactions · latest activity ${topCounterparty.latestActivityAt.slice(0, 10)}`
-          : `${topCounterparty.interactionCount} indexed interactions`,
+      evidenceLabel: topCounterparty.latestActivityAt
+        ? `${topCounterparty.interactionCount} indexed interactions · latest activity ${topCounterparty.latestActivityAt.slice(0, 10)}`
+        : `${topCounterparty.interactionCount} indexed interactions`,
       nextWatchLabel: topCounterparty.entityLabel
         ? `Open ${topCounterparty.entityLabel}`
         : `Watch ${compactAddress(topCounterparty.address)}`,
@@ -194,7 +193,8 @@ export function buildHomeFindingsFeedItems(
           : topCounterparty.interactionCount >= 3
             ? 0.68
             : 0.5,
-      subjectLabel: topCounterparty.entityLabel || compactAddress(topCounterparty.address),
+      subjectLabel:
+        topCounterparty.entityLabel || compactAddress(topCounterparty.address),
       subjectHref: topCounterparty.entityLabel
         ? buildProductSearchHref(topCounterparty.entityLabel)
         : buildWalletDetailHref({
@@ -202,7 +202,8 @@ export function buildHomeFindingsFeedItems(
             address: topCounterparty.address,
           }),
       subjectTypeLabel: topCounterparty.entityLabel ? "Entity" : "Wallet",
-      badgeTone: topCounterparty.directionLabel === "inbound" ? "violet" : "teal",
+      badgeTone:
+        topCounterparty.directionLabel === "inbound" ? "violet" : "teal",
     });
   }
 
@@ -270,11 +271,10 @@ export function HomeScreen({
     );
   }, [graphPreview.nodes, selectedNodeId]);
   const hoveredNode = useMemo(() => {
-    return (
-      graphPreview.nodes.find((node) => node.id === hoveredNodeId) ?? null
-    );
+    return graphPreview.nodes.find((node) => node.id === hoveredNodeId) ?? null;
   }, [graphPreview.nodes, hoveredNodeId]);
-  const activeNode = hoveredNode ?? selectedNode ?? graphPreview.nodes[0] ?? null;
+  const activeNode =
+    hoveredNode ?? selectedNode ?? graphPreview.nodes[0] ?? null;
   const [isRefreshingWalletPreview, setIsRefreshingWalletPreview] =
     useState(false);
   const walletRequestForDetail =
@@ -534,7 +534,10 @@ export function HomeScreen({
         setGraphPreview((current) =>
           mergeHomeGraphPreviews(current, nextGraph),
         );
-        setExpandedGraphNeighborhoodKeys((current) => [...current, expansionKey]);
+        setExpandedGraphNeighborhoodKeys((current) => [
+          ...current,
+          expansionKey,
+        ]);
       } finally {
         setExpandingNodeId(null);
       }
@@ -678,11 +681,15 @@ export function HomeScreen({
                       fontSize: "0.85rem",
                     }}
                   >
-                    AI findings and signal interpretations from the current indexed coverage.
+                    AI findings and signal interpretations from the current
+                    indexed coverage.
                   </p>
                 </div>
               </div>
-              <div className="home-counterparty-stack" style={{ marginTop: 16 }}>
+              <div
+                className="home-counterparty-stack"
+                style={{ marginTop: 16 }}
+              >
                 {findingsFeedItems.map((item) => (
                   <div key={item.id} className="home-counterparty-card">
                     <div>
@@ -695,7 +702,14 @@ export function HomeScreen({
                         {item.subjectTypeLabel} · {item.subjectLabel}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        justifyContent: "flex-end",
+                      }}
+                    >
                       <Badge tone={item.badgeTone}>
                         {Math.round(item.importance * 100)} importance
                       </Badge>
@@ -703,7 +717,10 @@ export function HomeScreen({
                         {Math.round(item.confidence * 100)} confidence
                       </Badge>
                       {item.subjectHref ? (
-                        <a className="search-cta home-inline-refresh" href={item.subjectHref}>
+                        <a
+                          className="search-cta home-inline-refresh"
+                          href={item.subjectHref}
+                        >
                           Open
                         </a>
                       ) : null}
@@ -1174,7 +1191,9 @@ export function mergeHomeGraphPreviews(
     depthResolved: Math.max(current.depthResolved, expansion.depthResolved),
     densityCapped: current.densityCapped || expansion.densityCapped,
     statusMessage:
-      expansion.mode === "live" ? expansion.statusMessage : current.statusMessage,
+      expansion.mode === "live"
+        ? expansion.statusMessage
+        : current.statusMessage,
     neighborhoodSummary: {
       neighborNodeCount: Math.max(mergedNodes.length - 1, 0),
       walletNodeCount: mergedNodes.filter((node) => node.kind === "wallet")
@@ -1221,8 +1240,10 @@ function rebaseExpandedGraphRootNode(
     ),
     edges: graph.edges.map((edge) => ({
       ...edge,
-      sourceId: edge.sourceId === "wallet_root" ? nextRootNodeId : edge.sourceId,
-      targetId: edge.targetId === "wallet_root" ? nextRootNodeId : edge.targetId,
+      sourceId:
+        edge.sourceId === "wallet_root" ? nextRootNodeId : edge.sourceId,
+      targetId:
+        edge.targetId === "wallet_root" ? nextRootNodeId : edge.targetId,
     })),
   };
 }
@@ -1347,7 +1368,11 @@ function resolveFindingNextWatchHref(item: FindingPreview): string | null {
     return resolveFindingSubjectHref(item);
   }
 
-  if (nextWatch.subjectType === "wallet" && nextWatch.chain && nextWatch.address) {
+  if (
+    nextWatch.subjectType === "wallet" &&
+    nextWatch.chain &&
+    nextWatch.address
+  ) {
     return buildWalletDetailHref({
       chain: nextWatch.chain as "evm" | "solana",
       address: nextWatch.address,

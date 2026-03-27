@@ -587,6 +587,7 @@ export function WalletGraphVisual({
               linkDirectionalArrowColor={(link) =>
                 resolveWalletGraphArrowColor(
                   link,
+                  selectedNodeId,
                   selectedEdgeId,
                   hoveredLinkId,
                 )
@@ -594,16 +595,23 @@ export function WalletGraphVisual({
               linkDirectionalParticles={(link) =>
                 link.id === selectedEdgeId
                   ? 2
-                  : link.confidence === "high"
+                  : isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)
                     ? 1
-                    : 0
+                    : link.confidence === "high"
+                      ? 1
+                      : 0
               }
               linkDirectionalParticleWidth={(link) =>
-                link.id === selectedEdgeId ? 2.8 : 1.6
+                link.id === selectedEdgeId
+                  ? 2.8
+                  : isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)
+                    ? 2.1
+                    : 1.6
               }
               linkDirectionalParticleColor={(link) =>
                 resolveWalletGraphParticleColor(
                   link,
+                  selectedNodeId,
                   selectedEdgeId,
                   hoveredLinkId,
                 )
@@ -614,6 +622,7 @@ export function WalletGraphVisual({
                   node,
                   context,
                   globalScale,
+                  variant,
                   primaryNodeId,
                   selectedNodeId,
                   hoveredNodeId,
@@ -712,6 +721,7 @@ function drawWalletGraphNodeCapsule(
   node: WalletForceGraphNode,
   context: CanvasRenderingContext2D,
   globalScale: number,
+  variant: WalletGraphVisualProps["variant"],
   primaryNodeId: string | null,
   selectedNodeId: string | null,
   hoveredNodeId: string | null,
@@ -719,56 +729,94 @@ function drawWalletGraphNodeCapsule(
   const isPrimary = node.id === primaryNodeId || node.isPrimary;
   const isSelected = node.id === selectedNodeId;
   const isHovered = node.id === hoveredNodeId;
-  const showMeta = isPrimary || isSelected || isHovered;
+  const showMeta =
+    variant !== "compact" || isPrimary || isSelected || isHovered;
   const label = buildWalletGraphNodeTitle(node, showMeta);
   const subtitle = buildWalletGraphNodeMeta(node);
   const kicker = buildWalletGraphNodeKicker(node, isPrimary);
-  const palette = resolveWalletGraphNodePalette(node, isPrimary, isSelected);
-  const badgeFontSize = 7.5 / globalScale;
-  const kickerFontSize = 7.2 / globalScale;
-  const titleFontSize =
-    (isPrimary ? 12.8 : isSelected ? 12.2 : 11.1) / globalScale;
-  const subtitleFontSize = 8.3 / globalScale;
-  const dotSize = 4 / globalScale;
-  const contentPaddingX = (showMeta ? (isPrimary ? 14 : 12) : 10) / globalScale;
-  const contentPaddingY = (showMeta ? (isPrimary ? 11 : 10) : 8) / globalScale;
-  const badgePaddingX = 7 / globalScale;
-  const badgeHeight = 15 / globalScale;
+  const iconGlyph = buildWalletGraphNodeIconGlyph(node, isPrimary);
+  const chips = buildWalletGraphNodeTags(node, isPrimary);
+  const palette = resolveWalletGraphNodePalette(
+    node,
+    isPrimary,
+    isSelected,
+    isHovered,
+  );
+  const titleFontSize = (isPrimary ? 12.4 : 11.1) / globalScale;
+  const subtitleFontSize = 7.8 / globalScale;
+  const chipFontSize = 6.7 / globalScale;
+  const kickerFontSize = 6.2 / globalScale;
+  const contentPaddingX = (showMeta ? 13 : 10) / globalScale;
+  const contentPaddingY = (showMeta ? 12 : 8) / globalScale;
+  const iconSize = (showMeta ? 24 : 16) / globalScale;
   const lineGap = (showMeta ? 6 : 0) / globalScale;
+  const chipGap = 5 / globalScale;
+  const chipPaddingX = 6 / globalScale;
+  const chipHeight = 13 / globalScale;
+  const statusDotSize = 4.5 / globalScale;
 
   context.save();
-  context.font = `700 ${badgeFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
-  const badgeText = node.kindLabel.toUpperCase();
-  const badgeTextWidth = context.measureText(badgeText).width;
-  const badgeWidth = badgeTextWidth + badgePaddingX * 2;
-  context.font = `700 ${kickerFontSize}px ui-monospace, "SFMono-Regular", monospace`;
-  const kickerWidth = context.measureText(kicker).width;
-
   context.font = `700 ${titleFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
   const titleWidth = context.measureText(String(label)).width;
   context.font = `500 ${subtitleFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
   const subtitleWidth = context.measureText(subtitle).width;
+  context.font = `700 ${kickerFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
+  const kickerWidth = context.measureText(kicker).width;
+  context.font = `700 ${chipFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
+  const chipWidths = chips.map(
+    (chip) => context.measureText(chip).width + chipPaddingX * 2,
+  );
+  const chipRowWidth =
+    chipWidths.reduce((sum, width) => sum + width, 0) +
+    Math.max(0, chipWidths.length - 1) * chipGap;
 
   const textBlockWidth = showMeta
-    ? Math.max(titleWidth, subtitleWidth + dotSize + 8 / globalScale)
+    ? Math.max(titleWidth, subtitleWidth, kickerWidth, chipRowWidth)
     : titleWidth;
   const width = Math.max(
-    (showMeta ? 148 : 108) / globalScale,
+    (showMeta ? (isPrimary ? 138 : 126) : 108) / globalScale,
     textBlockWidth + contentPaddingX * 2,
-    showMeta
-      ? badgeWidth + kickerWidth + contentPaddingX * 2 + 14 / globalScale
-      : 0,
   );
   const height = showMeta
-    ? badgeHeight +
+    ? iconSize +
+      kickerFontSize +
       titleFontSize +
       subtitleFontSize +
+      chipHeight +
       contentPaddingY * 2 +
-      lineGap * 2
+      lineGap * 4 +
+      14 / globalScale
     : titleFontSize + contentPaddingY * 2 + 4 / globalScale;
   const radius = (showMeta ? 16 : 14) / globalScale;
   const x = (node.x ?? 0) - width / 2;
   const y = (node.y ?? 0) - height / 2;
+
+  if (isSelected || isHovered || isPrimary) {
+    context.beginPath();
+    if ("roundRect" in context) {
+      context.roundRect(
+        x - 4 / globalScale,
+        y - 4 / globalScale,
+        width + 8 / globalScale,
+        height + 8 / globalScale,
+        radius + 4 / globalScale,
+      );
+    } else {
+      drawRoundedRectPath(
+        context,
+        x - 4 / globalScale,
+        y - 4 / globalScale,
+        width + 8 / globalScale,
+        height + 8 / globalScale,
+        radius + 4 / globalScale,
+      );
+    }
+    context.shadowColor = palette.glow;
+    context.shadowBlur = isSelected ? 34 : isPrimary ? 28 : 22;
+    context.fillStyle = palette.outerGlowFill;
+    context.fill();
+    context.shadowBlur = 0;
+  }
 
   context.beginPath();
   if ("roundRect" in context) {
@@ -778,7 +826,7 @@ function drawWalletGraphNodeCapsule(
   }
 
   context.shadowColor = palette.glow;
-  context.shadowBlur = isSelected ? 26 : isHovered ? 22 : 18;
+  context.shadowBlur = isSelected ? 28 : isHovered ? 24 : 18;
   context.fillStyle = palette.base;
   context.fill();
 
@@ -789,7 +837,7 @@ function drawWalletGraphNodeCapsule(
         x + 1 / globalScale,
         y + 1 / globalScale,
         width - 2 / globalScale,
-        height * 0.52,
+        iconSize + contentPaddingY + 10 / globalScale,
         Math.max(16 / globalScale, radius - 4 / globalScale),
       );
     } else {
@@ -798,7 +846,7 @@ function drawWalletGraphNodeCapsule(
         x + 1 / globalScale,
         y + 1 / globalScale,
         width - 2 / globalScale,
-        height * 0.52,
+        iconSize + contentPaddingY + 10 / globalScale,
         Math.max(16 / globalScale, radius - 4 / globalScale),
       );
     }
@@ -829,81 +877,177 @@ function drawWalletGraphNodeCapsule(
   context.fill();
 
   context.shadowBlur = 0;
-  context.lineWidth = (isSelected ? 1.9 : isPrimary ? 1.7 : 1.1) / globalScale;
+  context.lineWidth = (isSelected ? 2 : isPrimary ? 1.8 : 1.1) / globalScale;
   context.strokeStyle = palette.stroke;
   context.stroke();
 
-  context.textAlign = "left";
-  context.textBaseline = "middle";
   if (showMeta) {
+    const iconContainerSize = iconSize + 6 / globalScale;
+    const iconX = x + width / 2 - iconContainerSize / 2;
+    const iconY = y + contentPaddingY - 1 / globalScale;
     context.beginPath();
     if ("roundRect" in context) {
       context.roundRect(
-        x + contentPaddingX,
-        y + contentPaddingY,
-        badgeWidth,
-        badgeHeight,
-        badgeHeight / 2,
+        iconX,
+        iconY,
+        iconContainerSize,
+        iconContainerSize,
+        9 / globalScale,
       );
     } else {
       drawRoundedRectPath(
         context,
-        x + contentPaddingX,
-        y + contentPaddingY,
-        badgeWidth,
-        badgeHeight,
-        badgeHeight / 2,
+        iconX,
+        iconY,
+        iconContainerSize,
+        iconContainerSize,
+        9 / globalScale,
+      );
+    }
+    context.fillStyle = palette.iconPlateFill;
+    context.fill();
+    context.lineWidth = 1 / globalScale;
+    context.strokeStyle = palette.iconPlateStroke;
+    context.stroke();
+
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.beginPath();
+    if ("roundRect" in context) {
+      context.roundRect(
+        x + width / 2 - iconSize / 2,
+        y + contentPaddingY + 3 / globalScale,
+        iconSize,
+        iconSize,
+        7 / globalScale,
+      );
+    } else {
+      drawRoundedRectPath(
+        context,
+        x + width / 2 - iconSize / 2,
+        y + contentPaddingY + 3 / globalScale,
+        iconSize,
+        iconSize,
+        7 / globalScale,
       );
     }
     context.fillStyle = palette.badgeFill;
     context.fill();
-    context.lineWidth = 0.75 / globalScale;
+    context.lineWidth = 0.9 / globalScale;
     context.strokeStyle = palette.badgeStroke;
     context.stroke();
 
-    context.font = `700 ${badgeFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
-    context.fillStyle = palette.badgeText;
-    context.fillText(
-      badgeText,
-      x + contentPaddingX + badgePaddingX,
-      y + contentPaddingY + badgeHeight / 2,
-    );
+    drawWalletGraphNodeIconMark({
+      context,
+      globalScale,
+      glyph: iconGlyph,
+      centerX: x + width / 2,
+      centerY: y + contentPaddingY + 3 / globalScale + iconSize / 2,
+      color: palette.badgeText,
+    });
 
-    context.textAlign = "right";
-    context.font = `700 ${kickerFontSize}px ui-monospace, "SFMono-Regular", monospace`;
-    context.fillStyle = palette.kicker;
-    context.fillText(
-      kicker,
+    context.beginPath();
+    context.arc(
       x + width - contentPaddingX,
-      y + contentPaddingY + badgeHeight / 2,
+      y + contentPaddingY + statusDotSize,
+      statusDotSize,
+      0,
+      Math.PI * 2,
     );
+    context.fillStyle = palette.dot;
+    context.fill();
+
+    const kickerY =
+      y + contentPaddingY + iconContainerSize + lineGap + kickerFontSize * 0.5;
+    context.font = `700 ${kickerFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
+    context.fillStyle = palette.kicker;
+    context.fillText(kicker, x + width / 2, kickerY);
   }
 
-  context.textAlign = "left";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
   const titleY = showMeta
-    ? y + contentPaddingY + badgeHeight + lineGap + titleFontSize * 0.5
+    ? y +
+      contentPaddingY +
+      iconSize +
+      10 / globalScale +
+      lineGap * 2 +
+      kickerFontSize +
+      titleFontSize * 0.5
     : y + height / 2;
   context.font = `700 ${titleFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
   context.fillStyle = "#f9fbff";
-  context.fillText(String(label), x + contentPaddingX, titleY);
+  context.fillText(String(label), x + width / 2, titleY);
 
   if (showMeta) {
     const subtitleY =
       y +
       contentPaddingY +
-      badgeHeight +
-      lineGap * 2 +
+      iconSize +
+      10 / globalScale +
+      lineGap * 3 +
+      kickerFontSize +
       titleFontSize +
       subtitleFontSize * 0.45;
-    const dotX = x + contentPaddingX + dotSize / 2;
-    context.beginPath();
-    context.arc(dotX, subtitleY, dotSize / 2, 0, Math.PI * 2);
-    context.fillStyle = palette.dot;
-    context.fill();
-
     context.font = `500 ${subtitleFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
     context.fillStyle = "rgba(228, 235, 245, 0.72)";
-    context.fillText(subtitle, dotX + dotSize + 6 / globalScale, subtitleY);
+    context.fillText(subtitle, x + width / 2, subtitleY);
+
+    const separatorY = subtitleY + subtitleFontSize * 0.95 + 4 / globalScale;
+    context.beginPath();
+    context.moveTo(x + contentPaddingX + 6 / globalScale, separatorY);
+    context.lineTo(x + width - contentPaddingX - 6 / globalScale, separatorY);
+    context.lineWidth = 0.8 / globalScale;
+    context.strokeStyle = palette.separator;
+    context.stroke();
+
+    if (chips.length > 0) {
+      let chipStartX = x + width / 2 - chipRowWidth / 2;
+      const chipY = separatorY + lineGap + chipHeight / 2 + 3 / globalScale;
+
+      context.font = `700 ${chipFontSize}px "Avenir Next", "Segoe UI", sans-serif`;
+      for (let index = 0; index < chips.length; index += 1) {
+        const chip = chips[index];
+        if (!chip) {
+          continue;
+        }
+        const chipWidth = chipWidths[index] ?? 0;
+        context.beginPath();
+        if ("roundRect" in context) {
+          context.roundRect(
+            chipStartX,
+            chipY - chipHeight / 2,
+            chipWidth,
+            chipHeight,
+            chipHeight / 2,
+          );
+        } else {
+          drawRoundedRectPath(
+            context,
+            chipStartX,
+            chipY - chipHeight / 2,
+            chipWidth,
+            chipHeight,
+            chipHeight / 2,
+          );
+        }
+        const isLeadingChip = index === 0;
+        context.fillStyle = isLeadingChip
+          ? palette.chipFillStrong
+          : palette.chipFillMuted;
+        context.fill();
+        context.lineWidth = 0.8 / globalScale;
+        context.strokeStyle = isLeadingChip
+          ? palette.chipStrokeStrong
+          : palette.chipStrokeMuted;
+        context.stroke();
+        context.fillStyle = isLeadingChip
+          ? palette.chipTextStrong
+          : palette.chipTextMuted;
+        context.fillText(chip, chipStartX + chipWidth / 2, chipY);
+        chipStartX += chipWidth + chipGap;
+      }
+    }
   }
 
   if (node.expandable) {
@@ -982,13 +1126,15 @@ function drawWalletGraphExpandButton(
 
   context.beginPath();
   context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  context.fillStyle = node.expanding ? "rgba(255, 255, 255, 0.16)" : "#08131d";
+  context.fillStyle = node.expanding
+    ? palette.iconPlateFill
+    : "rgba(7, 13, 21, 0.96)";
   context.fill();
   context.lineWidth = 1 / globalScale;
-  context.strokeStyle = palette.stroke;
+  context.strokeStyle = palette.iconPlateStroke;
   context.stroke();
 
-  context.strokeStyle = "#f9fbff";
+  context.strokeStyle = palette.badgeText;
   context.lineCap = "round";
   context.lineWidth = 1.6 / globalScale;
   context.beginPath();
@@ -1073,8 +1219,8 @@ function resolveWalletGraphLinkColor(
 
   if (isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)) {
     return link.family === "derived"
-      ? "rgba(226, 150, 182, 0.66)"
-      : "rgba(126, 176, 212, 0.72)";
+      ? "rgba(247, 182, 210, 0.86)"
+      : "rgba(163, 212, 255, 0.92)";
   }
 
   return link.family === "derived"
@@ -1097,7 +1243,7 @@ function resolveWalletGraphLinkWidth(
   }
 
   if (isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)) {
-    return Math.max(1.8, link.strokeWidth + 0.4);
+    return Math.max(2.2, link.strokeWidth + 0.75);
   }
 
   return Math.max(1.1, link.strokeWidth);
@@ -1105,6 +1251,7 @@ function resolveWalletGraphLinkWidth(
 
 function resolveWalletGraphArrowColor(
   link: WalletForceGraphLink,
+  selectedNodeId: string | null,
   selectedEdgeId: string | null,
   hoveredLinkId: string | null,
 ): string {
@@ -1116,11 +1263,16 @@ function resolveWalletGraphArrowColor(
     return "#d8ecff";
   }
 
+  if (isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)) {
+    return link.family === "derived" ? "#ffd0e3" : "#dff2ff";
+  }
+
   return link.family === "derived" ? "#d99ab8" : "#a7d0f3";
 }
 
 function resolveWalletGraphParticleColor(
   link: WalletForceGraphLink,
+  selectedNodeId: string | null,
   selectedEdgeId: string | null,
   hoveredLinkId: string | null,
 ): string {
@@ -1130,6 +1282,12 @@ function resolveWalletGraphParticleColor(
 
   if (link.id === hoveredLinkId) {
     return "rgba(216, 236, 255, 0.86)";
+  }
+
+  if (isWalletForceGraphLinkConnectedToNode(link, selectedNodeId)) {
+    return link.family === "derived"
+      ? "rgba(255, 214, 231, 0.9)"
+      : "rgba(224, 245, 255, 0.9)";
   }
 
   return link.family === "derived"
@@ -1392,11 +1550,10 @@ function createWalletGraphCollisionForce(padding: number) {
 
 function buildWalletGraphNodeMeta(node: WalletForceGraphNode): string {
   if (node.kind === "wallet") {
-    const chain = node.chain?.toUpperCase() ?? "CHAIN";
     const address = node.address
-      ? shortenAddress(node.address)
+      ? shortenAddress(node.address, 6, 4)
       : "Unresolved wallet";
-    return `${chain} wallet · ${address}`;
+    return address;
   }
 
   if (node.kind === "cluster") {
@@ -1427,12 +1584,12 @@ function estimateWalletGraphNodeCardMetrics(node: WalletForceGraphNode): {
   width: number;
   height: number;
 } {
-  const label = buildWalletGraphNodeTitle(node, false);
-  const estimatedTitleWidth = label.length * (node.isPrimary ? 9.1 : 8.1);
+  const label = buildWalletGraphNodeTitle(node, true);
+  const estimatedTitleWidth = label.length * (node.isPrimary ? 8.4 : 7.8);
 
   return {
-    width: Math.max(108, estimatedTitleWidth + 20),
-    height: 30,
+    width: Math.max(126, estimatedTitleWidth + 28),
+    height: 88,
   };
 }
 
@@ -1445,7 +1602,7 @@ function buildWalletGraphNodeTitle(
   if (node.kind === "wallet") {
     const address = node.address?.trim();
     const visibleStart = expanded ? 7 : 5;
-    const visibleEnd = expanded ? 5 : 3;
+    const visibleEnd = expanded ? 5 : 4;
 
     if (address) {
       return buildWalletAddressTitle(node, address, visibleStart, visibleEnd);
@@ -1496,11 +1653,340 @@ function buildWalletAddressTitle(
   visibleEnd: number,
 ): string {
   const shortAddress = shortenAddress(address, visibleStart, visibleEnd);
-  const chainLabel = formatWalletChainLabel(node.chain);
+  const normalizedLabel = node.label?.trim();
+  if (normalizedLabel && !looksLikeWalletAddress(normalizedLabel)) {
+    return truncateCanvasText(normalizedLabel, 20);
+  }
+  return shortAddress;
+}
 
-  return chainLabel
-    ? `${chainLabel} Wallet ${shortAddress}`
-    : `Wallet ${shortAddress}`;
+function buildWalletGraphNodeTags(
+  node: WalletForceGraphNode,
+  isPrimary: boolean,
+): string[] {
+  const tags: string[] = [];
+
+  if (node.chain) {
+    tags.push(formatWalletChainLabel(node.chain) ?? "CHAIN");
+  }
+
+  if (isPrimary) {
+    tags.push("Focus");
+    if (node.expandable) {
+      tags.push("Trace");
+    }
+    return tags;
+  }
+
+  if (node.kind === "wallet") {
+    tags.push(node.expandable ? "Expand" : "Wallet");
+    return tags;
+  }
+
+  if (node.kind === "cluster") {
+    tags.push("Cohort");
+    return tags;
+  }
+
+  if (node.kind === "entity") {
+    const entityTypeTag = buildWalletGraphEntityTypeTag(node);
+    if (entityTypeTag) {
+      tags.push(entityTypeTag);
+    }
+    tags.push("Entity");
+    return tags;
+  }
+
+  tags.push("Observed");
+  return tags;
+}
+
+function buildWalletGraphNodeIconGlyph(
+  node: WalletForceGraphNode,
+  isPrimary: boolean,
+): string {
+  if (isPrimary) {
+    return "F";
+  }
+
+  if (node.kind === "cluster") {
+    return "C";
+  }
+
+  if (node.kind === "entity") {
+    return buildWalletGraphEntityIconGlyph(node);
+  }
+
+  return "W";
+}
+
+function buildWalletGraphEntityIconGlyph(node: WalletForceGraphNode): string {
+  const text = `${node.label ?? ""} ${node.subtitle ?? ""}`.toLowerCase();
+
+  if (
+    text.includes("exchange") ||
+    text.includes("binance") ||
+    text.includes("coinbase") ||
+    text.includes("upbit") ||
+    text.includes("bithumb") ||
+    text.includes("bittrex") ||
+    text.includes("korbit") ||
+    text.includes("poloniex") ||
+    text.includes("okx") ||
+    text.includes("kraken")
+  ) {
+    return "EX";
+  }
+
+  if (
+    text.includes("bridge") ||
+    text.includes("wormhole") ||
+    text.includes("layerzero") ||
+    text.includes("stargate") ||
+    text.includes("portal")
+  ) {
+    return "BR";
+  }
+
+  if (
+    text.includes("market maker") ||
+    text.includes("wintermute") ||
+    text.includes("mm ")
+  ) {
+    return "MM";
+  }
+
+  if (
+    text.includes("venture") ||
+    text.includes("capital") ||
+    text.includes("fund") ||
+    text.includes("vc")
+  ) {
+    return "VC";
+  }
+
+  if (text.includes("treasury")) {
+    return "TR";
+  }
+
+  if (text.includes("protocol") || text.includes("router")) {
+    return "PT";
+  }
+
+  return "EN";
+}
+
+function buildWalletGraphEntityTypeTag(
+  node: WalletForceGraphNode,
+): string | null {
+  const glyph = buildWalletGraphEntityIconGlyph(node);
+
+  if (glyph === "EX") {
+    return "Exchange";
+  }
+  if (glyph === "BR") {
+    return "Bridge";
+  }
+  if (glyph === "MM") {
+    return "MM";
+  }
+  if (glyph === "VC") {
+    return "Fund";
+  }
+  if (glyph === "TR") {
+    return "Treasury";
+  }
+  if (glyph === "PT") {
+    return "Protocol";
+  }
+
+  return null;
+}
+
+function drawWalletGraphNodeIconMark({
+  context,
+  globalScale,
+  glyph,
+  centerX,
+  centerY,
+  color,
+}: {
+  context: CanvasRenderingContext2D;
+  globalScale: number;
+  glyph: string;
+  centerX: number;
+  centerY: number;
+  color: string;
+}) {
+  context.save();
+  context.translate(centerX, centerY);
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.lineWidth = 1.5 / globalScale;
+  context.lineJoin = "round";
+  context.lineCap = "round";
+
+  switch (glyph) {
+    case "EX": {
+      const width = 8 / globalScale;
+      const gap = 2.2 / globalScale;
+      const heights = [9, 12, 7];
+      for (let index = 0; index < heights.length; index += 1) {
+        const barHeight = (heights[index] ?? 0) / globalScale;
+        const x = (index - 1) * gap - width / 2;
+        const y = -barHeight / 2;
+        context.beginPath();
+        if ("roundRect" in context) {
+          context.roundRect(x, y, width, barHeight, 2 / globalScale);
+        } else {
+          drawRoundedRectPath(context, x, y, width, barHeight, 2 / globalScale);
+        }
+        context.fill();
+      }
+      break;
+    }
+    case "BR": {
+      context.beginPath();
+      context.arc(
+        -3 / globalScale,
+        0,
+        4.2 / globalScale,
+        Math.PI * 0.1,
+        Math.PI * 1.6,
+      );
+      context.stroke();
+      context.beginPath();
+      context.arc(
+        3 / globalScale,
+        0,
+        4.2 / globalScale,
+        Math.PI * 1.1,
+        Math.PI * 2.6,
+      );
+      context.stroke();
+      break;
+    }
+    case "MM": {
+      context.beginPath();
+      context.moveTo(-7 / globalScale, 4 / globalScale);
+      context.lineTo(-2 / globalScale, -4 / globalScale);
+      context.lineTo(1 / globalScale, 2 / globalScale);
+      context.lineTo(6 / globalScale, -4 / globalScale);
+      context.stroke();
+      break;
+    }
+    case "VC": {
+      context.beginPath();
+      context.moveTo(0, -6 / globalScale);
+      context.lineTo(5 / globalScale, 0);
+      context.lineTo(0, 6 / globalScale);
+      context.lineTo(-5 / globalScale, 0);
+      context.closePath();
+      context.stroke();
+      break;
+    }
+    case "TR": {
+      context.beginPath();
+      if ("roundRect" in context) {
+        context.roundRect(
+          -6 / globalScale,
+          -4 / globalScale,
+          12 / globalScale,
+          9 / globalScale,
+          2 / globalScale,
+        );
+      } else {
+        drawRoundedRectPath(
+          context,
+          -6 / globalScale,
+          -4 / globalScale,
+          12 / globalScale,
+          9 / globalScale,
+          2 / globalScale,
+        );
+      }
+      context.stroke();
+      context.beginPath();
+      context.arc(0, 0.5 / globalScale, 1.6 / globalScale, 0, Math.PI * 2);
+      context.fill();
+      break;
+    }
+    case "PT": {
+      const radius = 5.5 / globalScale;
+      context.beginPath();
+      for (let index = 0; index < 6; index += 1) {
+        const angle = (Math.PI / 3) * index - Math.PI / 6;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (index === 0) {
+          context.moveTo(px, py);
+        } else {
+          context.lineTo(px, py);
+        }
+      }
+      context.closePath();
+      context.stroke();
+      break;
+    }
+    case "F": {
+      context.beginPath();
+      context.arc(0, 0, 5.2 / globalScale, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.arc(0, 0, 1.8 / globalScale, 0, Math.PI * 2);
+      context.fill();
+      break;
+    }
+    case "C": {
+      const points = [
+        [-4.5, -1.5],
+        [4.5, -1.5],
+        [0, 4.5],
+      ] as const;
+      context.beginPath();
+      context.moveTo(points[0][0] / globalScale, points[0][1] / globalScale);
+      context.lineTo(points[1][0] / globalScale, points[1][1] / globalScale);
+      context.lineTo(points[2][0] / globalScale, points[2][1] / globalScale);
+      context.closePath();
+      context.stroke();
+      for (const [px, py] of points) {
+        context.beginPath();
+        context.arc(
+          px / globalScale,
+          py / globalScale,
+          1.4 / globalScale,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+      }
+      break;
+    }
+    case "W": {
+      context.beginPath();
+      context.arc(0, -2 / globalScale, 3 / globalScale, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(-5 / globalScale, 5 / globalScale);
+      context.quadraticCurveTo(
+        0,
+        1 / globalScale,
+        5 / globalScale,
+        5 / globalScale,
+      );
+      context.stroke();
+      break;
+    }
+    default: {
+      context.font = `700 ${8.4 / globalScale}px "Avenir Next", "Segoe UI", sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(glyph, 0, 0);
+      break;
+    }
+  }
+
+  context.restore();
 }
 
 function formatWalletChainLabel(
@@ -1545,76 +2031,141 @@ function resolveWalletGraphNodePalette(
   node: WalletForceGraphNode,
   isPrimary: boolean,
   isSelected: boolean,
+  isHovered: boolean,
 ): {
   base: string;
   topSheen: string;
   stroke: string;
   glow: string;
+  outerGlowFill: string;
   badgeFill: string;
   badgeStroke: string;
   badgeText: string;
+  iconPlateFill: string;
+  iconPlateStroke: string;
   kicker: string;
   dot: string;
+  separator: string;
+  chipFillStrong: string;
+  chipStrokeStrong: string;
+  chipTextStrong: string;
+  chipFillMuted: string;
+  chipStrokeMuted: string;
+  chipTextMuted: string;
 } {
   if (isPrimary) {
     return {
-      base: "rgba(40, 27, 31, 0.94)",
-      topSheen: "rgba(214, 172, 165, 0.12)",
+      base: "rgba(22, 25, 33, 0.96)",
+      topSheen: "rgba(181, 63, 63, 0.16)",
       stroke: isSelected
-        ? "rgba(233, 211, 205, 0.98)"
-        : "rgba(181, 135, 127, 0.88)",
-      glow: "rgba(125, 88, 82, 0.26)",
-      badgeFill: "rgba(181, 135, 127, 0.16)",
-      badgeStroke: "rgba(207, 176, 170, 0.34)",
-      badgeText: "rgba(245, 232, 228, 0.96)",
-      kicker: "rgba(231, 213, 208, 0.74)",
-      dot: "rgba(212, 184, 177, 0.9)",
+        ? "rgba(255, 111, 111, 0.98)"
+        : "rgba(219, 84, 84, 0.88)",
+      glow: "rgba(177, 51, 51, 0.34)",
+      outerGlowFill: isSelected
+        ? "rgba(168, 40, 40, 0.15)"
+        : "rgba(122, 35, 35, 0.1)",
+      badgeFill: "rgba(118, 128, 147, 0.18)",
+      badgeStroke: "rgba(245, 92, 92, 0.38)",
+      badgeText: "rgba(255, 239, 239, 0.98)",
+      iconPlateFill: "rgba(92, 32, 32, 0.28)",
+      iconPlateStroke: "rgba(244, 97, 97, 0.34)",
+      kicker: "rgba(246, 214, 214, 0.74)",
+      dot: "rgba(255, 102, 102, 0.94)",
+      separator: "rgba(255, 255, 255, 0.08)",
+      chipFillStrong: "rgba(115, 31, 31, 0.42)",
+      chipStrokeStrong: "rgba(234, 92, 92, 0.38)",
+      chipTextStrong: "rgba(255, 236, 236, 0.96)",
+      chipFillMuted: "rgba(71, 46, 46, 0.34)",
+      chipStrokeMuted: "rgba(165, 115, 115, 0.24)",
+      chipTextMuted: "rgba(236, 223, 223, 0.82)",
     };
   }
 
   if (node.kind === "cluster") {
     return {
-      base: "rgba(25, 29, 39, 0.92)",
-      topSheen: "rgba(145, 156, 178, 0.12)",
+      base: "rgba(24, 28, 36, 0.94)",
+      topSheen: "rgba(143, 154, 179, 0.1)",
       stroke: isSelected
-        ? "rgba(199, 207, 222, 0.94)"
-        : "rgba(126, 138, 161, 0.76)",
-      glow: "rgba(85, 97, 122, 0.22)",
-      badgeFill: "rgba(126, 138, 161, 0.15)",
-      badgeStroke: "rgba(166, 176, 195, 0.3)",
-      badgeText: "rgba(231, 236, 244, 0.96)",
+        ? "rgba(221, 228, 240, 0.94)"
+        : "rgba(125, 136, 156, 0.78)",
+      glow: isHovered ? "rgba(100, 114, 148, 0.28)" : "rgba(82, 95, 122, 0.24)",
+      outerGlowFill: isSelected
+        ? "rgba(87, 100, 129, 0.14)"
+        : isHovered
+          ? "rgba(76, 88, 112, 0.1)"
+          : "rgba(58, 67, 89, 0.08)",
+      badgeFill: "rgba(90, 101, 123, 0.2)",
+      badgeStroke: "rgba(171, 182, 204, 0.28)",
+      badgeText: "rgba(237, 242, 249, 0.96)",
+      iconPlateFill: "rgba(53, 60, 79, 0.26)",
+      iconPlateStroke: "rgba(145, 160, 187, 0.28)",
       kicker: "rgba(207, 214, 226, 0.72)",
       dot: "rgba(177, 188, 207, 0.9)",
+      separator: "rgba(221, 228, 240, 0.08)",
+      chipFillStrong: "rgba(69, 78, 101, 0.42)",
+      chipStrokeStrong: "rgba(169, 182, 206, 0.28)",
+      chipTextStrong: "rgba(235, 241, 248, 0.95)",
+      chipFillMuted: "rgba(55, 61, 77, 0.34)",
+      chipStrokeMuted: "rgba(124, 138, 163, 0.22)",
+      chipTextMuted: "rgba(223, 230, 242, 0.8)",
     };
   }
 
   if (node.kind === "entity") {
     return {
-      base: "rgba(34, 31, 23, 0.9)",
-      topSheen: "rgba(185, 164, 125, 0.1)",
+      base: "rgba(31, 28, 20, 0.94)",
+      topSheen: "rgba(194, 164, 89, 0.12)",
       stroke: isSelected
-        ? "rgba(223, 212, 188, 0.95)"
-        : "rgba(156, 141, 109, 0.78)",
-      glow: "rgba(109, 98, 74, 0.2)",
-      badgeFill: "rgba(156, 141, 109, 0.15)",
-      badgeStroke: "rgba(189, 176, 146, 0.3)",
+        ? "rgba(232, 218, 184, 0.95)"
+        : "rgba(174, 150, 96, 0.8)",
+      glow: isHovered ? "rgba(153, 128, 70, 0.28)" : "rgba(135, 112, 58, 0.22)",
+      outerGlowFill: isSelected
+        ? "rgba(128, 102, 46, 0.16)"
+        : isHovered
+          ? "rgba(104, 84, 38, 0.12)"
+          : "rgba(86, 70, 29, 0.08)",
+      badgeFill: "rgba(114, 93, 48, 0.22)",
+      badgeStroke: "rgba(196, 176, 129, 0.32)",
       badgeText: "rgba(241, 236, 222, 0.96)",
+      iconPlateFill: "rgba(89, 72, 34, 0.28)",
+      iconPlateStroke: "rgba(190, 171, 120, 0.28)",
       kicker: "rgba(222, 214, 193, 0.72)",
       dot: "rgba(198, 186, 154, 0.88)",
+      separator: "rgba(232, 218, 184, 0.08)",
+      chipFillStrong: "rgba(103, 83, 37, 0.42)",
+      chipStrokeStrong: "rgba(193, 172, 120, 0.28)",
+      chipTextStrong: "rgba(244, 237, 218, 0.95)",
+      chipFillMuted: "rgba(71, 58, 30, 0.34)",
+      chipStrokeMuted: "rgba(152, 132, 86, 0.22)",
+      chipTextMuted: "rgba(231, 224, 205, 0.8)",
     };
   }
 
   return {
-    base: "rgba(22, 34, 33, 0.92)",
-    topSheen: "rgba(127, 156, 149, 0.1)",
+    base: "rgba(23, 27, 35, 0.94)",
+    topSheen: "rgba(79, 116, 165, 0.14)",
     stroke: isSelected
-      ? "rgba(196, 216, 211, 0.94)"
-      : "rgba(118, 145, 139, 0.76)",
-    glow: "rgba(78, 100, 95, 0.22)",
-    badgeFill: "rgba(118, 145, 139, 0.14)",
-    badgeStroke: "rgba(156, 179, 173, 0.28)",
-    badgeText: "rgba(229, 237, 235, 0.96)",
+      ? "rgba(127, 190, 255, 0.95)"
+      : "rgba(94, 137, 191, 0.8)",
+    glow: isHovered ? "rgba(78, 139, 216, 0.3)" : "rgba(61, 114, 179, 0.24)",
+    outerGlowFill: isSelected
+      ? "rgba(52, 112, 181, 0.18)"
+      : isHovered
+        ? "rgba(44, 92, 147, 0.12)"
+        : "rgba(35, 67, 103, 0.08)",
+    badgeFill: "rgba(39, 76, 122, 0.26)",
+    badgeStroke: "rgba(110, 170, 232, 0.3)",
+    badgeText: "rgba(224, 241, 255, 0.98)",
+    iconPlateFill: "rgba(28, 54, 87, 0.28)",
+    iconPlateStroke: "rgba(97, 151, 208, 0.28)",
     kicker: "rgba(207, 220, 217, 0.72)",
-    dot: "rgba(168, 186, 182, 0.88)",
+    dot: "rgba(121, 185, 255, 0.9)",
+    separator: "rgba(127, 190, 255, 0.08)",
+    chipFillStrong: "rgba(31, 72, 118, 0.46)",
+    chipStrokeStrong: "rgba(100, 160, 224, 0.32)",
+    chipTextStrong: "rgba(229, 242, 255, 0.96)",
+    chipFillMuted: "rgba(29, 52, 79, 0.34)",
+    chipStrokeMuted: "rgba(77, 124, 176, 0.24)",
+    chipTextMuted: "rgba(210, 230, 251, 0.82)",
   };
 }

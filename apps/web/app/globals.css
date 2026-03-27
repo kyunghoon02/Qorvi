@@ -1195,6 +1195,21 @@ input {
   background: var(--bg-soft);
 }
 
+.detail-node-inspector[data-node-kind="wallet"] {
+  border-color: rgba(84, 141, 211, 0.34);
+  box-shadow: inset 0 1px 0 rgba(134, 189, 255, 0.05);
+}
+
+.detail-node-inspector[data-node-kind="entity"] {
+  border-color: rgba(184, 154, 84, 0.36);
+  box-shadow: inset 0 1px 0 rgba(233, 214, 167, 0.05);
+}
+
+.detail-node-inspector[data-node-kind="cluster"] {
+  border-color: rgba(134, 143, 182, 0.34);
+  box-shadow: inset 0 1px 0 rgba(214, 220, 244, 0.04);
+}
+
 .detail-node-inspector-head {
   display: flex;
   align-items: flex-start;
@@ -1229,6 +1244,36 @@ input {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: #10161e;
+}
+
+.detail-node-inspector[data-node-kind="wallet"] .detail-node-inspector-card,
+.detail-entity-linkage[data-node-kind="wallet"] .detail-entity-link {
+  border-color: rgba(79, 134, 199, 0.26);
+  background: linear-gradient(
+      180deg,
+      rgba(34, 52, 77, 0.22),
+      rgba(16, 22, 30, 0.96)
+    ), #10161e;
+}
+
+.detail-node-inspector[data-node-kind="entity"] .detail-node-inspector-card,
+.detail-entity-linkage[data-node-kind="entity"] .detail-entity-link {
+  border-color: rgba(171, 145, 86, 0.26);
+  background: linear-gradient(
+      180deg,
+      rgba(74, 58, 27, 0.22),
+      rgba(16, 22, 30, 0.96)
+    ), #10161e;
+}
+
+.detail-node-inspector[data-node-kind="cluster"] .detail-node-inspector-card,
+.detail-entity-linkage[data-node-kind="cluster"] .detail-entity-link {
+  border-color: rgba(126, 136, 176, 0.26);
+  background: linear-gradient(
+      180deg,
+      rgba(54, 58, 85, 0.22),
+      rgba(16, 22, 30, 0.96)
+    ), #10161e;
 }
 
 .detail-node-inspector-card span {

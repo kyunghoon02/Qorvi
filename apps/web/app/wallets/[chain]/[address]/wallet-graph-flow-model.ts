@@ -60,7 +60,9 @@ function buildFlowNode(node: WalletGraphVisualNode): WalletGraphFlowNode {
 function buildFlowEdge(edge: WalletGraphVisualEdge): WalletGraphFlowEdge {
   const isDerived = edge.family === "derived";
   const strokeColor = isDerived ? "#ff00cc" : "#00f0ff"; // neon pink : neon blue
-  const dropShadow = isDerived ? "drop-shadow(0 0 5px rgba(255, 0, 204, 0.8))" : "drop-shadow(0 0 5px rgba(0, 240, 255, 0.8))";
+  const dropShadow = isDerived
+    ? "drop-shadow(0 0 5px rgba(255, 0, 204, 0.8))"
+    : "drop-shadow(0 0 5px rgba(0, 240, 255, 0.8))";
 
   return {
     id: buildWalletGraphEdgeKey(edge),
@@ -78,7 +80,10 @@ function buildFlowEdge(edge: WalletGraphVisualEdge): WalletGraphFlowEdge {
       strokeWidth: edge.strokeWidth, // Will be overridden or controlled by CSS if needed, but safe to keep
       stroke: strokeColor,
       strokeDasharray: edge.dashed ? "4 4" : undefined,
-      opacity: typeof edge.opacity === "number" ? Math.min(1, edge.opacity * 1.2) : 0.8,
+      opacity:
+        typeof edge.opacity === "number"
+          ? Math.min(1, edge.opacity * 1.2)
+          : 0.8,
       filter: dropShadow,
     },
     data: {

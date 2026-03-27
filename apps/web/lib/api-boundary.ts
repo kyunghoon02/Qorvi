@@ -1498,7 +1498,8 @@ export const walletGraphRoute = "GET /v1/wallets/:chain/:address/graph";
 export const clusterDetailRoute = "GET /v1/clusters/:clusterId";
 export const findingsFeedRoute = "GET /v1/findings";
 export const entityInterpretationRoute = "GET /v1/entity/:id";
-export const analystWalletBriefRoute = "GET /v1/analyst/wallets/:chain/:address/brief";
+export const analystWalletBriefRoute =
+  "GET /v1/analyst/wallets/:chain/:address/brief";
 export const analystFindingsRoute = "GET /v1/analyst/findings";
 export const analystEntityInterpretationRoute = "GET /v1/analyst/entity/:id";
 export const shadowExitFeedRoute = "GET /v1/signals/shadow-exits";
@@ -1734,7 +1735,10 @@ function buildAnalystFindingsUrl(
   return url.toString();
 }
 
-function buildEntityInterpretationUrl(entityKey: string, apiBaseUrl?: string): string {
+function buildEntityInterpretationUrl(
+  entityKey: string,
+  apiBaseUrl?: string,
+): string {
   const path = `/v1/entity/${encodeURIComponent(entityKey)}`;
   const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
   if (!resolvedBaseUrl) {
@@ -2119,7 +2123,10 @@ function cloneFindingPreview(item: FindingPreview): FindingPreview {
       ...part,
       ...(part.metadata ? { metadata: { ...part.metadata } } : {}),
     })),
-    nextWatch: item.nextWatch.map((part) => ({ ...part })),
+    nextWatch: item.nextWatch.map((part) => ({
+      ...part,
+      ...(part.metadata ? { metadata: { ...part.metadata } } : {}),
+    })),
   };
 }
 
@@ -2144,39 +2151,45 @@ function mapWalletBriefResponse(
       "Live backend data loaded from GET /v1/wallets/:chain/:address/brief.",
     aiSummary: response.aiSummary,
     keyFindings: (response.keyFindings ?? []).map(cloneFindingPreview),
-    verifiedLabels: (response.verifiedLabels ?? []).map(cloneWalletLabelPreview),
-    probableLabels: (response.probableLabels ?? []).map(cloneWalletLabelPreview),
+    verifiedLabels: (response.verifiedLabels ?? []).map(
+      cloneWalletLabelPreview,
+    ),
+    probableLabels: (response.probableLabels ?? []).map(
+      cloneWalletLabelPreview,
+    ),
     behavioralLabels: (response.behavioralLabels ?? []).map(
       cloneWalletLabelPreview,
     ),
-    topCounterparties: (response.topCounterparties ?? []).map((counterparty) => ({
-      chain: counterparty.chain,
-      chainLabel: formatChainLabel(counterparty.chain),
-      address: counterparty.address,
-      ...(counterparty.entityKey
-        ? { entityKey: counterparty.entityKey }
-        : {}),
-      ...(counterparty.entityType
-        ? { entityType: counterparty.entityType }
-        : {}),
-      ...(counterparty.entityLabel
-        ? { entityLabel: counterparty.entityLabel }
-        : {}),
-      interactionCount: counterparty.interactionCount,
-      inboundCount: counterparty.inboundCount ?? 0,
-      outboundCount: counterparty.outboundCount ?? 0,
-      inboundAmount: counterparty.inboundAmount ?? "0",
-      outboundAmount: counterparty.outboundAmount ?? "0",
-      primaryToken: counterparty.primaryToken ?? "",
-      tokenBreakdowns: (counterparty.tokenBreakdowns ?? []).map((token) => ({
-        symbol: token.symbol,
-        inboundAmount: token.inboundAmount ?? "0",
-        outboundAmount: token.outboundAmount ?? "0",
-      })),
-      directionLabel: counterparty.directionLabel ?? "mixed",
-      firstSeenAt: counterparty.firstSeenAt ?? "",
-      latestActivityAt: counterparty.latestActivityAt,
-    })),
+    topCounterparties: (response.topCounterparties ?? []).map(
+      (counterparty) => ({
+        chain: counterparty.chain,
+        chainLabel: formatChainLabel(counterparty.chain),
+        address: counterparty.address,
+        ...(counterparty.entityKey
+          ? { entityKey: counterparty.entityKey }
+          : {}),
+        ...(counterparty.entityType
+          ? { entityType: counterparty.entityType }
+          : {}),
+        ...(counterparty.entityLabel
+          ? { entityLabel: counterparty.entityLabel }
+          : {}),
+        interactionCount: counterparty.interactionCount,
+        inboundCount: counterparty.inboundCount ?? 0,
+        outboundCount: counterparty.outboundCount ?? 0,
+        inboundAmount: counterparty.inboundAmount ?? "0",
+        outboundAmount: counterparty.outboundAmount ?? "0",
+        primaryToken: counterparty.primaryToken ?? "",
+        tokenBreakdowns: (counterparty.tokenBreakdowns ?? []).map((token) => ({
+          symbol: token.symbol,
+          inboundAmount: token.inboundAmount ?? "0",
+          outboundAmount: token.outboundAmount ?? "0",
+        })),
+        directionLabel: counterparty.directionLabel ?? "mixed",
+        firstSeenAt: counterparty.firstSeenAt ?? "",
+        latestActivityAt: counterparty.latestActivityAt,
+      }),
+    ),
     recentFlow: {
       incomingTxCount7d: response.recentFlow?.incomingTxCount7d ?? 0,
       outgoingTxCount7d: response.recentFlow?.outgoingTxCount7d ?? 0,
@@ -2248,8 +2261,7 @@ function mapEntityInterpretationResponse(
     entityType: response.entityType,
     displayName: response.displayName,
     walletCount: response.walletCount,
-    statusMessage:
-      "Live backend data loaded from GET /v1/entity/:id.",
+    statusMessage: "Live backend data loaded from GET /v1/entity/:id.",
     ...(response.latestActivityAt
       ? { latestActivityAt: response.latestActivityAt }
       : {}),
@@ -2257,10 +2269,18 @@ function mapEntityInterpretationResponse(
       chain: member.chain,
       address: member.address,
       displayName: member.displayName,
-      ...(member.latestActivityAt ? { latestActivityAt: member.latestActivityAt } : {}),
-      verifiedLabels: (member.verifiedLabels ?? []).map(cloneWalletLabelPreview),
-      probableLabels: (member.probableLabels ?? []).map(cloneWalletLabelPreview),
-      behavioralLabels: (member.behavioralLabels ?? []).map(cloneWalletLabelPreview),
+      ...(member.latestActivityAt
+        ? { latestActivityAt: member.latestActivityAt }
+        : {}),
+      verifiedLabels: (member.verifiedLabels ?? []).map(
+        cloneWalletLabelPreview,
+      ),
+      probableLabels: (member.probableLabels ?? []).map(
+        cloneWalletLabelPreview,
+      ),
+      behavioralLabels: (member.behavioralLabels ?? []).map(
+        cloneWalletLabelPreview,
+      ),
     })),
     findings: (response.findings ?? []).map(cloneFindingPreview),
   };
@@ -2806,7 +2826,9 @@ function createUnavailableWalletBriefPreview(
     route: walletBriefRoute,
     chain: request.chain,
     address: request.address,
-    displayName: request.address ? compactAddress(request.address) : "Search a wallet",
+    displayName: request.address
+      ? compactAddress(request.address)
+      : "Search a wallet",
     statusMessage:
       "Live wallet brief is unavailable until the wallet brief API responds.",
     aiSummary:
@@ -3423,7 +3445,7 @@ export async function loadWalletBriefPreview({
     const response = await fetchImpl(endpoint, {
       headers: mergeRequestHeaders(
         {
-        Accept: "application/json",
+          Accept: "application/json",
         },
         requestHeaders,
       ),
@@ -3487,14 +3509,19 @@ export async function loadFindingsFeedPreview({
   request = findingsFeedRequest,
   requestHeaders,
 }: LoadFindingsFeedPreviewOptions = {}): Promise<FindingsFeedPreview> {
-  const nextFallback = fallback ?? createUnavailableFindingsFeedPreview(request);
-  const endpoint = buildFindingsFeedUrl(apiBaseUrl, request.cursor, request.types);
+  const nextFallback =
+    fallback ?? createUnavailableFindingsFeedPreview(request);
+  const endpoint = buildFindingsFeedUrl(
+    apiBaseUrl,
+    request.cursor,
+    request.types,
+  );
 
   try {
     const response = await fetchImpl(endpoint, {
       headers: mergeRequestHeaders(
         {
-        Accept: "application/json",
+          Accept: "application/json",
         },
         requestHeaders,
       ),
@@ -3522,8 +3549,13 @@ export async function loadAnalystFindingsPreview({
   request = findingsFeedRequest,
   requestHeaders,
 }: LoadFindingsFeedPreviewOptions = {}): Promise<FindingsFeedPreview> {
-  const nextFallback = fallback ?? createUnavailableAnalystFindingsPreview(request);
-  const endpoint = buildAnalystFindingsUrl(apiBaseUrl, request.cursor, request.types);
+  const nextFallback =
+    fallback ?? createUnavailableAnalystFindingsPreview(request);
+  const endpoint = buildAnalystFindingsUrl(
+    apiBaseUrl,
+    request.cursor,
+    request.types,
+  );
 
   try {
     const response = await fetchImpl(endpoint, {
@@ -3640,7 +3672,7 @@ export async function loadEntityInterpretationPreview({
     const response = await fetchImpl(endpoint, {
       headers: mergeRequestHeaders(
         {
-        Accept: "application/json",
+          Accept: "application/json",
         },
         requestHeaders,
       ),
@@ -3670,7 +3702,10 @@ export async function loadAnalystEntityInterpretationPreview({
 }: LoadEntityInterpretationPreviewOptions = {}): Promise<EntityInterpretationPreview> {
   const nextFallback =
     fallback ?? createUnavailableAnalystEntityInterpretationPreview(request);
-  const endpoint = buildAnalystEntityInterpretationUrl(request.entityKey, apiBaseUrl);
+  const endpoint = buildAnalystEntityInterpretationUrl(
+    request.entityKey,
+    apiBaseUrl,
+  );
 
   try {
     const response = await fetchImpl(endpoint, {
