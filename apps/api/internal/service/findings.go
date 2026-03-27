@@ -16,11 +16,12 @@ type FindingEvidence struct {
 }
 
 type NextWatch struct {
-	SubjectType string `json:"subjectType"`
-	Chain       string `json:"chain,omitempty"`
-	Address     string `json:"address,omitempty"`
-	Token       string `json:"token,omitempty"`
-	Label       string `json:"label,omitempty"`
+	SubjectType string         `json:"subjectType"`
+	Chain       string         `json:"chain,omitempty"`
+	Address     string         `json:"address,omitempty"`
+	Token       string         `json:"token,omitempty"`
+	Label       string         `json:"label,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type FindingItem struct {
@@ -108,6 +109,7 @@ func toFindingItem(item domain.Finding) FindingItem {
 			Address:     part.Address,
 			Token:       part.Token,
 			Label:       part.Label,
+			Metadata:    part.Metadata,
 		})
 	}
 	return FindingItem{

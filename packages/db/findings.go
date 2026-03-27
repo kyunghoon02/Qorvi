@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type postgresFindingExecer interface {
@@ -608,6 +608,7 @@ func decodeNextWatchTargets(raw any) []domain.NextWatchTarget {
 			Address:     strings.TrimSpace(stringValueAny(record["address"])),
 			Token:       strings.TrimSpace(stringValueAny(record["token"])),
 			Label:       strings.TrimSpace(stringValueAny(record["label"])),
+			Metadata:    mapValueAny(record["metadata"]),
 		})
 	}
 	return out

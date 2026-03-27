@@ -28,6 +28,15 @@ func (s *fakeFindingStore) ListWalletFindings(context.Context, db.WalletRef, int
 	return nil, nil
 }
 
+func (s *fakeFindingStore) GetFindingByID(_ context.Context, id string) (domain.Finding, error) {
+	for _, entry := range s.entries {
+		if strings.TrimSpace(entry.DedupKey) == strings.TrimSpace(id) {
+			return domain.Finding{ID: id}, nil
+		}
+	}
+	return domain.Finding{ID: strings.TrimSpace(id)}, nil
+}
+
 type fakeWalletLabelReader struct {
 	labels map[string]domain.WalletLabelSet
 }
@@ -46,7 +55,7 @@ func (s *fakeWalletLabelReader) ReadWalletLabels(
 	return out, nil
 }
 
-func TestShadowExitSnapshotServiceAddsSuspectedMMHandoffFinding(t *testing.T) {
+func TestShadowExitSnapshotServiceSkipsSuspectedMMHandoffWithoutTreasuryMMEvidence(t *testing.T) {
 	t.Parallel()
 
 	findings := &fakeFindingStore{}
@@ -74,26 +83,12 @@ func TestShadowExitSnapshotServiceAddsSuspectedMMHandoffFinding(t *testing.T) {
 		t.Fatalf("RunSnapshot returned error: %v", err)
 	}
 
-	if !hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
-		t.Fatalf("expected suspected_mm_handoff finding, got %#v", findings.entries)
-	}
-
-	entry := firstFindingByType(findings.entries, domain.FindingTypeSuspectedMMHandoff)
-	if entry == nil {
-		t.Fatalf("expected suspected_mm_handoff entry")
-	}
-	if got := stringSliceFromBundle(entry.Bundle, "observed_facts"); len(got) == 0 || !containsSubstring(got, "Bridge escape count") {
-		t.Fatalf("expected bridge/path observed facts in bundle, got %#v", entry.Bundle)
-	}
-	if got := evidenceTypesFromBundle(entry.Bundle); !containsExact(got, "bridge_escape_count") || !containsExact(got, "cex_proximity_count") {
-		t.Fatalf("expected flow evidence items in bundle, got %#v", got)
-	}
-	if got := nextWatchLabelsFromBundle(entry.Bundle); !containsSubstring(got, "Exchange-adjacent") {
-		t.Fatalf("expected next_watch labels in bundle, got %#v", got)
+	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected suspected_mm_handoff to require treasury/MM evidence report, got %#v", findings.entries)
 	}
 }
 
-func TestShadowExitSnapshotServiceAddsTreasuryRedistributionFinding(t *testing.T) {
+func TestShadowExitSnapshotServiceSkipsTreasuryRedistributionWithoutTreasuryMMEvidence(t *testing.T) {
 	t.Parallel()
 
 	findings := &fakeFindingStore{}
@@ -121,8 +116,134 @@ func TestShadowExitSnapshotServiceAddsTreasuryRedistributionFinding(t *testing.T
 		t.Fatalf("RunSnapshot returned error: %v", err)
 	}
 
+	if hasFindingType(findings.entries, domain.FindingTypeTreasuryRedistribution) {
+		t.Fatalf("expected treasury_redistribution to require treasury/MM evidence report, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceRunSnapshotForWalletAddsEvidenceBackedTreasuryAndMMFindings(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 3,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:         "wallet_fixture",
+				Chain:            domain.ChainEVM,
+				Address:          "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt:    time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:      time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                1,
+					FanoutSignatureCount:            3,
+					OperationalDistributionCount:    1,
+					TreasuryToMarketPathCount:       1,
+					TreasuryToExchangePathCount:     1,
+					DistinctMarketCounterpartyCount: 1,
+				},
+				TreasuryPaths: []db.WalletTreasuryPathObservation{
+					{
+						TxHash:                 "0xtreasury",
+						ObservedAt:             time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC),
+						PathKind:               "treasury_to_exchange_path",
+						CounterpartyChain:      domain.ChainEVM,
+						CounterpartyAddress:    "0xaaaa",
+						CounterpartyLabel:      "Treasury Ops",
+						CounterpartyEntityKey:  "entity:treasury",
+						CounterpartyEntityType: "treasury",
+						DownstreamChain:        domain.ChainEVM,
+						DownstreamAddress:      "0xbbbb",
+						DownstreamLabel:        "Exchange Sink",
+						DownstreamEntityKey:    "entity:exchange",
+						DownstreamEntityType:   "exchange",
+						DownstreamTxHash:       "0xtreasurydown",
+						Amount:                 "1250000",
+						TokenSymbol:            "ETH",
+						Confidence:             0.82,
+					},
+				},
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:            1,
+					ProjectToMMPathCount:          1,
+					ProjectToMMContactCount:       0,
+					PostHandoffDistributionCount:  1,
+					PostHandoffExchangeTouchCount: 1,
+					InventoryRotationCount:        1,
+				},
+				MMPaths: []db.WalletMMPathObservation{
+					{
+						TxHash:                 "0xmm",
+						ObservedAt:             time.Date(2026, time.March, 20, 8, 30, 0, 0, time.UTC),
+						PathKind:               "post_handoff_exchange_distribution",
+						CounterpartyChain:      domain.ChainEVM,
+						CounterpartyAddress:    "0xcccc",
+						CounterpartyLabel:      "MM Desk",
+						CounterpartyEntityKey:  "entity:mm",
+						CounterpartyEntityType: "market_maker",
+						DownstreamChain:        domain.ChainEVM,
+						DownstreamAddress:      "0xdddd",
+						DownstreamLabel:        "Venue Route",
+						DownstreamEntityKey:    "entity:venue",
+						DownstreamEntityType:   "exchange",
+						DownstreamTxHash:       "0xmmdown",
+						Amount:                 "880000",
+						TokenSymbol:            "ETH",
+						Confidence:             0.84,
+					},
+				},
+			},
+		},
+		Signals: &fakeSignalEventStore{},
+		Labels: &fakeWalletLabelReader{labels: map[string]domain.WalletLabelSet{
+			"evm|0x1234567890abcdef1234567890abcdef12345678": {
+				Inferred: []domain.WalletLabel{
+					{Key: "inferred:treasury:treasury", Name: "Treasury", Class: domain.WalletLabelClassInferred, EntityType: "treasury"},
+					{Key: "inferred:fund:fund", Name: "Fund", Class: domain.WalletLabelClassInferred, EntityType: "fund"},
+				},
+			},
+		}},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
 	if !hasFindingType(findings.entries, domain.FindingTypeTreasuryRedistribution) {
 		t.Fatalf("expected treasury_redistribution finding, got %#v", findings.entries)
+	}
+	if !hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected suspected_mm_handoff finding, got %#v", findings.entries)
+	}
+	treasuryEntry := lastFindingByType(findings.entries, domain.FindingTypeTreasuryRedistribution)
+	if treasuryEntry == nil || !evidenceBundleHasMetadataKey(treasuryEntry.Bundle, "entityRef") || !evidenceBundleHasMetadataKey(treasuryEntry.Bundle, "downstreamRef") {
+		t.Fatalf("expected treasury finding evidence to include entity/downstream refs, got %#v", treasuryEntry)
+	}
+	mmEntry := lastFindingByType(findings.entries, domain.FindingTypeSuspectedMMHandoff)
+	if mmEntry == nil || !nextWatchHasMetadataKey(mmEntry.Bundle, "pathRef") {
+		t.Fatalf("expected mm finding next_watch to include path refs, got %#v", mmEntry)
 	}
 }
 
@@ -157,6 +278,363 @@ func TestShadowExitSnapshotServiceSkipsLabelOnlyInterpretationFindingWithoutFlow
 
 	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
 		t.Fatalf("expected suspected_mm_handoff to be gated by flow pattern, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsMMHandoffWithoutRootAnchor(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 2,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:      "wallet_fixture",
+				Chain:         domain.ChainEVM,
+				Address:       "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt: time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:   time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:           1,
+					ProjectToMMPathCount:         1,
+					PostHandoffDistributionCount: 1,
+					InventoryRotationCount:       1,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected suspected_mm_handoff to require a root fund/treasury anchor, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsTreasuryRedistributionWithoutOperationalFanoutAndStrongMarketPath(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         2,
+				FanOutCounterpartyCount: 1,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:         "wallet_fixture",
+				Chain:            domain.ChainEVM,
+				Address:          "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt:    time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:      time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                 1,
+					FanoutSignatureCount:             1,
+					OperationalDistributionCount:     0,
+					OperationalOnlyDistributionCount: 1,
+					ExternalOpsDistributionCount:     1,
+					RebalanceDiscountCount:           1,
+					TreasuryToMarketPathCount:        1,
+					TreasuryToBridgePathCount:        1,
+					DistinctMarketCounterpartyCount:  1,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeTreasuryRedistribution) {
+		t.Fatalf("expected treasury_redistribution to require operational fanout plus stronger market path, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsMMHandoffWithoutPostHandoffEvidence(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 2,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:      "wallet_fixture",
+				Chain:         domain.ChainEVM,
+				Address:       "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt: time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:   time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasFundLabel:  true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:           1,
+					ProjectToMMPathCount:         1,
+					ProjectToMMContactCount:      1,
+					ProjectToMMAdjacencyCount:    1,
+					PostHandoffDistributionCount: 0,
+					PostHandoffBridgeTouchCount:  0,
+					InventoryRotationCount:       1,
+					RepeatMMCounterpartyCount:    1,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected suspected_mm_handoff to require post-handoff evidence, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsTreasuryRedistributionForBridgeOnlyWeakMarketPaths(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 2,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:         "wallet_fixture",
+				Chain:            domain.ChainEVM,
+				Address:          "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt:    time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:      time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                 1,
+					FanoutSignatureCount:             2,
+					OperationalDistributionCount:     1,
+					OperationalOnlyDistributionCount: 1,
+					ExternalOpsDistributionCount:     1,
+					TreasuryToMarketPathCount:        1,
+					TreasuryToBridgePathCount:        1,
+					DistinctMarketCounterpartyCount:  1,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeTreasuryRedistribution) {
+		t.Fatalf("expected bridge-only weak treasury market path to be suppressed, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsMMHandoffForBridgeOnlyPostHandoffWithoutDistributionEvidence(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 2,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:      "wallet_fixture",
+				Chain:         domain.ChainEVM,
+				Address:       "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt: time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:   time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasFundLabel:  true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:           1,
+					ProjectToMMPathCount:         0,
+					ProjectToMMContactCount:      1,
+					ProjectToMMAdjacencyCount:    1,
+					PostHandoffDistributionCount: 1,
+					PostHandoffBridgeTouchCount:  1,
+					InventoryRotationCount:       0,
+					RepeatMMCounterpartyCount:    1,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected bridge-only post-handoff without rotation/repeat to be suppressed, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitSnapshotServiceSkipsMMHandoffForAdjacencyOnlyContact(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	service := ShadowExitSnapshotService{
+		Wallets: &fakeWalletStore{},
+		Candidates: &fakeShadowExitCandidateReader{
+			metrics: db.ShadowExitCandidateMetrics{
+				WalletID:                "wallet_fixture",
+				Chain:                   domain.ChainEVM,
+				Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+				WindowEnd:               time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				InboundTxCount:          1,
+				OutboundTxCount:         4,
+				FanOutCounterpartyCount: 2,
+			},
+		},
+		TreasuryMM: &fakeTreasuryMMEvidenceStore{
+			report: db.WalletTreasuryMMEvidenceReport{
+				WalletID:      "wallet_fixture",
+				Chain:         domain.ChainEVM,
+				Address:       "0x1234567890abcdef1234567890abcdef12345678",
+				WindowStartAt: time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+				WindowEndAt:   time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+				HasFundLabel:  true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:              1,
+					ProjectToMMPathCount:            0,
+					ProjectToMMContactCount:         1,
+					ProjectToMMRoutedCandidateCount: 0,
+					ProjectToMMAdjacencyCount:       1,
+					PostHandoffDistributionCount:    1,
+					PostHandoffExchangeTouchCount:   1,
+					InventoryRotationCount:          1,
+					RepeatMMCounterpartyCount:       2,
+				},
+			},
+		},
+		Signals:  &fakeSignalEventStore{},
+		Labels:   &fakeWalletLabelReader{},
+		Findings: findings,
+		Cache:    &fakeWalletSummaryCache{},
+		JobRuns:  &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "")
+	if err != nil {
+		t.Fatalf("RunSnapshotForWallet returned error: %v", err)
+	}
+
+	if hasFindingType(findings.entries, domain.FindingTypeSuspectedMMHandoff) {
+		t.Fatalf("expected adjacency-only MM contact to be suppressed, got %#v", findings.entries)
 	}
 }
 
@@ -221,25 +699,52 @@ func TestFirstConnectionSnapshotServiceAddsHighConvictionEntryFinding(t *testing
 	t.Parallel()
 
 	findings := &fakeFindingStore{}
+	wallets := &fakeWalletStore{}
+	candidates := &fakeFirstConnectionCandidateReader{
+		metrics: db.FirstConnectionCandidateMetrics{
+			WalletID:                          "wallet_first_connection",
+			Chain:                             domain.ChainEVM,
+			Address:                           "0x1234567890abcdef1234567890abcdef12345678",
+			WindowEnd:                         time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			FirstSeenCounterparties:           3,
+			NewCommonEntries:                  2,
+			HotFeedMentions:                   1,
+			QualityWalletOverlapCount:         1,
+			SustainedOverlapCounterpartyCount: 1,
+			StrongLeadCounterpartyCount:       1,
+			FirstEntryBeforeCrowdingCount:     1,
+			BestLeadHoursBeforePeers:          18,
+			PersistenceAfterEntryProxyCount:   1,
+			TopCounterparties: []db.FirstConnectionCandidateCounterparty{
+				{
+					Chain:                domain.ChainEVM,
+					Address:              "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					InteractionCount:     2,
+					FirstActivityAt:      time.Date(2026, time.March, 20, 6, 10, 11, 0, time.UTC),
+					LatestActivityAt:     time.Date(2026, time.March, 20, 9, 0, 0, 0, time.UTC),
+					LeadHoursBeforePeers: 18,
+					PeerWalletCount:      2,
+					PeerTxCount:          3,
+				},
+			},
+		},
+	}
 	service := FirstConnectionSnapshotService{
-		Signals:  &fakeSignalEventStore{},
-		Findings: findings,
-		Cache:    &fakeWalletSummaryCache{},
-		JobRuns:  &fakeJobRunStore{},
+		Wallets:    wallets,
+		Candidates: candidates,
+		Signals:    &fakeSignalEventStore{},
+		Findings:   findings,
+		Cache:      &fakeWalletSummaryCache{},
+		JobRuns:    &fakeJobRunStore{},
 		Now: func() time.Time {
 			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
 		},
 	}
 
-	_, err := service.RunSnapshot(context.Background(), intelligence.FirstConnectionSignal{
-		WalletID:                "wallet_first_connection",
-		Chain:                   domain.ChainEVM,
-		Address:                 "0x1234567890abcdef1234567890abcdef12345678",
-		ObservedAt:              "2026-03-20T09:10:11Z",
-		NewCommonEntries:        2,
-		FirstSeenCounterparties: 3,
-		HotFeedMentions:         1,
-	})
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "2026-03-20T09:10:11Z")
 	if err != nil {
 		t.Fatalf("RunSnapshot returned error: %v", err)
 	}
@@ -252,8 +757,94 @@ func TestFirstConnectionSnapshotServiceAddsHighConvictionEntryFinding(t *testing
 	if entry == nil {
 		t.Fatalf("expected high_conviction_entry entry")
 	}
-	if got := evidenceTypesFromBundle(entry.Bundle); !containsExact(got, "new_common_entries") || !containsExact(got, "first_seen_counterparties") {
+	if got := evidenceTypesFromBundle(entry.Bundle); !containsExact(got, "quality_wallet_overlap_count") || !containsExact(got, "first_entry_before_crowding_count") || !containsExact(got, "persistence_after_entry_proxy_count") {
 		t.Fatalf("expected convergence evidence in bundle, got %#v", got)
+	}
+}
+
+func TestFirstConnectionSnapshotServiceBoostsHighConvictionFindingWithSustainedOutcome(t *testing.T) {
+	t.Parallel()
+
+	findings := &fakeFindingStore{}
+	wallets := &fakeWalletStore{}
+	candidates := &fakeFirstConnectionCandidateReader{
+		metrics: db.FirstConnectionCandidateMetrics{
+			WalletID:                          "wallet_first_connection",
+			Chain:                             domain.ChainEVM,
+			Address:                           "0x1234567890abcdef1234567890abcdef12345678",
+			WindowEnd:                         time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC),
+			FirstSeenCounterparties:           3,
+			NewCommonEntries:                  2,
+			HotFeedMentions:                   1,
+			QualityWalletOverlapCount:         1,
+			SustainedOverlapCounterpartyCount: 1,
+			StrongLeadCounterpartyCount:       1,
+			FirstEntryBeforeCrowdingCount:     1,
+			BestLeadHoursBeforePeers:          18,
+			PersistenceAfterEntryProxyCount:   1,
+			TopCounterparties: []db.FirstConnectionCandidateCounterparty{
+				{
+					Chain:                domain.ChainEVM,
+					Address:              "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					InteractionCount:     2,
+					FirstActivityAt:      time.Date(2026, time.March, 20, 6, 10, 11, 0, time.UTC),
+					LatestActivityAt:     time.Date(2026, time.March, 20, 9, 0, 0, 0, time.UTC),
+					LeadHoursBeforePeers: 18,
+					PeerWalletCount:      2,
+					PeerTxCount:          3,
+				},
+			},
+		},
+	}
+	entryFeatures := &fakeWalletEntryFeaturesStore{
+		priorSnapshot: db.WalletEntryFeaturesSnapshot{
+			WalletID:                "wallet_first_connection",
+			Chain:                   domain.ChainEVM,
+			Address:                 "0x1234567890abcdef1234567890abcdef12345678",
+			WindowStartAt:           time.Date(2026, time.March, 19, 9, 10, 11, 0, time.UTC),
+			WindowEndAt:             time.Date(2026, time.March, 20, 8, 10, 11, 0, time.UTC),
+			TopCounterparties:       []db.WalletEntryFeatureCounterparty{{Chain: domain.ChainEVM, Address: "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed"}},
+			HoldingPersistenceState: "",
+		},
+		followThrough: db.WalletEntryFeatureFollowThrough{
+			PostWindowFollowThroughCount:  2,
+			MaxPostWindowPersistenceHours: 36,
+		},
+	}
+	service := FirstConnectionSnapshotService{
+		Wallets:       wallets,
+		Candidates:    candidates,
+		EntryFeatures: entryFeatures,
+		Signals:       &fakeSignalEventStore{},
+		Findings:      findings,
+		Cache:         &fakeWalletSummaryCache{},
+		JobRuns:       &fakeJobRunStore{},
+		Now: func() time.Time {
+			return time.Date(2026, time.March, 23, 9, 10, 11, 0, time.UTC)
+		},
+	}
+
+	_, err := service.RunSnapshotForWallet(context.Background(), db.WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	}, "2026-03-23T09:10:11Z")
+	if err != nil {
+		t.Fatalf("RunSnapshot returned error: %v", err)
+	}
+
+	entry := firstFindingByType(findings.entries, domain.FindingTypeHighConvictionEntry)
+	if entry == nil {
+		t.Fatalf("expected high_conviction_entry entry")
+	}
+	if entry.Confidence < 0.8 {
+		t.Fatalf("expected sustained outcome to boost confidence, got %#v", entry)
+	}
+	labels := nextWatchLabelsFromBundle(entry.Bundle)
+	if !containsSubstring(labels, "(sustained)") {
+		t.Fatalf("expected sustained next_watch label, got %#v", labels)
+	}
+	if !nextWatchHasMetadataKey(entry.Bundle, "holdingPersistenceState") {
+		t.Fatalf("expected sustained next_watch metadata, got %#v", entry.Bundle)
 	}
 }
 
@@ -300,6 +891,15 @@ func hasFindingType(entries []db.FindingEntry, findingType domain.FindingType) b
 
 func firstFindingByType(entries []db.FindingEntry, findingType domain.FindingType) *db.FindingEntry {
 	for i := range entries {
+		if entries[i].FindingType == findingType {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+func lastFindingByType(entries []db.FindingEntry, findingType domain.FindingType) *db.FindingEntry {
+	for i := len(entries) - 1; i >= 0; i-- {
 		if entries[i].FindingType == findingType {
 			return &entries[i]
 		}
@@ -383,6 +983,66 @@ func nextWatchLabelsFromBundle(bundle map[string]any) []string {
 		}
 	}
 	return out
+}
+
+func evidenceBundleHasMetadataKey(bundle map[string]any, key string) bool {
+	rawItems, ok := bundle["evidence"].([]any)
+	if !ok {
+		if items, ok := bundle["evidence"].([]map[string]any); ok {
+			for _, item := range items {
+				if metadata, ok := item["metadata"].(map[string]any); ok {
+					if _, exists := metadata[key]; exists {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, raw := range rawItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		metadata, ok := item["metadata"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, exists := metadata[key]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func nextWatchHasMetadataKey(bundle map[string]any, key string) bool {
+	rawItems, ok := bundle["next_watch"].([]any)
+	if !ok {
+		if items, ok := bundle["next_watch"].([]map[string]any); ok {
+			for _, item := range items {
+				if metadata, ok := item["metadata"].(map[string]any); ok {
+					if _, exists := metadata[key]; exists {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, raw := range rawItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		metadata, ok := item["metadata"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, exists := metadata[key]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func containsSubstring(items []string, needle string) bool {

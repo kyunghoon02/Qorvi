@@ -51,6 +51,7 @@ type NextWatchTarget struct {
 	Address     string             `json:"address,omitempty"`
 	Token       string             `json:"token,omitempty"`
 	Label       string             `json:"label,omitempty"`
+	Metadata    map[string]any     `json:"metadata,omitempty"`
 }
 
 type Finding struct {
