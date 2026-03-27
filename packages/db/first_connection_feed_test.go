@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flowintel/flowintel/packages/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/flowintel/flowintel/packages/domain"
 )
 
 type fakeFirstConnectionFeedRows struct {
@@ -18,13 +18,22 @@ type fakeFirstConnectionFeedRows struct {
 }
 
 type fakeFirstConnectionFeedRow struct {
-	walletID    string
-	chain       string
-	address     string
-	displayName string
-	signalType  string
-	payload     []byte
-	observedAt  time.Time
+	walletID                          string
+	chain                             string
+	address                           string
+	displayName                       string
+	signalType                        string
+	payload                           []byte
+	observedAt                        time.Time
+	hasEntryFeatures                  bool
+	qualityWalletOverlapCount         int
+	sustainedOverlapCounterpartyCount int
+	strongLeadCounterpartyCount       int
+	firstEntryBeforeCrowdingCount     int
+	bestLeadHoursBeforePeers          int
+	persistenceAfterEntryProxyCount   int
+	repeatEarlyEntrySuccess           bool
+	entryFeaturesMetadata             []byte
 }
 
 func (r *fakeFirstConnectionFeedRows) Close() {}
@@ -49,7 +58,7 @@ func (r *fakeFirstConnectionFeedRows) Scan(dest ...any) error {
 	}
 
 	row := r.rows[r.index-1]
-	if len(dest) != 7 {
+	if len(dest) != 16 {
 		return errors.New("unexpected scan destination count")
 	}
 
@@ -60,6 +69,15 @@ func (r *fakeFirstConnectionFeedRows) Scan(dest ...any) error {
 	*(dest[4].(*string)) = row.signalType
 	*(dest[5].(*[]byte)) = row.payload
 	*(dest[6].(*time.Time)) = row.observedAt
+	*(dest[7].(*bool)) = row.hasEntryFeatures
+	*(dest[8].(*int)) = row.qualityWalletOverlapCount
+	*(dest[9].(*int)) = row.sustainedOverlapCounterpartyCount
+	*(dest[10].(*int)) = row.strongLeadCounterpartyCount
+	*(dest[11].(*int)) = row.firstEntryBeforeCrowdingCount
+	*(dest[12].(*int)) = row.bestLeadHoursBeforePeers
+	*(dest[13].(*int)) = row.persistenceAfterEntryProxyCount
+	*(dest[14].(*bool)) = row.repeatEarlyEntrySuccess
+	*(dest[15].(*[]byte)) = row.entryFeaturesMetadata
 	return nil
 }
 
@@ -97,13 +115,36 @@ func TestPostgresFirstConnectionFeedReader(t *testing.T) {
 		rows: &fakeFirstConnectionFeedRows{
 			rows: []fakeFirstConnectionFeedRow{
 				{
-					walletID:    "wallet_1",
-					chain:       "evm",
-					address:     "0x1234567890abcdef1234567890abcdef12345678",
-					displayName: "Seed Whale",
-					signalType:  firstConnectionSnapshotSignalType,
-					payload:     []byte(`{"score_value":72,"score_rating":"high","observed_at":"2026-03-20T09:10:11Z","first_connection_evidence":[{"kind":"transfer","label":"first connection discovery signal","source":"first-connection-engine","confidence":0.79,"observed_at":"2026-03-20T09:10:11Z","metadata":{"new_common_entries":2}}]}`),
-					observedAt:  observedAt,
+					walletID:                          "wallet_1",
+					chain:                             "evm",
+					address:                           "0x1234567890abcdef1234567890abcdef12345678",
+					displayName:                       "Seed Whale",
+					signalType:                        firstConnectionSnapshotSignalType,
+					payload:                           []byte(`{"score_value":72,"score_rating":"high","observed_at":"2026-03-20T09:10:11Z","first_connection_evidence":[{"kind":"transfer","label":"first connection discovery signal","source":"first-connection-engine","confidence":0.79,"observed_at":"2026-03-20T09:10:11Z","metadata":{"new_common_entries":2}}]}`),
+					observedAt:                        observedAt,
+					hasEntryFeatures:                  true,
+					qualityWalletOverlapCount:         3,
+					sustainedOverlapCounterpartyCount: 1,
+					strongLeadCounterpartyCount:       1,
+					firstEntryBeforeCrowdingCount:     2,
+					bestLeadHoursBeforePeers:          18,
+					persistenceAfterEntryProxyCount:   1,
+					repeatEarlyEntrySuccess:           true,
+					entryFeaturesMetadata: []byte(`{
+						"post_window_follow_through_count":2,
+						"max_post_window_persistence_hours":32,
+						"holding_persistence_state":"sustained",
+						"top_counterparties":[
+							{
+								"chain":"evm",
+								"address":"0xfeed000000000000000000000000000000000001",
+								"interaction_count":4,
+								"peer_wallet_count":2,
+								"peer_tx_count":5,
+								"lead_hours_before_peers":12
+							}
+						]
+					}`),
 				},
 				{
 					walletID:    "wallet_2",
@@ -141,14 +182,124 @@ func TestPostgresFirstConnectionFeedReader(t *testing.T) {
 	if page.Items[0].Score.Value != 72 || page.Items[0].Score.Rating != domain.RatingHigh {
 		t.Fatalf("unexpected score %#v", page.Items[0].Score)
 	}
-	if len(page.Items[0].Score.Evidence) != 1 {
-		t.Fatalf("expected evidence, got %#v", page.Items[0].Score.Evidence)
+	if page.Items[0].Recommendation != "Early-entry overlap through 0xfeed...0001 held with sustained follow-through; review downstream continuation and sizing." {
+		t.Fatalf("unexpected recommendation %q", page.Items[0].Recommendation)
 	}
-	if page.Items[0].Recommendation == "" {
-		t.Fatal("expected recommendation")
+	if len(page.Items[0].Score.Evidence) < 5 {
+		t.Fatalf("expected multiple evidence rows, got %#v", page.Items[0].Score.Evidence)
+	}
+	if page.Items[0].Score.Evidence[0].Label != "quality wallet overlap count 3" {
+		t.Fatalf("unexpected first evidence %#v", page.Items[0].Score.Evidence[0])
+	}
+	foundLead := false
+	foundCounterparty := false
+	for _, evidence := range page.Items[0].Score.Evidence {
+		if evidence.Label == "best lead before peers 18h" {
+			foundLead = true
+		}
+		if evidence.Label == "top counterparty overlap 0xfeed000000000000000000000000000000000001" {
+			foundCounterparty = true
+		}
+	}
+	if !foundLead {
+		t.Fatalf("expected best lead evidence, got %#v", page.Items[0].Score.Evidence)
+	}
+	if !foundCounterparty {
+		t.Fatalf("expected top counterparty evidence, got %#v", page.Items[0].Score.Evidence)
+	}
+	foundHoldingState := false
+	for _, evidence := range page.Items[0].Score.Evidence {
+		if evidence.Label == "holding persistence state sustained" {
+			foundHoldingState = true
+		}
+	}
+	if !foundHoldingState {
+		t.Fatalf("expected holding persistence evidence, got %#v", page.Items[0].Score.Evidence)
 	}
 	if page.Items[0].WalletRoute != "/wallets/evm/0x1234567890abcdef1234567890abcdef12345678" {
 		t.Fatalf("unexpected wallet route %q", page.Items[0].WalletRoute)
+	}
+}
+
+func TestPostgresFirstConnectionFeedReaderFallsBackWithoutEntryFeatures(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+	querier := &fakeFirstConnectionFeedQuerier{
+		rows: &fakeFirstConnectionFeedRows{
+			rows: []fakeFirstConnectionFeedRow{
+				{
+					walletID:    "wallet_1",
+					chain:       "evm",
+					address:     "0x1234567890abcdef1234567890abcdef12345678",
+					displayName: "Seed Whale",
+					signalType:  firstConnectionSnapshotSignalType,
+					payload:     []byte(`{"score_value":72,"score_rating":"high","observed_at":"2026-03-20T09:10:11Z","first_connection_evidence":[{"kind":"transfer","label":"first connection discovery signal","source":"first-connection-engine","confidence":0.79,"observed_at":"2026-03-20T09:10:11Z","metadata":{"new_common_entries":2}}]}`),
+					observedAt:  observedAt,
+				},
+			},
+		},
+	}
+
+	page, err := NewPostgresFirstConnectionFeedReader(querier).ReadFirstConnectionFeed(context.Background(), FirstConnectionFeedQuery{
+		Limit: 1,
+		Sort:  FirstConnectionFeedSortLatest,
+	})
+	if err != nil {
+		t.Fatalf("feed reader failed: %v", err)
+	}
+
+	if len(page.Items) != 1 {
+		t.Fatalf("expected one item, got %#v", page)
+	}
+	if page.Items[0].Recommendation != "Elevated first-connection activity; review recent counterparties and activity." {
+		t.Fatalf("unexpected fallback recommendation %q", page.Items[0].Recommendation)
+	}
+	if len(page.Items[0].Score.Evidence) != 1 || page.Items[0].Score.Evidence[0].Label != "first connection discovery signal" {
+		t.Fatalf("expected payload evidence fallback, got %#v", page.Items[0].Score.Evidence)
+	}
+}
+
+func TestPostgresFirstConnectionFeedReaderShowsShortLivedRecommendation(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
+	querier := &fakeFirstConnectionFeedQuerier{
+		rows: &fakeFirstConnectionFeedRows{
+			rows: []fakeFirstConnectionFeedRow{
+				{
+					walletID:                      "wallet_1",
+					chain:                         "evm",
+					address:                       "0x1234567890abcdef1234567890abcdef12345678",
+					displayName:                   "Seed Whale",
+					signalType:                    firstConnectionSnapshotSignalType,
+					payload:                       []byte(`{"score_value":72,"score_rating":"high","observed_at":"2026-03-20T09:10:11Z"}`),
+					observedAt:                    observedAt,
+					hasEntryFeatures:              true,
+					qualityWalletOverlapCount:     2,
+					firstEntryBeforeCrowdingCount: 1,
+					entryFeaturesMetadata: []byte(`{
+						"holding_persistence_state":"short_lived",
+						"short_lived_overlap_count":2,
+						"top_counterparties":[{"chain":"evm","address":"0xfeed000000000000000000000000000000000001"}]
+					}`),
+				},
+			},
+		},
+	}
+
+	page, err := NewPostgresFirstConnectionFeedReader(querier).ReadFirstConnectionFeed(context.Background(), FirstConnectionFeedQuery{
+		Limit: 1,
+		Sort:  FirstConnectionFeedSortLatest,
+	})
+	if err != nil {
+		t.Fatalf("feed reader failed: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("expected one item, got %#v", page)
+	}
+	if page.Items[0].Recommendation != "Early overlap through 0xfeed...0001 faded after the initial lead. Treat it as short-lived unless new follow-through appears." {
+		t.Fatalf("unexpected short-lived recommendation %q", page.Items[0].Recommendation)
 	}
 }
 

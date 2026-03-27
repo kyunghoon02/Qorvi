@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/jackc/pgx/v5"
 )
 
 const latestFirstConnectionFeedSQL = `
@@ -28,18 +28,42 @@ WITH latest_per_wallet AS (
   JOIN wallets w ON w.id = se.wallet_id
   WHERE se.signal_type = $1
   ORDER BY se.wallet_id, se.observed_at DESC, se.created_at DESC
+),
+latest_entry_features AS (
+  SELECT DISTINCT ON (we.wallet_id)
+    we.wallet_id,
+    we.quality_wallet_overlap_count,
+    we.sustained_overlap_counterparty_count,
+    we.strong_lead_counterparty_count,
+    we.first_entry_before_crowding_count,
+    we.best_lead_hours_before_peers,
+    we.persistence_after_entry_proxy_count,
+    we.repeat_early_entry_success,
+    we.metadata
+  FROM wallet_entry_features_daily we
+  ORDER BY we.wallet_id, we.observed_day DESC, we.updated_at DESC
 )
 SELECT
-  wallet_id,
-  chain,
-  address,
-  display_name,
-  signal_type,
-  payload,
-  observed_at
-FROM latest_per_wallet
-WHERE ($2::timestamptz IS NULL OR observed_at < $2 OR (observed_at = $2 AND wallet_id > $3))
-ORDER BY observed_at DESC, wallet_id ASC
+  lpw.wallet_id,
+  lpw.chain,
+  lpw.address,
+  lpw.display_name,
+  lpw.signal_type,
+  lpw.payload,
+  lpw.observed_at,
+  (lef.wallet_id IS NOT NULL) AS has_entry_features,
+  COALESCE(lef.quality_wallet_overlap_count, 0) AS quality_wallet_overlap_count,
+  COALESCE(lef.sustained_overlap_counterparty_count, 0) AS sustained_overlap_counterparty_count,
+  COALESCE(lef.strong_lead_counterparty_count, 0) AS strong_lead_counterparty_count,
+  COALESCE(lef.first_entry_before_crowding_count, 0) AS first_entry_before_crowding_count,
+  COALESCE(lef.best_lead_hours_before_peers, 0) AS best_lead_hours_before_peers,
+  COALESCE(lef.persistence_after_entry_proxy_count, 0) AS persistence_after_entry_proxy_count,
+  COALESCE(lef.repeat_early_entry_success, FALSE) AS repeat_early_entry_success,
+  COALESCE(lef.metadata, '{}'::jsonb) AS entry_features_metadata
+FROM latest_per_wallet lpw
+LEFT JOIN latest_entry_features lef ON lef.wallet_id = lpw.wallet_id
+WHERE ($2::timestamptz IS NULL OR lpw.observed_at < $2 OR (lpw.observed_at = $2 AND lpw.wallet_id > $3))
+ORDER BY lpw.observed_at DESC, lpw.wallet_id ASC
 LIMIT $4 + 1
 `
 
@@ -59,23 +83,47 @@ WITH latest_per_wallet AS (
   JOIN wallets w ON w.id = se.wallet_id
   WHERE se.signal_type = $1
   ORDER BY se.wallet_id, se.observed_at DESC, se.created_at DESC
+),
+latest_entry_features AS (
+  SELECT DISTINCT ON (we.wallet_id)
+    we.wallet_id,
+    we.quality_wallet_overlap_count,
+    we.sustained_overlap_counterparty_count,
+    we.strong_lead_counterparty_count,
+    we.first_entry_before_crowding_count,
+    we.best_lead_hours_before_peers,
+    we.persistence_after_entry_proxy_count,
+    we.repeat_early_entry_success,
+    we.metadata
+  FROM wallet_entry_features_daily we
+  ORDER BY we.wallet_id, we.observed_day DESC, we.updated_at DESC
 )
 SELECT
-  wallet_id,
-  chain,
-  address,
-  display_name,
-  signal_type,
-  payload,
-  observed_at
-FROM latest_per_wallet
+  lpw.wallet_id,
+  lpw.chain,
+  lpw.address,
+  lpw.display_name,
+  lpw.signal_type,
+  lpw.payload,
+  lpw.observed_at,
+  (lef.wallet_id IS NOT NULL) AS has_entry_features,
+  COALESCE(lef.quality_wallet_overlap_count, 0) AS quality_wallet_overlap_count,
+  COALESCE(lef.sustained_overlap_counterparty_count, 0) AS sustained_overlap_counterparty_count,
+  COALESCE(lef.strong_lead_counterparty_count, 0) AS strong_lead_counterparty_count,
+  COALESCE(lef.first_entry_before_crowding_count, 0) AS first_entry_before_crowding_count,
+  COALESCE(lef.best_lead_hours_before_peers, 0) AS best_lead_hours_before_peers,
+  COALESCE(lef.persistence_after_entry_proxy_count, 0) AS persistence_after_entry_proxy_count,
+  COALESCE(lef.repeat_early_entry_success, FALSE) AS repeat_early_entry_success,
+  COALESCE(lef.metadata, '{}'::jsonb) AS entry_features_metadata
+FROM latest_per_wallet lpw
+LEFT JOIN latest_entry_features lef ON lef.wallet_id = lpw.wallet_id
 WHERE (
   $2::integer IS NULL
-  OR score_value < $2
-  OR (score_value = $2 AND observed_at < $3)
-  OR (score_value = $2 AND observed_at = $3 AND wallet_id > $4)
+  OR lpw.score_value < $2
+  OR (lpw.score_value = $2 AND lpw.observed_at < $3)
+  OR (lpw.score_value = $2 AND lpw.observed_at = $3 AND lpw.wallet_id > $4)
 )
-ORDER BY score_value DESC, observed_at DESC, wallet_id ASC
+ORDER BY lpw.score_value DESC, lpw.observed_at DESC, lpw.wallet_id ASC
 LIMIT $5 + 1
 `
 
@@ -100,6 +148,23 @@ type FirstConnectionFeedLoader interface {
 
 type PostgresFirstConnectionFeedReader struct {
 	Querier postgresQuerier
+}
+
+type firstConnectionFeedEntryFeatures struct {
+	HasFeatures                       bool
+	QualityWalletOverlapCount         int
+	SustainedOverlapCounterpartyCount int
+	StrongLeadCounterpartyCount       int
+	FirstEntryBeforeCrowdingCount     int
+	BestLeadHoursBeforePeers          int
+	PersistenceAfterEntryProxyCount   int
+	RepeatEarlyEntrySuccess           bool
+	HistoricalSustainedOutcomeCount   int
+	PostWindowFollowThroughCount      int
+	MaxPostWindowPersistenceHours     int
+	ShortLivedOverlapCount            int
+	HoldingPersistenceState           string
+	TopCounterparties                 []WalletEntryFeatureCounterparty
 }
 
 func NewPostgresFirstConnectionFeedReader(querier postgresQuerier) *PostgresFirstConnectionFeedReader {
@@ -224,18 +289,38 @@ func (r *PostgresFirstConnectionFeedReader) ReadFirstConnectionFeed(
 	items := make([]domain.FirstConnectionFeedItem, 0, limit)
 	for rows.Next() {
 		var (
-			walletID    string
-			chain       string
-			address     string
-			displayName string
-			signalType  string
-			payloadRaw  []byte
-			observedAt  time.Time
+			walletID                 string
+			chain                    string
+			address                  string
+			displayName              string
+			signalType               string
+			payloadRaw               []byte
+			observedAt               time.Time
+			entryFeatures            firstConnectionFeedEntryFeatures
+			entryFeaturesMetadataRaw []byte
 		)
 
-		if err := rows.Scan(&walletID, &chain, &address, &displayName, &signalType, &payloadRaw, &observedAt); err != nil {
+		if err := rows.Scan(
+			&walletID,
+			&chain,
+			&address,
+			&displayName,
+			&signalType,
+			&payloadRaw,
+			&observedAt,
+			&entryFeatures.HasFeatures,
+			&entryFeatures.QualityWalletOverlapCount,
+			&entryFeatures.SustainedOverlapCounterpartyCount,
+			&entryFeatures.StrongLeadCounterpartyCount,
+			&entryFeatures.FirstEntryBeforeCrowdingCount,
+			&entryFeatures.BestLeadHoursBeforePeers,
+			&entryFeatures.PersistenceAfterEntryProxyCount,
+			&entryFeatures.RepeatEarlyEntrySuccess,
+			&entryFeaturesMetadataRaw,
+		); err != nil {
 			return domain.FirstConnectionFeedPage{}, fmt.Errorf("scan first connection feed row: %w", err)
 		}
+		applyFirstConnectionFeedEntryFeatureMetadata(&entryFeatures, entryFeaturesMetadataRaw)
 
 		item, err := buildFirstConnectionFeedItem(
 			walletID,
@@ -245,6 +330,7 @@ func (r *PostgresFirstConnectionFeedReader) ReadFirstConnectionFeed(
 			signalType,
 			payloadRaw,
 			observedAt.UTC(),
+			entryFeatures,
 		)
 		if err != nil {
 			return domain.FirstConnectionFeedPage{}, err
@@ -279,6 +365,7 @@ func buildFirstConnectionFeedItem(
 	signalType string,
 	payloadRaw []byte,
 	observedAt time.Time,
+	entryFeatures firstConnectionFeedEntryFeatures,
 ) (domain.FirstConnectionFeedItem, error) {
 	snapshot := FirstConnectionSnapshot{
 		SignalType: strings.TrimSpace(signalType),
@@ -300,7 +387,7 @@ func buildFirstConnectionFeedItem(
 		Name:     domain.ScoreAlpha,
 		Value:    snapshot.ScoreValue,
 		Rating:   snapshot.ScoreRating,
-		Evidence: buildFirstConnectionFeedEvidence(payloadRaw, snapshot),
+		Evidence: buildFirstConnectionFeedEvidence(payloadRaw, snapshot, entryFeatures),
 	}
 
 	return domain.FirstConnectionFeedItem{
@@ -309,13 +396,21 @@ func buildFirstConnectionFeedItem(
 		Address:        strings.TrimSpace(address),
 		Label:          firstNonEmpty(strings.TrimSpace(displayName), strings.TrimSpace(address)),
 		WalletRoute:    walletRoute(strings.TrimSpace(chain), strings.TrimSpace(address)),
-		Recommendation: buildFirstConnectionRecommendation(score),
+		Recommendation: buildFirstConnectionRecommendation(score, entryFeatures),
 		ObservedAt:     snapshot.ObservedAt.UTC().Format(time.RFC3339),
 		Score:          score,
 	}, nil
 }
 
-func buildFirstConnectionFeedEvidence(payloadRaw []byte, snapshot FirstConnectionSnapshot) []domain.Evidence {
+func buildFirstConnectionFeedEvidence(
+	payloadRaw []byte,
+	snapshot FirstConnectionSnapshot,
+	entryFeatures firstConnectionFeedEntryFeatures,
+) []domain.Evidence {
+	if evidence := buildFirstConnectionEntryFeatureEvidence(snapshot, entryFeatures); len(evidence) > 0 {
+		return evidence
+	}
+
 	var payload map[string]any
 	if len(payloadRaw) > 0 {
 		if err := json.Unmarshal(payloadRaw, &payload); err == nil {
@@ -344,6 +439,158 @@ func buildFirstConnectionFeedEvidence(payloadRaw []byte, snapshot FirstConnectio
 	}
 }
 
+func buildFirstConnectionEntryFeatureEvidence(
+	snapshot FirstConnectionSnapshot,
+	entryFeatures firstConnectionFeedEntryFeatures,
+) []domain.Evidence {
+	if !entryFeatures.HasFeatures {
+		return nil
+	}
+
+	observedAt := snapshot.ObservedAt.UTC().Format(time.RFC3339)
+	evidence := make([]domain.Evidence, 0, 6+len(entryFeatures.TopCounterparties))
+
+	if entryFeatures.QualityWalletOverlapCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceClusterOverlap,
+			Label:      fmt.Sprintf("quality wallet overlap count %d", entryFeatures.QualityWalletOverlapCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.82,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"quality_wallet_overlap_count":         entryFeatures.QualityWalletOverlapCount,
+				"sustained_overlap_counterparty_count": entryFeatures.SustainedOverlapCounterpartyCount,
+				"strong_lead_counterparty_count":       entryFeatures.StrongLeadCounterpartyCount,
+			},
+		})
+	}
+	if entryFeatures.SustainedOverlapCounterpartyCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceClusterOverlap,
+			Label:      fmt.Sprintf("sustained overlap counterparty count %d", entryFeatures.SustainedOverlapCounterpartyCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.79,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"sustained_overlap_counterparty_count": entryFeatures.SustainedOverlapCounterpartyCount,
+			},
+		})
+	}
+	if entryFeatures.StrongLeadCounterpartyCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceLabel,
+			Label:      fmt.Sprintf("strong lead counterparty count %d", entryFeatures.StrongLeadCounterpartyCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.77,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"strong_lead_counterparty_count": entryFeatures.StrongLeadCounterpartyCount,
+			},
+		})
+	}
+	if entryFeatures.FirstEntryBeforeCrowdingCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceTransfer,
+			Label:      fmt.Sprintf("first entry before crowding count %d", entryFeatures.FirstEntryBeforeCrowdingCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.84,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"first_entry_before_crowding_count": entryFeatures.FirstEntryBeforeCrowdingCount,
+			},
+		})
+	}
+	if entryFeatures.BestLeadHoursBeforePeers > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceLabel,
+			Label:      fmt.Sprintf("best lead before peers %dh", entryFeatures.BestLeadHoursBeforePeers),
+			Source:     "wallet-entry-features",
+			Confidence: 0.76,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"best_lead_hours_before_peers": entryFeatures.BestLeadHoursBeforePeers,
+			},
+		})
+	}
+	if entryFeatures.PersistenceAfterEntryProxyCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceTransfer,
+			Label:      fmt.Sprintf("persistence after entry proxy %d", entryFeatures.PersistenceAfterEntryProxyCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.78,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"persistence_after_entry_proxy_count": entryFeatures.PersistenceAfterEntryProxyCount,
+			},
+		})
+	}
+	if entryFeatures.HistoricalSustainedOutcomeCount > 0 {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceLabel,
+			Label:      fmt.Sprintf("historical sustained outcome count %d", entryFeatures.HistoricalSustainedOutcomeCount),
+			Source:     "wallet-entry-features",
+			Confidence: 0.76,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"historical_sustained_outcome_count": entryFeatures.HistoricalSustainedOutcomeCount,
+			},
+		})
+	}
+	if strings.TrimSpace(entryFeatures.HoldingPersistenceState) != "" {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceLabel,
+			Label:      "holding persistence state " + strings.TrimSpace(entryFeatures.HoldingPersistenceState),
+			Source:     "wallet-entry-features",
+			Confidence: 0.73,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"holding_persistence_state":          entryFeatures.HoldingPersistenceState,
+				"historical_sustained_outcome_count": entryFeatures.HistoricalSustainedOutcomeCount,
+				"post_window_follow_through_count":   entryFeatures.PostWindowFollowThroughCount,
+				"max_post_window_persistence_hours":  entryFeatures.MaxPostWindowPersistenceHours,
+				"short_lived_overlap_count":          entryFeatures.ShortLivedOverlapCount,
+			},
+		})
+	}
+	if entryFeatures.RepeatEarlyEntrySuccess {
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceLabel,
+			Label:      "repeat early-entry success true",
+			Source:     "wallet-entry-features",
+			Confidence: 0.74,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"repeat_early_entry_success": true,
+			},
+		})
+	}
+	for _, counterparty := range entryFeatures.TopCounterparties {
+		address := strings.TrimSpace(counterparty.Address)
+		if address == "" {
+			continue
+		}
+		evidence = append(evidence, domain.Evidence{
+			Kind:       domain.EvidenceClusterOverlap,
+			Label:      "top counterparty overlap " + address,
+			Source:     "wallet-entry-features",
+			Confidence: 0.7,
+			ObservedAt: observedAt,
+			Metadata: map[string]any{
+				"chain":                   counterparty.Chain,
+				"address":                 address,
+				"interaction_count":       counterparty.InteractionCount,
+				"peer_wallet_count":       counterparty.PeerWalletCount,
+				"peer_tx_count":           counterparty.PeerTxCount,
+				"lead_hours_before_peers": counterparty.LeadHoursBeforePeers,
+			},
+		})
+	}
+	if len(evidence) == 0 {
+		return nil
+	}
+	return evidence
+}
+
 func decodeFirstConnectionEvidence(raw any, snapshot FirstConnectionSnapshot) []domain.Evidence {
 	bytes, err := json.Marshal(raw)
 	if err != nil {
@@ -370,7 +617,39 @@ func decodeFirstConnectionEvidence(raw any, snapshot FirstConnectionSnapshot) []
 	return evidence
 }
 
-func buildFirstConnectionRecommendation(score domain.Score) string {
+func buildFirstConnectionRecommendation(score domain.Score, entryFeatures firstConnectionFeedEntryFeatures) string {
+	topCounterparty := firstTopEntryFeatureCounterparty(entryFeatures.TopCounterparties)
+	counterpartyRef := "top overlap paths"
+	if topCounterparty != nil {
+		counterpartyRef = compactFirstConnectionCounterparty(topCounterparty.Address)
+	}
+
+	if entryFeatures.HasFeatures &&
+		entryFeatures.QualityWalletOverlapCount > 0 &&
+		entryFeatures.FirstEntryBeforeCrowdingCount > 0 &&
+		entryFeatures.HoldingPersistenceState == "sustained" {
+		return fmt.Sprintf(
+			"Early-entry overlap through %s held with sustained follow-through; review downstream continuation and sizing.",
+			counterpartyRef,
+		)
+	}
+	if entryFeatures.HasFeatures &&
+		entryFeatures.HoldingPersistenceState == "short_lived" &&
+		entryFeatures.QualityWalletOverlapCount > 0 {
+		return fmt.Sprintf(
+			"Early overlap through %s faded after the initial lead. Treat it as short-lived unless new follow-through appears.",
+			counterpartyRef,
+		)
+	}
+	if entryFeatures.HasFeatures &&
+		entryFeatures.QualityWalletOverlapCount > 0 &&
+		entryFeatures.FirstEntryBeforeCrowdingCount > 0 {
+		return fmt.Sprintf(
+			"Early overlap is appearing ahead of peers through %s; follow-through is still being monitored before treating it as high conviction.",
+			counterpartyRef,
+		)
+	}
+
 	switch score.Rating {
 	case domain.RatingHigh:
 		return "Elevated first-connection activity; review recent counterparties and activity."
@@ -379,6 +658,45 @@ func buildFirstConnectionRecommendation(score domain.Score) string {
 	default:
 		return "Light first-connection activity; keep under observation."
 	}
+}
+
+func applyFirstConnectionFeedEntryFeatureMetadata(entryFeatures *firstConnectionFeedEntryFeatures, metadataRaw []byte) {
+	if entryFeatures == nil || len(metadataRaw) == 0 {
+		return
+	}
+	var metadata struct {
+		PostWindowFollowThroughCount    int                              `json:"post_window_follow_through_count"`
+		MaxPostWindowPersistenceHours   int                              `json:"max_post_window_persistence_hours"`
+		ShortLivedOverlapCount          int                              `json:"short_lived_overlap_count"`
+		HistoricalSustainedOutcomeCount int                              `json:"historical_sustained_outcome_count"`
+		HoldingPersistenceState         string                           `json:"holding_persistence_state"`
+		TopCounterparties               []WalletEntryFeatureCounterparty `json:"top_counterparties"`
+	}
+	if err := json.Unmarshal(metadataRaw, &metadata); err == nil {
+		entryFeatures.PostWindowFollowThroughCount = metadata.PostWindowFollowThroughCount
+		entryFeatures.MaxPostWindowPersistenceHours = metadata.MaxPostWindowPersistenceHours
+		entryFeatures.ShortLivedOverlapCount = metadata.ShortLivedOverlapCount
+		entryFeatures.HistoricalSustainedOutcomeCount = metadata.HistoricalSustainedOutcomeCount
+		entryFeatures.HoldingPersistenceState = strings.TrimSpace(metadata.HoldingPersistenceState)
+		entryFeatures.TopCounterparties = metadata.TopCounterparties
+	}
+}
+
+func firstTopEntryFeatureCounterparty(
+	items []WalletEntryFeatureCounterparty,
+) *WalletEntryFeatureCounterparty {
+	if len(items) == 0 {
+		return nil
+	}
+	return &items[0]
+}
+
+func compactFirstConnectionCounterparty(address string) string {
+	trimmed := strings.TrimSpace(address)
+	if len(trimmed) <= 12 {
+		return trimmed
+	}
+	return trimmed[:6] + "..." + trimmed[len(trimmed)-4:]
 }
 
 func normalizeFirstConnectionFeedSort(raw string) (FirstConnectionFeedSort, error) {
