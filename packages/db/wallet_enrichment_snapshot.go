@@ -112,6 +112,7 @@ func (s *PostgresWalletEnrichmentSnapshotStore) UpsertWalletEnrichmentSnapshot(
 		return fmt.Errorf("marshal wallet enrichment holdings: %w", err)
 	}
 
+	activeChains := normalizeWalletEnrichmentActiveChains(enrichment.ActiveChains)
 	observedAt := parseWalletEnrichmentObservedAt(enrichment.UpdatedAt, s.now())
 	if _, err := s.Execer.Exec(
 		ctx,
@@ -122,7 +123,7 @@ func (s *PostgresWalletEnrichmentSnapshotStore) UpsertWalletEnrichmentSnapshot(
 		strings.TrimSpace(enrichment.NetWorthUSD),
 		strings.TrimSpace(enrichment.NativeBalance),
 		strings.TrimSpace(enrichment.NativeBalanceFormatted),
-		append([]string(nil), enrichment.ActiveChains...),
+		activeChains,
 		enrichment.HoldingCount,
 		holdingsRaw,
 		observedAt,
@@ -217,4 +218,12 @@ func parseWalletEnrichmentObservedAt(raw string, fallback time.Time) time.Time {
 		return parsed.UTC()
 	}
 	return fallback.UTC()
+}
+
+func normalizeWalletEnrichmentActiveChains(chains []string) []string {
+	if len(chains) == 0 {
+		return []string{}
+	}
+
+	return append([]string(nil), chains...)
 }

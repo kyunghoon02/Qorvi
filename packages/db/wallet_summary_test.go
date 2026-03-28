@@ -436,8 +436,49 @@ func (s *stubWalletStatsReader) ReadWalletStats(context.Context, WalletSummaryQu
 
 type stubWalletSignalReader struct {
 	signals WalletGraphSignals
+	err     error
 }
 
 func (s *stubWalletSignalReader) ReadWalletGraphSignals(context.Context, WalletSummaryQueryPlan) (WalletGraphSignals, error) {
+	if s.err != nil {
+		return WalletGraphSignals{}, s.err
+	}
 	return s.signals, nil
+}
+
+func TestLoadWalletSummaryInputsFallsBackWhenWalletGraphSignalsAreMissing(t *testing.T) {
+	t.Parallel()
+
+	repo := NewWalletSummaryRepository(
+		&stubWalletIdentityReader{identity: WalletSummaryIdentity{
+			WalletID: "wallet-1",
+			Chain:    domain.ChainEVM,
+			Address:  "0x1234567890abcdef1234567890abcdef12345678",
+		}},
+		&stubWalletStatsReader{stats: WalletSummaryStats{
+			AsOfDate:          time.Date(2026, 3, 28, 0, 0, 0, 0, time.UTC),
+			TransactionCount:  3,
+			CounterpartyCount: 2,
+		}},
+		&stubWalletSignalReader{err: ErrWalletSummaryNotFound},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		5*time.Minute,
+	)
+
+	inputs, err := repo.LoadWalletSummaryInputs(context.Background(), WalletRef{
+		Chain:   domain.ChainEVM,
+		Address: "0x1234567890abcdef1234567890abcdef12345678",
+	})
+	if err != nil {
+		t.Fatalf("expected wallet summary inputs without graph signals, got %v", err)
+	}
+	if inputs.Signals.ClusterKey != "" || inputs.Signals.InteractedWalletCount != 0 {
+		t.Fatalf("expected zero-value graph signals, got %#v", inputs.Signals)
+	}
 }

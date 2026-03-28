@@ -99,6 +99,33 @@ func TestPostgresWalletEnrichmentSnapshotStoreUpsert(t *testing.T) {
 	}
 }
 
+func TestPostgresWalletEnrichmentSnapshotStoreUpsertUsesEmptyArrayForMissingActiveChains(t *testing.T) {
+	t.Parallel()
+
+	execer := &fakeWalletEnrichmentSnapshotExecer{}
+	store := NewPostgresWalletEnrichmentSnapshotStore(execer, nil)
+
+	err := store.UpsertWalletEnrichmentSnapshot(context.Background(), domain.ChainEVM, "0xabc", domain.WalletEnrichment{
+		Provider:     "moralis",
+		Holdings:     []domain.WalletHolding{},
+		HoldingCount: 0,
+	})
+	if err != nil {
+		t.Fatalf("UpsertWalletEnrichmentSnapshot returned error: %v", err)
+	}
+
+	activeChains, ok := execer.args[6].([]string)
+	if !ok {
+		t.Fatalf("expected active chains arg to be []string, got %T", execer.args[6])
+	}
+	if activeChains == nil {
+		t.Fatal("expected empty slice for active chains, got nil")
+	}
+	if len(activeChains) != 0 {
+		t.Fatalf("expected empty active chains, got %#v", activeChains)
+	}
+}
+
 func TestPostgresWalletEnrichmentSnapshotStoreRead(t *testing.T) {
 	t.Parallel()
 

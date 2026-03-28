@@ -312,13 +312,33 @@ counterparty_token_rollup AS (
   WHERE counterparty_address IS NOT NULL
   GROUP BY coalesce(counterparty_chain, ''), counterparty_address, coalesce(nullif(token_symbol, ''), 'token')
 ),
+counterparty_primary_token AS (
+  SELECT DISTINCT ON (ctr.chain, ctr.address)
+    ctr.chain,
+    ctr.address,
+    ctr.token_symbol AS primary_token
+  FROM counterparty_token_rollup ctr
+  ORDER BY ctr.chain ASC, ctr.address ASC, ctr.total_amount DESC, ctr.token_symbol ASC
+),
+counterparty_token_json AS (
+  SELECT
+    ctr.chain,
+    ctr.address,
+    jsonb_agg(jsonb_build_object(
+      'symbol', ctr.token_symbol,
+      'inbound_amount', ctr.inbound_amount::text,
+      'outbound_amount', ctr.outbound_amount::text
+    ) ORDER BY ctr.total_amount DESC, ctr.token_symbol ASC) AS token_breakdowns
+  FROM counterparty_token_rollup ctr
+  GROUP BY ctr.chain, ctr.address
+),
 activity_bounds AS (
   SELECT
     min(observed_at) AS earliest_activity_at,
     max(observed_at) AS latest_activity_at
   FROM tx_base
 ),
-counterparty_rollup AS (
+counterparty_rollup_base AS (
   SELECT
     coalesce(tx.counterparty_chain, '') AS chain,
     tx.counterparty_address AS address,
@@ -330,22 +350,6 @@ counterparty_rollup AS (
     count(*) FILTER (WHERE tx.direction = 'outbound') AS outbound_count,
     COALESCE(sum(CASE WHEN tx.direction = 'inbound' THEN tx.amount_numeric ELSE 0 END), 0::numeric)::text AS inbound_amount,
     COALESCE(sum(CASE WHEN tx.direction = 'outbound' THEN tx.amount_numeric ELSE 0 END), 0::numeric)::text AS outbound_amount,
-    COALESCE((
-      SELECT ctr.token_symbol
-      FROM counterparty_token_rollup ctr
-      WHERE ctr.chain = coalesce(tx.counterparty_chain, '') AND ctr.address = tx.counterparty_address
-      ORDER BY ctr.total_amount DESC, ctr.token_symbol ASC
-      LIMIT 1
-    ), '') AS primary_token,
-    COALESCE((
-      SELECT jsonb_agg(jsonb_build_object(
-        'symbol', ctr.token_symbol,
-        'inbound_amount', ctr.inbound_amount::text,
-        'outbound_amount', ctr.outbound_amount::text
-      ) ORDER BY ctr.total_amount DESC, ctr.token_symbol ASC)
-      FROM counterparty_token_rollup ctr
-      WHERE ctr.chain = coalesce(tx.counterparty_chain, '') AND ctr.address = tx.counterparty_address
-    ), '[]'::jsonb) AS token_breakdowns,
     min(tx.observed_at) AS first_seen_at,
     max(tx.observed_at) AS latest_activity_at
   FROM tx_base tx
@@ -356,6 +360,30 @@ counterparty_rollup AS (
     ON e.entity_key = w.entity_key
   WHERE tx.counterparty_address IS NOT NULL
   GROUP BY coalesce(tx.counterparty_chain, ''), tx.counterparty_address, w.entity_key, e.entity_type, e.display_name
+),
+counterparty_rollup AS (
+  SELECT
+    base.chain,
+    base.address,
+    base.entity_key,
+    base.entity_type,
+    base.entity_label,
+    base.interaction_count,
+    base.inbound_count,
+    base.outbound_count,
+    base.inbound_amount,
+    base.outbound_amount,
+    COALESCE(primary_token.primary_token, '') AS primary_token,
+    COALESCE(token_json.token_breakdowns, '[]'::jsonb) AS token_breakdowns,
+    base.first_seen_at,
+    base.latest_activity_at
+  FROM counterparty_rollup_base base
+  LEFT JOIN counterparty_primary_token primary_token
+    ON primary_token.chain = base.chain
+   AND primary_token.address = base.address
+  LEFT JOIN counterparty_token_json token_json
+    ON token_json.chain = base.chain
+   AND token_json.address = base.address
   ORDER BY interaction_count DESC, latest_activity_at DESC, address ASC
   LIMIT 5
 )
@@ -596,6 +624,9 @@ func (r *WalletSummaryRepository) readSignals(ctx context.Context, plan WalletSu
 
 	signals, err := r.GraphSignalReader.ReadWalletGraphSignals(ctx, plan)
 	if err != nil {
+		if errors.Is(err, ErrWalletSummaryNotFound) {
+			return WalletGraphSignals{}, nil
+		}
 		return WalletGraphSignals{}, fmt.Errorf("read wallet graph signals: %w", err)
 	}
 

@@ -12,6 +12,16 @@ env 기준:
 - `./scripts/production-open-prep.sh --env-only --env-file .env` -> `PASS=24 WARN=8 BLOCK=0`
 - `corepack pnpm prod:prep` -> 통과
 - `corepack pnpm prod:evidence:core` -> 통과
+- local operator smoke -> 통과
+  - `/v1/admin/provider-quotas`
+  - `/v1/admin/observability`
+  - `/v1/wallets/:chain/:address/brief`
+  - `/v1/analyst/findings`
+
+주의:
+
+- local smoke의 admin 확인은 development mock Clerk headers 기준이다.
+- target production environment에서는 실제 Clerk session/role로 다시 확인해야 한다.
 
 ## 1. Environment Checklist
 
@@ -70,6 +80,7 @@ corepack pnpm prod:evidence
 3. alert delivery failure 여부
 4. audit trail 누락 여부
 5. representative finding sample에서 `evidence-timeline`이 `txRef/pathRef/entityRef/counterpartyRef`를 모두 싣는지 확인
+6. representative wallet brief가 `200`으로 응답하고 `lookup failed`가 재발하지 않는지 확인
 
 billing을 production launch에 함께 켤 경우 추가 확인:
 

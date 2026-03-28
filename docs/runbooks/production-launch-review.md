@@ -5,7 +5,7 @@
 ## 1. Review Snapshot
 
 - Review date: `2026-03-27`
-- Decision: `pending target env/operator sign-off`
+- Decision: `pending target production env sign-off`
 - Reviewer set:
   - engineering closeout
   - operator handoff
@@ -34,15 +34,20 @@ corepack pnpm prod:evidence:core
    - backend/provider/worker contracts 통과
    - tracked wallet flow E2E 통과
    - billing/account reconciliation E2E 통과
+4. local operator handoff smoke
+   - `/v1/admin/provider-quotas` 응답 확인
+   - `/v1/admin/observability` 응답 확인
+   - `/v1/wallets/:chain/:address/brief` 응답 확인
+   - `/v1/analyst/findings` 응답 확인
 
 ## 3. Gate Outcome
 
 | Gate | Outcome | Basis |
 | --- | --- | --- |
-| Functional | `pending` | target production env에서 wallet/search/graph/alerts core flow 재확인 필요 |
-| Reliability | `pending` | replay, provider contract, worker refresh/invalidation, webhook duplicate safety target env 재확인 필요 |
+| Functional | `pass(local) / pending(target)` | local dry-run과 operator smoke에서 wallet brief/admin/analyst surface 확인 완료, target production env 재확인만 남음 |
+| Reliability | `pass(local) / pending(target)` | replay, provider contract, worker refresh/invalidation, webhook duplicate safety local evidence 통과, target env 재확인 필요 |
 | UX | `pass` | `prod:evidence:core`가 web typecheck/lint와 representative E2E를 통과 |
-| Ops | `pending` | provider quotas, observability, alert delivery, audit/admin surfaces operator sign-off 필요 |
+| Ops | `pass(local) / pending(target)` | provider quotas와 observability 응답 확인 완료, target env operator sign-off만 남음 |
 | Launch Residuals | `warn` | billing activation, ops polish, provider quota tuning은 rollout 이후에도 follow-up 유지 가능 |
 
 ## 4. Blocking Issues
@@ -50,9 +55,14 @@ corepack pnpm prod:evidence:core
 production launch 전 해소해야 할 항목:
 
 1. target production env 필수 값 검증
-2. operator sign-off
+2. target env operator sign-off
 3. replay/rollback package 실제 target env 기준 재확인
 4. representative wallet set 기준 engine replay diff와 evidence completeness 확인
+
+참고:
+
+- local operator smoke 당시 보였던 `wallet brief lookup failed`는 wallet summary stats SQL grouping 오류 수정으로 해소됨.
+- `/v1/admin/observability`의 recent failures는 과거 worker 실행 이력이며, 현재 launch blocker가 아님.
 
 ## 5. Open Conditions
 
