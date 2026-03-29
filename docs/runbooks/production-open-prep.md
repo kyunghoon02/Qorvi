@@ -12,6 +12,7 @@ env 기준:
 - `./scripts/production-open-prep.sh --env-only --env-file .env` -> `PASS=24 WARN=8 BLOCK=0`
 - `corepack pnpm prod:prep` -> 통과
 - `corepack pnpm prod:evidence:core` -> 통과
+- `corepack pnpm prod:open:prep --env-file .env.production.seeded.draft` -> `PASS Ready for production launch`
 - local operator smoke -> 통과
   - `/v1/admin/provider-quotas`
   - `/v1/admin/observability`
@@ -22,6 +23,7 @@ env 기준:
 
 - local smoke의 admin 확인은 development mock Clerk headers 기준이다.
 - target production environment에서는 실제 Clerk session/role로 다시 확인해야 한다.
+- `.env.production.seeded.draft`는 seeded rehearsal 파일이다. 실제 production launch 전에는 real target env 값으로 한 번 더 동일 preflight를 돌려야 한다.
 
 ## 1. Environment Checklist
 
@@ -62,6 +64,7 @@ corepack pnpm prod:open:prep
 
 ```bash
 ./scripts/production-open-prep.sh --env-only --env-file .env.production
+corepack pnpm prod:open:prep --env-file .env.production.seeded.draft
 ```
 
 단계별 실행이 필요할 때:
@@ -81,6 +84,7 @@ corepack pnpm prod:evidence
 4. audit trail 누락 여부
 5. representative finding sample에서 `evidence-timeline`이 `txRef/pathRef/entityRef/counterpartyRef`를 모두 싣는지 확인
 6. representative wallet brief가 `200`으로 응답하고 `lookup failed`가 재발하지 않는지 확인
+7. real target env 기준 origin/app/api routing 값이 seeded rehearsal과 다를 경우 다시 smoke
 
 billing을 production launch에 함께 켤 경우 추가 확인:
 
@@ -99,6 +103,7 @@ billing을 production launch에 함께 켤 경우 추가 확인:
 2. `corepack pnpm prod:evidence:core`가 통과
 3. 운영자 확인 완료
 4. representative replay diff에서 finding count 급증/누락이 없음
+5. real target env 값으로도 `prod:open:prep`이 다시 통과
 
 billing을 production launch에 함께 활성화할 경우:
 

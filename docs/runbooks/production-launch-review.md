@@ -4,8 +4,8 @@
 
 ## 1. Review Snapshot
 
-- Review date: `2026-03-27`
-- Decision: `pending target production env sign-off`
+- Review date: `2026-03-29`
+- Decision: `pass for seeded production rehearsal / pending real target env operator sign-off`
 - Reviewer set:
   - engineering closeout
   - operator handoff
@@ -19,6 +19,7 @@
 ./scripts/production-open-prep.sh --env-only --env-file .env
 corepack pnpm prod:prep
 corepack pnpm prod:evidence:core
+corepack pnpm prod:open:prep --env-file .env.production.seeded.draft
 ```
 
 현재 로컬 dry-run 결과:
@@ -39,23 +40,27 @@ corepack pnpm prod:evidence:core
    - `/v1/admin/observability` 응답 확인
    - `/v1/wallets/:chain/:address/brief` 응답 확인
    - `/v1/analyst/findings` 응답 확인
+5. seeded production rehearsal
+   - `corepack pnpm prod:open:prep --env-file .env.production.seeded.draft`
+   - 결과: `PASS Ready for production launch`
+   - residual warn만 남음: `DUNE_API_KEY`, Stripe values, SMTP host
 
 ## 3. Gate Outcome
 
 | Gate | Outcome | Basis |
 | --- | --- | --- |
-| Functional | `pass(local) / pending(target)` | local dry-run과 operator smoke에서 wallet brief/admin/analyst surface 확인 완료, target production env 재확인만 남음 |
-| Reliability | `pass(local) / pending(target)` | replay, provider contract, worker refresh/invalidation, webhook duplicate safety local evidence 통과, target env 재확인 필요 |
+| Functional | `pass(rehearsal) / pending(target)` | local dry-run, operator smoke, seeded production rehearsal에서 wallet brief/admin/analyst surface 확인 완료 |
+| Reliability | `pass(rehearsal) / pending(target)` | replay, provider contract, worker refresh/invalidation, webhook duplicate safety local evidence와 seeded rehearsal에서 통과 |
 | UX | `pass` | `prod:evidence:core`가 web typecheck/lint와 representative E2E를 통과 |
-| Ops | `pass(local) / pending(target)` | provider quotas와 observability 응답 확인 완료, target env operator sign-off만 남음 |
+| Ops | `pass(rehearsal) / pending(target)` | provider quotas와 observability 응답 확인 완료, 실제 target env operator sign-off만 남음 |
 | Launch Residuals | `warn` | billing activation, ops polish, provider quota tuning은 rollout 이후에도 follow-up 유지 가능 |
 
 ## 4. Blocking Issues
 
 production launch 전 해소해야 할 항목:
 
-1. target production env 필수 값 검증
-2. target env operator sign-off
+1. real target production env 값으로 동일 preflight 재실행
+2. real target env operator sign-off
 3. replay/rollback package 실제 target env 기준 재확인
 4. representative wallet set 기준 engine replay diff와 evidence completeness 확인
 
@@ -82,7 +87,7 @@ billing을 production launch에 함께 활성화할 경우:
 
 launch 직전 마지막 순서:
 
-1. `corepack pnpm prod:open:prep --env-file <target-env-file>`
-2. target env 기준 `corepack pnpm prod:evidence:core` 재실행
+1. `corepack pnpm prod:open:prep --env-file <real-target-env-file>`
+2. real target env 기준 `corepack pnpm prod:evidence:core` 재실행
 3. `/Users/kh/Github/FlowIntel/docs/runbooks/production-release-package.md` 검토
 4. operator sign-off 기록
