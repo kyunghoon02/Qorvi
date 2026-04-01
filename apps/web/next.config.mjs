@@ -17,7 +17,7 @@ const nextConfig = {
       },
     ];
   },
-  transpilePackages: ["@flowintel/ui"],
+  transpilePackages: ["@qorvi/ui"],
 };
 
 export default nextConfig;
