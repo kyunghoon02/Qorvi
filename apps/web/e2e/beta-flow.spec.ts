@@ -12,7 +12,7 @@ const authHeaders = {
   "X-Clerk-Session-Id": "session_123",
   "X-Clerk-Role": "user",
 };
-const persistedAuthHeaderStorageKey = "flowintel.forwarded-auth-headers";
+const persistedAuthHeaderStorageKey = "qorvi.forwarded-auth-headers";
 
 async function seedBrowserAuth(page: Page) {
   await page.addInitScript((headers) => {
@@ -21,7 +21,7 @@ async function seedBrowserAuth(page: Page) {
       value,
     ]);
     window.sessionStorage.setItem(
-      "flowintel.forwarded-auth-headers",
+      "qorvi.forwarded-auth-headers",
       JSON.stringify(normalizedEntries),
     );
 
@@ -215,10 +215,7 @@ test.describe("WG-042 beta flow", () => {
 
     const searchInput = page.getByPlaceholder("EVM or Solana address").first();
     await searchInput.fill(seededWalletAddress);
-    await page.getByRole("button", { name: "Search" }).first().click();
-
-    await expect(page.getByRole("link", { name: "Open detail" })).toBeVisible();
-    await page.getByRole("link", { name: "Open detail" }).click();
+    await page.getByRole("button", { name: "Search wallet address" }).click();
 
     await expect(page).toHaveURL(
       new RegExp(`/wallets/evm/${seededWalletAddress}$`),
@@ -240,68 +237,11 @@ test.describe("WG-042 beta flow", () => {
     await expect(page.getByText(/Watchlist .* and rule /i)).toBeVisible();
   });
 
-  test("creates checkout intent, reconciles billing, and shows upgraded account", async ({
-    page,
-    request,
-  }) => {
-    await page.addInitScript((storageKey) => {
-      window.sessionStorage.removeItem(storageKey);
-    }, persistedAuthHeaderStorageKey);
-    const checkoutResponse = await request.post(
-      `${apiBaseUrl}/v1/billing/checkout-sessions`,
-      {
-        headers: {
-          ...authHeaders,
-          "Content-Type": "application/json",
-        },
-        data: {
-          tier: "team",
-          successUrl:
-            "http://127.0.0.1:3000/account?checkout=success&plan=team",
-          cancelUrl: "http://127.0.0.1:3000/account?checkout=cancel&plan=team",
-        },
-      },
-    );
-    await expect(checkoutResponse).toBeOK();
-
-    const checkoutPayload = await checkoutResponse.json();
-    expect(checkoutPayload.success).toBeTruthy();
-    expect(checkoutPayload.data.checkoutSession.provider).toBe("stripe");
-    expect(checkoutPayload.data.plan.tier).toBe("team");
-
-    await reconcileTeamPlan({
-      request,
-      subscriptionId: "sub_e2e_account_plan",
-      customerId: "cus_e2e_account_plan",
-    });
-
-    const accountResponse = await request.get(
-      `${apiBaseUrl}/v1/account/entitlements`,
-      {
-        headers: authHeaders,
-      },
-    );
-    await expect(accountResponse).toBeOK();
-    const accountPayload = await accountResponse.json();
-    expect(accountPayload.success).toBeTruthy();
-    expect(accountPayload.data.plan.tier).toBe("team");
-
-    await seedBrowserAuth(page);
+  test("account and pricing routes redirect back home", async ({ page }) => {
     await page.goto("/account?checkout=success&plan=team");
+    await expect(page).toHaveURL(/\/$/);
 
-    await expect(
-      page.getByRole("heading", { name: "Account & billing" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Checkout returned", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        /refresh this account snapshot to confirm the Team plan once billing reconciliation completes\./i,
-      ),
-    ).toBeVisible();
-    await expect(page.locator(".detail-route-copy").first()).toContainText(
-      "GET /v1/account/entitlements",
-    );
+    await page.goto("/pricing");
+    await expect(page).toHaveURL(/\/$/);
   });
 });

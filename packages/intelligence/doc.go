@@ -1,2 +1,2 @@
-// Package intelligence provides placeholder scoring engines for FlowIntel.
+// Package intelligence provides placeholder scoring engines for Qorvi.
 package intelligence

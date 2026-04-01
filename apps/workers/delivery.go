@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type AlertDeliveryChannelReader interface {
@@ -383,7 +383,7 @@ func buildAlertDeliveryKey(eventID string, channelID string) string {
 }
 
 func buildAlertEmailContent(event domain.AlertEvent) (string, string) {
-	subject := fmt.Sprintf("[FlowIntel] %s %s", strings.ToUpper(string(event.Severity)), event.SignalType)
+	subject := fmt.Sprintf("[Qorvi] %s %s", strings.ToUpper(string(event.Severity)), event.SignalType)
 	body := fmt.Sprintf(
 		"Signal: %s\nSeverity: %s\nObservedAt: %s\nAlertRuleID: %s\nPayload: %s\n",
 		event.SignalType,
@@ -397,7 +397,7 @@ func buildAlertEmailContent(event domain.AlertEvent) (string, string) {
 
 func buildAlertDiscordContent(event domain.AlertEvent) string {
 	return fmt.Sprintf(
-		"FlowIntel alert [%s] %s at %s\n%s",
+		"Qorvi alert [%s] %s at %s\n%s",
 		strings.ToUpper(string(event.Severity)),
 		event.SignalType,
 		event.ObservedAt.UTC().Format(time.RFC3339),

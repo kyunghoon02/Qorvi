@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 func recordWalletFinding(
@@ -79,6 +80,169 @@ func buildNextWatchTargets(targets []domain.NextWatchTarget) []map[string]any {
 	return out
 }
 
+type scoreRiskSummary struct {
+	RatingBlockReasons   []string
+	SuppressionReasons   []string
+	ContradictionReasons []string
+	MaxSuppressionScore  int
+	MaxContradictionRisk int
+}
+
+func summarizeScoreRisk(score domain.Score) scoreRiskSummary {
+	summary := scoreRiskSummary{}
+	for _, evidence := range score.Evidence {
+		if len(evidence.Metadata) == 0 {
+			continue
+		}
+		summary.RatingBlockReasons = append(summary.RatingBlockReasons, findingMetadataStringList(evidence.Metadata["rating_block_reason"])...)
+		summary.SuppressionReasons = append(summary.SuppressionReasons, findingMetadataStringList(evidence.Metadata["suppression_reasons"])...)
+		summary.ContradictionReasons = append(summary.ContradictionReasons, findingMetadataStringList(evidence.Metadata["contradiction_reasons"])...)
+		summary.MaxSuppressionScore = maxInt(summary.MaxSuppressionScore, findingMetadataInt(evidence.Metadata["suppression_discount"]))
+		summary.MaxContradictionRisk = maxInt(summary.MaxContradictionRisk, findingMetadataInt(evidence.Metadata["contradiction_penalty"]))
+	}
+	summary.RatingBlockReasons = uniqueFindingStrings(summary.RatingBlockReasons)
+	summary.SuppressionReasons = uniqueFindingStrings(summary.SuppressionReasons)
+	summary.ContradictionReasons = uniqueFindingStrings(summary.ContradictionReasons)
+	return summary
+}
+
+func buildFindingRiskBundle(summary scoreRiskSummary) map[string]any {
+	bundle := map[string]any{}
+	if len(summary.RatingBlockReasons) > 0 {
+		bundle["rating_block_summary"] = append([]string{}, summary.RatingBlockReasons...)
+	}
+	if len(summary.SuppressionReasons) > 0 {
+		bundle["suppression_summary"] = append([]string{}, summary.SuppressionReasons...)
+	}
+	if len(summary.ContradictionReasons) > 0 {
+		bundle["contradiction_summary"] = append([]string{}, summary.ContradictionReasons...)
+	}
+	if summary.MaxSuppressionScore > 0 {
+		bundle["suppression_score"] = summary.MaxSuppressionScore
+	}
+	if summary.MaxContradictionRisk > 0 {
+		bundle["contradiction_score"] = summary.MaxContradictionRisk
+	}
+	return bundle
+}
+
+func findingMetadataStringList(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	case []string:
+		return uniqueFindingStrings(typed)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok {
+				out = append(out, text)
+			}
+		}
+		return uniqueFindingStrings(out)
+	default:
+		return nil
+	}
+}
+
+func findingMetadataInt(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float32:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
+func uniqueFindingStrings(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func ratingBlockFact(summary scoreRiskSummary) string {
+	if len(summary.RatingBlockReasons) == 0 {
+		return ""
+	}
+	return "Rating was capped because the current evidence base is still incomplete."
+}
+
+func suppressionFact(summary scoreRiskSummary) string {
+	if len(summary.SuppressionReasons) == 0 && summary.MaxSuppressionScore == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"False-positive suppressors are active: %s (discount %d).",
+		strings.Join(summary.SuppressionReasons, ", "),
+		summary.MaxSuppressionScore,
+	)
+}
+
+func contradictionFact(summary scoreRiskSummary) string {
+	if len(summary.ContradictionReasons) == 0 && summary.MaxContradictionRisk == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Contradictory signals remain: %s.",
+		strings.Join(summary.ContradictionReasons, ", "),
+	)
+}
+
+func routeSummaryFact(summary intelligence.RouteSummary) string {
+	if summary.IsZero() {
+		return ""
+	}
+	if len(summary.SecondaryRoutes) == 0 {
+		return fmt.Sprintf("Primary flow route classified as %s (%s).", summary.PrimaryRoute, summary.PrimaryStrength)
+	}
+	secondary := make([]string, 0, len(summary.SecondaryRoutes))
+	for _, route := range summary.SecondaryRoutes {
+		if route == "" {
+			continue
+		}
+		secondary = append(secondary, string(route))
+	}
+	if len(secondary) == 0 {
+		return fmt.Sprintf("Primary flow route classified as %s (%s).", summary.PrimaryRoute, summary.PrimaryStrength)
+	}
+	return fmt.Sprintf(
+		"Primary flow route classified as %s (%s), with secondary routes %s.",
+		summary.PrimaryRoute,
+		summary.PrimaryStrength,
+		strings.Join(secondary, ", "),
+	)
+}
+
 func bundleCoverage(observedAt string, windowDays int) (time.Time, *time.Time, *time.Time) {
 	end := time.Now().UTC()
 	if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(observedAt)); err == nil {
@@ -90,6 +254,38 @@ func bundleCoverage(observedAt string, windowDays int) (time.Time, *time.Time, *
 
 func clusterScoreFindingEntry(report ClusterScoreSnapshotReport, score domain.Score) db.FindingEntry {
 	observedAt, coverageStartAt, coverageEndAt := bundleCoverage(report.ObservedAt, 30)
+	riskSummary := summarizeScoreRisk(score)
+	clusterSemantics := clusterScoreSemantics(score)
+	observedFacts := []string{
+		fmt.Sprintf("Cluster score snapshot rated %s at %d.", score.Rating, score.Value),
+	}
+	if clusterSemantics.PeerOverlap > 0 || clusterSemantics.SharedEntities > 0 || clusterSemantics.BidirectionalPeers > 0 {
+		observedFacts = append(observedFacts, fmt.Sprintf(
+			"Peer overlap %d, shared entities %d, bidirectional peers %d.",
+			clusterSemantics.PeerOverlap,
+			clusterSemantics.SharedEntities,
+			clusterSemantics.BidirectionalPeers,
+		))
+	}
+	samplingSummary := clusterSamplingSummary(report)
+	if fact := clusterSamplingFact(report); fact != "" {
+		observedFacts = append(observedFacts, fact)
+	}
+	if fact := ratingBlockFact(riskSummary); fact != "" {
+		observedFacts = append(observedFacts, fact)
+	}
+	if fact := contradictionFact(riskSummary); fact != "" {
+		observedFacts = append(observedFacts, fact)
+	}
+	importanceReasons := []string{
+		"Peer-wallet overlap, shared entity adjacency, and recurrent interaction strength increased cluster conviction.",
+	}
+	if clusterSemantics.BidirectionalPeers > 0 {
+		importanceReasons = append(importanceReasons, "Bidirectional flow corroboration increased confidence that the cohort is coordinated rather than loosely adjacent.")
+	}
+	if len(riskSummary.ContradictionReasons) > 0 {
+		importanceReasons = append(importanceReasons, "Conviction remains conditional because some peer overlap is not yet corroborated by shared entities, direct two-way flow, or persistent recurrence.")
+	}
 	return db.FindingEntry{
 		FindingType:        domain.FindingTypeSmartMoneyConvergence,
 		WalletID:           strings.TrimSpace(report.WalletID),
@@ -100,25 +296,21 @@ func clusterScoreFindingEntry(report ClusterScoreSnapshotReport, score domain.Sc
 		SubjectLabel:       "Wallet",
 		Confidence:         findingConfidenceFromScore(score),
 		ImportanceScore:    float64(score.Value) / 100,
-		Summary:            fmt.Sprintf("Behavior cohort overlap and repeated counterparties suggest coordinated smart money activity around %s.", strings.TrimSpace(report.Address)),
+		Summary:            fmt.Sprintf("Peer overlap, shared entity links, and recurrent flow suggest coordinated smart money behavior around %s.", strings.TrimSpace(report.Address)),
 		DedupKey:           fmt.Sprintf("finding:%s:%s:%s", domain.FindingTypeSmartMoneyConvergence, strings.TrimSpace(report.WalletID), report.ObservedAt),
 		Status:             "active",
 		ObservedAt:         observedAt,
 		CoverageStartAt:    coverageStartAt,
 		CoverageEndAt:      coverageEndAt,
 		CoverageWindowDays: 30,
-		Bundle: map[string]any{
-			"importance_reason": []string{
-				"Repeated overlap with counterparties and neighborhood density increased cluster conviction.",
-			},
-			"observed_facts": []string{
-				fmt.Sprintf("Cluster score snapshot rated %s at %d.", score.Rating, score.Value),
-			},
+		Bundle: mergeBundle(buildFindingRiskBundle(riskSummary), mergeBundle(map[string]any{
+			"importance_reason": importanceReasons,
+			"observed_facts":    observedFacts,
 			"inferred_interpretations": []string{
-				"This wallet is moving with a behavior cohort rather than acting in isolation.",
+				"This wallet is moving with a behavior cohort defined by shared peers and entity-linked overlap rather than acting in isolation.",
 			},
 			"evidence": buildFindingEvidence(score.Evidence),
-		},
+		}, samplingSummary)),
 	}
 }
 
@@ -148,27 +340,49 @@ func shadowExitFindingEntries(
 	if evidenceReport != nil {
 		commonEvidence = append(commonEvidence, buildBridgeExchangeFindingEvidence(*evidenceReport)...)
 	}
+	riskSummary := summarizeScoreRisk(score)
+	routeSummary := intelligence.SummarizeBridgeExchangeRoutes(evidenceReport)
 	commonBundle := map[string]any{
 		"evidence": commonEvidence,
 	}
+	commonBundle = mergeBundle(commonBundle, buildFindingRiskBundle(riskSummary))
+	if metadata := routeSummary.Metadata(); metadata != nil {
+		commonBundle["route_summary"] = metadata
+	}
 
 	out := make([]db.FindingEntry, 0, 2)
+	exitSummary := fmt.Sprintf("Distribution and exit risk is rising for %s based on bridge, fanout, and exchange-proximity signals.", strings.TrimSpace(report.Address))
+	if len(riskSummary.SuppressionReasons) > 0 {
+		exitSummary = fmt.Sprintf("Distribution and exit risk is rising for %s, but treasury or internal-rebalance suppressors remain active.", strings.TrimSpace(report.Address))
+	}
+	exitImportance := []string{
+		"Recent outflow behavior increased the probability of distribution or exit preparation.",
+	}
+	exitFacts := []string{
+		fmt.Sprintf("Shadow exit risk rated %s at %d.", score.Rating, score.Value),
+		fmt.Sprintf("Bridge escape count: %d. CEX proximity count: %d.", report.BridgeEscapeCount, report.CEXProximityCount),
+		fmt.Sprintf("Bridge share %.2f, exchange share %.2f, deposit-like paths %d.", report.BridgeOutflowShare, report.ExchangeOutflowShare, report.DepositLikePathCount),
+		routeSummaryFact(routeSummary),
+	}
+	exitInterpretations := []string{
+		"Observed flow looks more like preparation to distribute than passive treasury movement.",
+	}
+	if fact := ratingBlockFact(riskSummary); fact != "" {
+		exitFacts = append(exitFacts, fact)
+	}
+	if fact := suppressionFact(riskSummary); fact != "" {
+		exitFacts = append(exitFacts, fact)
+		exitImportance = append(exitImportance, "Treasury and internal-rebalance suppressors were considered before escalating the exit-preparation finding.")
+		exitInterpretations = append(exitInterpretations, "Treat this as directional risk, not proof of malicious or market-moving intent.")
+	}
 	out = append(out, db.FindingEntry{
 		FindingType: domain.FindingTypeExitPreparation,
-		Summary:     fmt.Sprintf("Distribution and exit risk is rising for %s based on bridge, fanout, and exchange-proximity signals.", strings.TrimSpace(report.Address)),
+		Summary:     exitSummary,
 		DedupKey:    fmt.Sprintf("finding:%s:%s:%s", domain.FindingTypeExitPreparation, strings.TrimSpace(report.WalletID), report.ObservedAt),
 		Bundle: mergeBundle(commonBundle, map[string]any{
-			"importance_reason": []string{
-				"Recent outflow behavior increased the probability of distribution or exit preparation.",
-			},
-			"observed_facts": []string{
-				fmt.Sprintf("Shadow exit risk rated %s at %d.", score.Rating, score.Value),
-				fmt.Sprintf("Bridge escape count: %d. CEX proximity count: %d.", report.BridgeEscapeCount, report.CEXProximityCount),
-				fmt.Sprintf("Bridge share %.2f, exchange share %.2f, deposit-like paths %d.", report.BridgeOutflowShare, report.ExchangeOutflowShare, report.DepositLikePathCount),
-			},
-			"inferred_interpretations": []string{
-				"Observed flow looks more like preparation to distribute than passive treasury movement.",
-			},
+			"importance_reason":        exitImportance,
+			"observed_facts":           exitFacts,
+			"inferred_interpretations": exitInterpretations,
 		}),
 	}, base)
 
@@ -220,6 +434,7 @@ func shadowExitFindingEntries(
 
 func firstConnectionFindingEntry(report FirstConnectionSnapshotReport, score domain.Score) db.FindingEntry {
 	observedAt, coverageStartAt, coverageEndAt := bundleCoverage(report.ObservedAt, 30)
+	riskSummary := summarizeScoreRisk(score)
 	evidence := buildFindingEvidence(score.Evidence)
 	evidence = append(evidence,
 		buildFindingEvidenceItem(
@@ -284,31 +499,35 @@ func firstConnectionFindingEntry(report FirstConnectionSnapshotReport, score dom
 		SubjectLabel:       "Wallet",
 		Confidence:         findingConfidenceFromScore(score),
 		ImportanceScore:    float64(score.Value) / 100,
-		Summary:            fmt.Sprintf("Early convergence is forming around %s through newly shared counterparties.", strings.TrimSpace(report.Address)),
+		Summary:            firstConnectionFindingSummary(strings.TrimSpace(report.Address), riskSummary),
 		DedupKey:           fmt.Sprintf("finding:%s:%s:%s", domain.FindingTypeSmartMoneyConvergence, strings.TrimSpace(report.WalletID), report.ObservedAt),
 		Status:             "active",
 		ObservedAt:         observedAt,
 		CoverageStartAt:    coverageStartAt,
 		CoverageEndAt:      coverageEndAt,
 		CoverageWindowDays: 30,
-		Bundle: map[string]any{
-			"importance_reason": []string{
+		Bundle: mergeBundle(buildFindingRiskBundle(riskSummary), map[string]any{
+			"importance_reason": compactNonEmptyStrings([]string{
 				"First-time overlap can surface wallets converging on the same opportunity before it becomes obvious.",
 				"Quality-wallet overlap matters more than raw novelty when judging early entry quality.",
-			},
-			"observed_facts": []string{
+				firstConnectionRiskImportance(riskSummary),
+			}),
+			"observed_facts": compactNonEmptyStrings([]string{
 				fmt.Sprintf("First-connection score rated %s at %d.", score.Rating, score.Value),
 				fmt.Sprintf("New common entries: %d. First-seen counterparties: %d.", report.NewCommonEntries, report.FirstSeenCounterparties),
 				fmt.Sprintf("Quality overlap count: %d. First entry before crowding count: %d.", report.QualityWalletOverlapCount, report.FirstEntryBeforeCrowdingCount),
 				fmt.Sprintf("Best lead before peers: %dh. Persistence-after-entry proxy count: %d.", report.BestLeadHoursBeforePeers, report.PersistenceAfterEntryProxyCount),
 				fmt.Sprintf("Repeat early-entry success proxy: %t.", report.RepeatEarlyEntrySuccess),
-			},
-			"inferred_interpretations": []string{
+				ratingBlockFact(riskSummary),
+				contradictionFact(riskSummary),
+			}),
+			"inferred_interpretations": compactNonEmptyStrings([]string{
 				"Activity suggests early convergence rather than repeated legacy flow.",
-			},
+				firstConnectionRiskInterpretation(riskSummary),
+			}),
 			"evidence":   evidence,
 			"next_watch": buildNextWatchTargets(firstConnectionNextWatchTargets(report, nil)),
-		},
+		}),
 	}
 }
 
@@ -412,19 +631,20 @@ func interpretationFindingsFromLabels(
 		confidence float64,
 		importance float64,
 	) db.FindingEntry {
+		riskSummary := summarizeScoreRisk(score)
 		return db.FindingEntry{
 			FindingType:     findingType,
 			Confidence:      maxFloat(0.35, confidence),
 			ImportanceScore: maxFloat(0.35, importance),
 			Summary:         summary,
 			DedupKey:        fmt.Sprintf("finding:%s:%s:%s", findingType, trimmedWalletID, observedAt),
-			Bundle: map[string]any{
+			Bundle: mergeBundle(buildFindingRiskBundle(riskSummary), map[string]any{
 				"importance_reason":        append([]string{}, importanceReason...),
 				"observed_facts":           append([]string{}, observedFacts...),
 				"inferred_interpretations": append([]string{}, inferredInterpretations...),
 				"evidence":                 append(buildFindingEvidence(score.Evidence), context.Evidence...),
 				"next_watch":               append([]map[string]any{}, context.NextWatch...),
-			},
+			}),
 		}
 	}
 
@@ -528,14 +748,15 @@ func interpretationFindingsFromLabels(
 	return findings
 }
 
-func clusterScoreInterpretationContext(graph domain.WalletGraph, score domain.Score) interpretationFindingContext {
-	counterpartyCount := countClusterGraphCounterparties(graph)
+func clusterScoreInterpretationContext(graph domain.WalletGraph, analysisGraph domain.WalletGraph, score domain.Score) interpretationFindingContext {
+	counterpartyCount := countClusterGraphCounterparties(analysisGraph)
+	clusterSemantics := clusterScoreSemantics(score)
 	watchTargets := make([]domain.NextWatchTarget, 0, 2)
-	for _, node := range graph.Nodes {
+	for _, node := range analysisGraph.Nodes {
 		if node.Kind != domain.WalletGraphNodeWallet || strings.TrimSpace(node.Address) == "" {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(node.Address), strings.TrimSpace(graph.Address)) {
+		if strings.EqualFold(strings.TrimSpace(node.Address), strings.TrimSpace(analysisGraph.Address)) {
 			continue
 		}
 		watchTargets = append(watchTargets, domain.NextWatchTarget{
@@ -551,11 +772,18 @@ func clusterScoreInterpretationContext(graph domain.WalletGraph, score domain.Sc
 
 	return interpretationFindingContext{
 		AllowFundAdjacentActivity: counterpartyCount >= 2,
-		ObservedFacts: []string{
-			fmt.Sprintf("Graph neighborhood contains %d nodes, %d edges, and %d wallet counterparties.", len(graph.Nodes), len(graph.Edges), counterpartyCount),
-		},
+		ObservedFacts: append([]string{
+			fmt.Sprintf(
+				"Analysis graph contains %d nodes, %d edges, %d wallet peers, %d shared entities, and %d bidirectional peers.",
+				len(analysisGraph.Nodes),
+				len(analysisGraph.Edges),
+				clusterSemantics.PeerOverlap,
+				clusterSemantics.SharedEntities,
+				clusterSemantics.BidirectionalPeers,
+			),
+		}, clusterInterpretationSamplingFact(graph, analysisGraph)...),
 		InferredInterpretations: []string{
-			"Counterparty overlap and graph density raise the chance that this wallet is moving inside a coordinated behavior cohort.",
+			"Peer overlap, shared entity links, and recurring two-way flow raise the chance that this wallet is moving inside a coordinated behavior cohort.",
 		},
 		Evidence: []map[string]any{
 			buildFindingEvidenceItem(
@@ -563,14 +791,102 @@ func clusterScoreInterpretationContext(graph domain.WalletGraph, score domain.Sc
 				fmt.Sprintf("%d wallet counterparties", counterpartyCount),
 				findingConfidenceFromScore(score),
 				map[string]any{
-					"wallet_node_count": len(graph.Nodes),
-					"edge_count":        len(graph.Edges),
-					"density_capped":    graph.DensityCapped,
+					"wallet_node_count":        len(analysisGraph.Nodes),
+					"edge_count":               len(analysisGraph.Edges),
+					"density_capped":           graph.DensityCapped,
+					"source_wallet_node_count": len(graph.Nodes),
+					"source_edge_count":        len(graph.Edges),
+					"sampling_applied":         len(analysisGraph.Nodes) != len(graph.Nodes) || len(analysisGraph.Edges) != len(graph.Edges),
+					"peer_overlap":             clusterSemantics.PeerOverlap,
+					"shared_entity_neighbors":  clusterSemantics.SharedEntities,
+					"bidirectional_flow_peers": clusterSemantics.BidirectionalPeers,
 				},
 			),
 		},
 		NextWatch: buildNextWatchTargets(watchTargets),
 	}
+}
+
+type clusterSemanticsSummary struct {
+	PeerOverlap        int
+	SharedEntities     int
+	BidirectionalPeers int
+}
+
+func clusterScoreSemantics(score domain.Score) clusterSemanticsSummary {
+	summary := clusterSemanticsSummary{}
+	for _, evidence := range score.Evidence {
+		if len(evidence.Metadata) == 0 {
+			continue
+		}
+		summary.PeerOverlap = maxInt(summary.PeerOverlap, findingMetadataInt(evidence.Metadata["wallet_peer_overlap"]))
+		summary.SharedEntities = maxInt(summary.SharedEntities, findingMetadataInt(evidence.Metadata["shared_entity_neighbors"]))
+		summary.BidirectionalPeers = maxInt(summary.BidirectionalPeers, findingMetadataInt(evidence.Metadata["bidirectional_flow_peers"]))
+	}
+	return summary
+}
+
+func clusterSamplingSummary(report ClusterScoreSnapshotReport) map[string]any {
+	if !report.SamplingApplied && !report.DensityCappedSource {
+		return nil
+	}
+	return map[string]any{
+		"sampling_summary": map[string]any{
+			"sampling_applied":      report.SamplingApplied,
+			"source_density_capped": report.DensityCappedSource,
+			"source_node_count":     report.GraphNodeCount,
+			"source_edge_count":     report.GraphEdgeCount,
+			"analysis_node_count":   report.AnalysisNodeCount,
+			"analysis_edge_count":   report.AnalysisEdgeCount,
+		},
+	}
+}
+
+func clusterSamplingFact(report ClusterScoreSnapshotReport) string {
+	if !report.SamplingApplied && !report.DensityCappedSource {
+		return ""
+	}
+	if report.SamplingApplied {
+		return fmt.Sprintf(
+			"Cluster analysis was resampled from a dense graph (%d nodes / %d edges) to an analysis graph (%d nodes / %d edges) to reduce hub bias.",
+			report.GraphNodeCount,
+			report.GraphEdgeCount,
+			report.AnalysisNodeCount,
+			report.AnalysisEdgeCount,
+		)
+	}
+	return fmt.Sprintf(
+		"Cluster analysis used a dense source graph (%d nodes / %d edges); no additional resampling was needed.",
+		report.GraphNodeCount,
+		report.GraphEdgeCount,
+	)
+}
+
+func clusterInterpretationSamplingFact(graph domain.WalletGraph, analysisGraph domain.WalletGraph) []string {
+	if len(graph.Nodes) == len(analysisGraph.Nodes) && len(graph.Edges) == len(analysisGraph.Edges) && !graph.DensityCapped {
+		return nil
+	}
+	if len(graph.Nodes) != len(analysisGraph.Nodes) || len(graph.Edges) != len(analysisGraph.Edges) {
+		return []string{
+			fmt.Sprintf(
+				"Dense graph handling reduced the analysis set from %d nodes / %d edges to %d nodes / %d edges before scoring.",
+				len(graph.Nodes),
+				len(graph.Edges),
+				len(analysisGraph.Nodes),
+				len(analysisGraph.Edges),
+			),
+		}
+	}
+	if graph.DensityCapped {
+		return []string{
+			fmt.Sprintf(
+				"Source graph was density-capped at %d nodes / %d edges, so cluster conviction should be read with coverage caution.",
+				len(graph.Nodes),
+				len(graph.Edges),
+			),
+		}
+	}
+	return nil
 }
 
 func shadowExitInterpretationContext(
@@ -579,6 +895,10 @@ func shadowExitInterpretationContext(
 	evidenceReport *db.WalletBridgeExchangeEvidenceReport,
 	treasuryMMReport *db.WalletTreasuryMMEvidenceReport,
 ) interpretationFindingContext {
+	routeSummary := intelligence.MergeRouteSummaries(
+		intelligence.SummarizeBridgeExchangeRoutes(evidenceReport),
+		intelligence.SummarizeTreasuryMMRoutes(treasuryMMReport),
+	)
 	nextWatch := make([]domain.NextWatchTarget, 0, 2)
 	nextWatch = append(nextWatch, bridgeFindingNextWatch(evidenceReport)...)
 	nextWatch = append(nextWatch, exchangeFindingNextWatch(evidenceReport)...)
@@ -625,6 +945,7 @@ func shadowExitInterpretationContext(
 			fmt.Sprintf("Treasury exchange paths: %d. Bridge paths: %d. MM paths: %d. Distinct market counterparties: %d.", report.TreasuryToExchangePathCount, report.TreasuryToBridgePathCount, report.TreasuryToMMPathCount, report.TreasuryDistinctMarketCounterpartyCount),
 			fmt.Sprintf("Treasury operational distribution count: %d. Operational-only distribution count: %d. Internal ops: %d. External ops: %d. Market-adjacent external ops: %d. Non-market external ops: %d. Rebalance discount count: %d.", report.TreasuryOperationalDistributionCount, report.TreasuryOperationalOnlyDistributionCount, report.TreasuryInternalOpsDistributionCount, report.TreasuryExternalOpsDistributionCount, report.TreasuryExternalMarketAdjacentCount, report.TreasuryExternalNonMarketCount, report.TreasuryRebalanceDiscountCount),
 			fmt.Sprintf("MM confirmed paths: %d. Contact-only paths: %d. Routed candidates: %d. Mere adjacency: %d. Post-handoff distribution: %d. Exchange touches: %d. Bridge touches: %d. Inventory rotation: %d. Repeat counterparties: %d.", report.ProjectToMMPathCount, report.ProjectToMMContactCount, report.ProjectToMMRoutedCandidateCount, report.ProjectToMMAdjacencyCount, report.PostHandoffDistributionCount, report.PostHandoffExchangeTouchCount, report.PostHandoffBridgeTouchCount, report.InventoryRotationCount, report.RepeatMMCounterpartyCount),
+			routeSummaryFact(routeSummary),
 		},
 		InferredInterpretations: []string{
 			"Recent flow looks more like redistribution or handoff behavior than passive holding.",
@@ -634,6 +955,7 @@ func shadowExitInterpretationContext(
 			buildFindingEvidenceItem("cex_proximity_count", fmt.Sprintf("%d", report.CEXProximityCount), findingConfidenceFromScore(score), nil),
 			buildFindingEvidenceItem("fan_out_count", fmt.Sprintf("%d", report.FanOutCount), findingConfidenceFromScore(score), nil),
 			buildFindingEvidenceItem("outflow_ratio", fmt.Sprintf("%.2f", report.OutflowRatio), findingConfidenceFromScore(score), nil),
+			buildFindingEvidenceItem("route_summary", firstNonEmpty(string(routeSummary.PrimaryRoute), "unclassified"), 0.78, routeSummary.Metadata()),
 		}, append(buildBridgeExchangeFindingEvidenceValue(report, evidenceReport), treasuryEvidence...)...),
 		NextWatch:                                buildNextWatchTargets(nextWatch),
 		HasTreasuryAnchorEvidence:                hasTreasuryAnchorEvidence,
@@ -872,15 +1194,18 @@ func buildBridgeExchangeFindingEvidenceValue(
 	if evidenceReport == nil {
 		return nil
 	}
+	routeSummary := intelligence.SummarizeBridgeExchangeRoutes(evidenceReport)
 	return append([]map[string]any{
 		buildFindingEvidenceItem("bridge_confirmed_destination_count", fmt.Sprintf("%d", report.BridgeConfirmedDestinationCount), 0.78, map[string]any{
 			"bridgeOutflowShare":   report.BridgeOutflowShare,
 			"bridgeRecurrenceDays": report.BridgeRecurrenceDays,
+			"route_summary":        routeSummary.Metadata(),
 		}),
 		buildFindingEvidenceItem("deposit_like_path_count", fmt.Sprintf("%d", report.DepositLikePathCount), 0.8, map[string]any{
 			"exchangeOutflowShare":   report.ExchangeOutflowShare,
 			"exchangeRecurrenceDays": report.ExchangeRecurrenceDays,
 			"exchangeOutboundCount":  report.ExchangeOutboundCount,
+			"route_summary":          routeSummary.Metadata(),
 		}),
 	}, buildBridgeExchangeFindingEvidence(*evidenceReport)...)
 }
@@ -956,6 +1281,7 @@ func buildTreasuryMMFindingEvidenceValue(
 	if report == nil {
 		return nil
 	}
+	routeSummary := intelligence.SummarizeTreasuryMMRoutes(report)
 	out := []map[string]any{
 		buildFindingEvidenceItem("treasury_anchor_match_count", fmt.Sprintf("%d", report.TreasuryFeatures.AnchorMatchCount), 0.76, map[string]any{
 			"hasTreasuryLabel":                 report.HasTreasuryLabel,
@@ -972,6 +1298,7 @@ func buildTreasuryMMFindingEvidenceValue(
 			"externalOpsDistributionCount":     report.TreasuryFeatures.ExternalOpsDistributionCount,
 			"externalMarketAdjacentCount":      report.TreasuryFeatures.ExternalMarketAdjacentCount,
 			"externalNonMarketCount":           report.TreasuryFeatures.ExternalNonMarketCount,
+			"route_summary":                    routeSummary.Metadata(),
 		}),
 		buildFindingEvidenceItem("mm_project_path_count", fmt.Sprintf("%d", report.MMFeatures.ProjectToMMPathCount), 0.78, map[string]any{
 			"hasFundLabel":                    report.HasFundLabel,
@@ -985,6 +1312,7 @@ func buildTreasuryMMFindingEvidenceValue(
 			"projectToMMAdjacencyCount":       report.MMFeatures.ProjectToMMAdjacencyCount,
 			"inventoryRotationCount":          report.MMFeatures.InventoryRotationCount,
 			"repeatMMCounterpartyCount":       report.MMFeatures.RepeatMMCounterpartyCount,
+			"route_summary":                   routeSummary.Metadata(),
 		}),
 	}
 	for _, item := range report.TreasuryPaths {
@@ -1366,6 +1694,39 @@ func hasWalletLabel(set domain.WalletLabelSet, class domain.WalletLabelClass, fr
 		}
 	}
 	return false
+}
+
+func compactNonEmptyStrings(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func firstConnectionFindingSummary(address string, riskSummary scoreRiskSummary) string {
+	if len(riskSummary.ContradictionReasons) > 0 {
+		return fmt.Sprintf("Early convergence is forming around %s through newly shared counterparties, but corroboration is still incomplete.", address)
+	}
+	return fmt.Sprintf("Early convergence is forming around %s through newly shared counterparties.", address)
+}
+
+func firstConnectionRiskImportance(riskSummary scoreRiskSummary) string {
+	if len(riskSummary.ContradictionReasons) == 0 {
+		return ""
+	}
+	return "Early-entry conviction remains provisional until the signal broadens beyond a narrow counterparty surface."
+}
+
+func firstConnectionRiskInterpretation(riskSummary scoreRiskSummary) string {
+	if len(riskSummary.ContradictionReasons) == 0 {
+		return ""
+	}
+	return "This should be treated as an early lead, not a fully corroborated conviction signal yet."
 }
 
 func mergeFindingEntry(base db.FindingEntry, extra db.FindingEntry) db.FindingEntry {

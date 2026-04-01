@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type fakeWalletStore struct {
@@ -84,6 +84,7 @@ func (s *fakeTransactionGraphMaterializer) MaterializeNormalizedTransactions(_ c
 
 type fakeWalletSummaryEnrichmentRefresher struct {
 	summaries []domain.WalletSummary
+	err       error
 }
 
 func (f *fakeWalletSummaryEnrichmentRefresher) EnrichWalletSummary(
@@ -91,7 +92,7 @@ func (f *fakeWalletSummaryEnrichmentRefresher) EnrichWalletSummary(
 	summary domain.WalletSummary,
 ) (domain.WalletSummary, error) {
 	f.summaries = append(f.summaries, summary)
-	return summary, nil
+	return summary, f.err
 }
 
 type fakeWalletSummaryCache struct {
@@ -173,6 +174,15 @@ func (s *fakeHeuristicEntityAssignmentStore) UpsertHeuristicEntityAssignments(
 	assignments []db.WalletEntityAssignment,
 ) error {
 	s.assignments = append(s.assignments, append([]db.WalletEntityAssignment(nil), assignments...))
+	return nil
+}
+
+type fakeWalletLabelingStore struct {
+	batches []db.WalletLabelingBatch
+}
+
+func (s *fakeWalletLabelingStore) ApplyWalletLabeling(_ context.Context, batch db.WalletLabelingBatch) error {
+	s.batches = append(s.batches, batch)
 	return nil
 }
 
@@ -780,6 +790,87 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnce(t *testing.T) {
 	}
 }
 
+func TestHistoricalBackfillIngestServicePromotesLabeledWalletsFromSmartMoneyAndBehavioralSignals(t *testing.T) {
+	t.Parallel()
+
+	wallets := &fakeWalletStore{}
+	transactions := &fakeTransactionStore{}
+	labeling := &fakeWalletLabelingStore{}
+	tracking := &fakeWalletTrackingStateStore{}
+	queue := &fakeWalletBackfillQueueStore{
+		jobs: []db.WalletBackfillJob{
+			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				Source:      "mobula_smart_money",
+				RequestedAt: time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
+				Metadata: map[string]any{
+					"candidate_score":                 0.83,
+					"source_type":                     db.WalletTrackingSourceTypeMobulaCandidate,
+					"source_ref":                      "mobula:pepe",
+					"backfill_window_days":            90,
+					"backfill_limit":                  500,
+					"backfill_expansion_depth":        1,
+					"backfill_stop_service_addresses": true,
+				},
+			}),
+		},
+	}
+
+	activity := providers.CreateProviderActivityFixture(providers.ProviderActivityFixtureInput{
+		Provider:      providers.ProviderAlchemy,
+		Chain:         domain.ChainEVM,
+		WalletAddress: "0x1234567890abcdef1234567890abcdef12345678",
+		SourceID:      "alchemy_transfers_v0",
+		Kind:          "transfer",
+		Confidence:    0.91,
+		Metadata: map[string]any{
+			"direction":            "outbound",
+			"counterparty_address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+			"counterparty_chain":   "evm",
+			"counterparty_name":    "Binance Hot Wallet",
+			"amount":               "12.5",
+			"block_number":         123,
+			"transaction_index":    1,
+		},
+	})
+	registry := providers.Registry{
+		providers.ProviderAlchemy: fakeHistoricalBackfillAdapter{
+			provider:   providers.ProviderAlchemy,
+			activities: []providers.ProviderWalletActivity{activity},
+		},
+	}
+
+	service := NewHistoricalBackfillIngestService(registry, wallets, transactions)
+	service.Labeling = labeling
+	service.Tracking = tracking
+	service.Dedup = &fakeIngestDedupStore{}
+	service.Queue = queue
+
+	report, err := service.RunQueuedBackfillOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunQueuedBackfillOnce returned error: %v", err)
+	}
+	if !report.Dequeued || report.TransactionsWritten != 1 {
+		t.Fatalf("unexpected report %#v", report)
+	}
+	if len(labeling.batches) != 1 {
+		t.Fatalf("expected 1 wallet labeling batch, got %#v", labeling.batches)
+	}
+	if len(tracking.progresses) != 1 {
+		t.Fatalf("expected 1 tracking progress write, got %#v", tracking.progresses)
+	}
+	if tracking.progresses[0].Status != db.WalletTrackingStatusLabeled {
+		t.Fatalf("expected labeled status, got %#v", tracking.progresses[0])
+	}
+	if tracking.progresses[0].LabelConfidence <= 0 {
+		t.Fatalf("expected label confidence to be populated, got %#v", tracking.progresses[0])
+	}
+	if tracking.progresses[0].SmartMoneyConfidence != 0.83 {
+		t.Fatalf("expected smart money confidence 0.83, got %#v", tracking.progresses[0].SmartMoneyConfidence)
+	}
+}
+
 func TestHistoricalBackfillIngestServiceEnqueueCounterpartyExpansion(t *testing.T) {
 	t.Parallel()
 
@@ -827,7 +918,7 @@ func TestHistoricalBackfillIngestServiceEnqueueCounterpartyExpansion(t *testing.
 			Amount:         "12.5",
 			ObservedAt:     time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
 			SchemaVersion:  1,
-			RawPayloadPath: "s3://flowintel/raw/test.json",
+			RawPayloadPath: "s3://qorvi/raw/test.json",
 			Provider:       "alchemy",
 		}),
 	})
@@ -907,6 +998,63 @@ func TestHistoricalBackfillIngestServiceSkipsEnrichmentRefreshForSolana(t *testi
 	}
 	if len(enrichment.summaries) != 0 {
 		t.Fatalf("expected solana runs to skip enrichment refresh, got %#v", enrichment.summaries)
+	}
+}
+
+func TestHistoricalBackfillIngestServiceContinuesWhenEnrichmentRefreshFails(t *testing.T) {
+	t.Parallel()
+
+	wallets := &fakeWalletStore{}
+	transactions := &fakeTransactionStore{}
+	enrichment := &fakeWalletSummaryEnrichmentRefresher{err: context.DeadlineExceeded}
+	tracking := &fakeWalletTrackingStateStore{}
+	queue := &fakeWalletBackfillQueueStore{
+		jobs: []db.WalletBackfillJob{
+			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				Source:      "search_lookup_miss",
+				RequestedAt: time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
+			}),
+		},
+	}
+
+	activity := providers.CreateProviderActivityFixture(providers.ProviderActivityFixtureInput{
+		Provider:      providers.ProviderAlchemy,
+		Chain:         domain.ChainEVM,
+		WalletAddress: "0x1234567890abcdef1234567890abcdef12345678",
+		SourceID:      "alchemy_transfers_v0",
+		Kind:          "transfer",
+		Confidence:    0.91,
+		Metadata: map[string]any{
+			"direction": "outbound",
+		},
+	})
+	registry := providers.Registry{
+		providers.ProviderAlchemy: fakeHistoricalBackfillAdapter{
+			provider:   providers.ProviderAlchemy,
+			activities: []providers.ProviderWalletActivity{activity},
+		},
+	}
+
+	service := NewHistoricalBackfillIngestService(registry, wallets, transactions)
+	service.Enrichment = enrichment
+	service.Tracking = tracking
+	service.Dedup = &fakeIngestDedupStore{}
+	service.Queue = queue
+
+	report, err := service.RunQueuedBackfillOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunQueuedBackfillOnce returned error: %v", err)
+	}
+	if !report.Dequeued || report.TransactionsWritten != 1 {
+		t.Fatalf("unexpected report %#v", report)
+	}
+	if len(enrichment.summaries) != 1 {
+		t.Fatalf("expected enrichment to still be attempted, got %#v", enrichment.summaries)
+	}
+	if len(tracking.progresses) != 1 || tracking.progresses[0].Status != db.WalletTrackingStatusTracked {
+		t.Fatalf("expected tracking progress to complete despite enrichment failure, got %#v", tracking.progresses)
 	}
 }
 

@@ -2,10 +2,10 @@ const forwardedAuthHeaderNames = [
   "x-clerk-user-id",
   "x-clerk-session-id",
   "x-clerk-role",
-  "x-flowintel-plan",
+  "x-qorvi-plan",
 ] as const;
 const bearerAuthorizationHeaderName = "authorization";
-const clientForwardedAuthHeadersStorageKey = "flowintel.forwarded-auth-headers";
+const clientForwardedAuthHeadersStorageKey = "qorvi.forwarded-auth-headers";
 
 export type ForwardedAuthHeaderInput = {
   bearerToken: string | undefined;
@@ -40,7 +40,7 @@ export function createForwardedAuthHeaders({
     nextHeaders.set("x-clerk-role", role.trim());
   }
   if (plan?.trim()) {
-    nextHeaders.set("x-flowintel-plan", plan.trim());
+    nextHeaders.set("x-qorvi-plan", plan.trim());
   }
 
   return Array.from(nextHeaders.keys()).length > 0 ? nextHeaders : undefined;
@@ -56,7 +56,11 @@ export function buildForwardedAuthHeaders(
     userId: requestHeaders.get("x-clerk-user-id") ?? undefined,
     sessionId: requestHeaders.get("x-clerk-session-id") ?? undefined,
     role: requestHeaders.get("x-clerk-role") ?? undefined,
-    plan: requestHeaders.get("x-flowintel-plan") ?? undefined,
+    plan:
+      requestHeaders.get("x-qorvi-plan") ??
+      requestHeaders.get("x-flowintel-plan") ??
+      requestHeaders.get("x-whalegraph-plan") ??
+      undefined,
   });
 }
 

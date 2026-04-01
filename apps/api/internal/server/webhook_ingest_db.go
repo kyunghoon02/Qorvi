@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type webhookWalletEnsurer interface {
@@ -582,7 +582,7 @@ func observedAtOrNow(activities []providers.ProviderWalletActivity, fallback tim
 }
 
 func trackingSubscriptionRegistryKey(provider string) string {
-	return "flowintel:" + strings.ToLower(strings.TrimSpace(provider)) + ":address-activity"
+	return "qorvi:" + strings.ToLower(strings.TrimSpace(provider)) + ":address-activity"
 }
 
 func configuredWebhookID(provider string) string {

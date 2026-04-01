@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeClusterDetailLoader struct {

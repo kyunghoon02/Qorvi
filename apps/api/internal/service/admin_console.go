@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/ops"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/ops"
 )
 
 var (
@@ -95,6 +95,26 @@ type AdminWalletTrackingSubscriptionSummary struct {
 	LastEventAt  string `json:"lastEventAt,omitempty"`
 }
 
+type AdminQueueDepthSummary struct {
+	DefaultDepth  int `json:"defaultDepth"`
+	PriorityDepth int `json:"priorityDepth"`
+}
+
+type AdminBackfillHealthSummary struct {
+	Jobs24h         int    `json:"jobs24h"`
+	Activities24h   int    `json:"activities24h"`
+	Transactions24h int    `json:"transactions24h"`
+	Expansions24h   int    `json:"expansions24h"`
+	LastSuccessAt   string `json:"lastSuccessAt,omitempty"`
+}
+
+type AdminStaleRefreshSummary struct {
+	Attempts24h   int    `json:"attempts24h"`
+	Succeeded24h  int    `json:"succeeded24h"`
+	Productive24h int    `json:"productive24h"`
+	LastHitAt     string `json:"lastHitAt,omitempty"`
+}
+
 type AdminJobHealthSummary struct {
 	JobName             string `json:"jobName"`
 	LastStatus          string `json:"lastStatus"`
@@ -119,6 +139,9 @@ type AdminObservabilityCollection struct {
 	AlertDelivery         AdminAlertDeliverySummary              `json:"alertDelivery"`
 	WalletTracking        AdminWalletTrackingSummary             `json:"walletTracking"`
 	TrackingSubscriptions AdminWalletTrackingSubscriptionSummary `json:"trackingSubscriptions"`
+	QueueDepth            AdminQueueDepthSummary                 `json:"queueDepth"`
+	BackfillHealth        AdminBackfillHealthSummary             `json:"backfillHealth"`
+	StaleRefresh          AdminStaleRefreshSummary               `json:"staleRefresh"`
 	RecentRuns            []AdminJobHealthSummary                `json:"recentRuns"`
 	RecentFailures        []AdminFailureSummary                  `json:"recentFailures"`
 }
@@ -457,6 +480,21 @@ func (s *AdminConsoleService) ListObservability(
 			ErroredCount: item.TrackingSubscriptions.ErroredCount,
 			PausedCount:  item.TrackingSubscriptions.PausedCount,
 		},
+		QueueDepth: AdminQueueDepthSummary{
+			DefaultDepth:  item.QueueDepth.DefaultDepth,
+			PriorityDepth: item.QueueDepth.PriorityDepth,
+		},
+		BackfillHealth: AdminBackfillHealthSummary{
+			Jobs24h:         item.BackfillHealth.Jobs24h,
+			Activities24h:   item.BackfillHealth.Activities24h,
+			Transactions24h: item.BackfillHealth.Transactions24h,
+			Expansions24h:   item.BackfillHealth.Expansions24h,
+		},
+		StaleRefresh: AdminStaleRefreshSummary{
+			Attempts24h:   item.StaleRefresh.Attempts24h,
+			Succeeded24h:  item.StaleRefresh.Succeeded24h,
+			Productive24h: item.StaleRefresh.Productive24h,
+		},
 		RecentRuns:     make([]AdminJobHealthSummary, 0, len(item.RecentRuns)),
 		RecentFailures: make([]AdminFailureSummary, 0, len(item.RecentFailures)),
 	}
@@ -484,6 +522,12 @@ func (s *AdminConsoleService) ListObservability(
 	}
 	if item.TrackingSubscriptions.LastEventAt != nil {
 		result.TrackingSubscriptions.LastEventAt = item.TrackingSubscriptions.LastEventAt.UTC().Format(time.RFC3339)
+	}
+	if item.BackfillHealth.LastSuccessAt != nil {
+		result.BackfillHealth.LastSuccessAt = item.BackfillHealth.LastSuccessAt.UTC().Format(time.RFC3339)
+	}
+	if item.StaleRefresh.LastHitAt != nil {
+		result.StaleRefresh.LastHitAt = item.StaleRefresh.LastHitAt.UTC().Format(time.RFC3339)
 	}
 	for _, run := range item.RecentRuns {
 		summary := AdminJobHealthSummary{

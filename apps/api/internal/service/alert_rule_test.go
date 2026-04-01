@@ -5,21 +5,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
-func TestAlertRuleServiceFreeTierForbidden(t *testing.T) {
+func TestAlertRuleServiceAllowsFreeTier(t *testing.T) {
 	t.Parallel()
 
 	svc := NewAlertRuleService(repository.NewInMemoryAlertRuleRepository())
 
-	if _, err := svc.ListAlertRules(context.Background(), "user_123", domain.PlanFree); err == nil {
-		t.Fatal("expected free tier to be forbidden")
+	page, err := svc.ListAlertRules(context.Background(), "user_123", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("expected free tier alert access, got %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("expected empty alert collection, got %#v", page)
 	}
 }
 
-func TestAlertRuleServiceCRUDForProOwner(t *testing.T) {
+func TestAlertRuleServiceCRUDForOpenAccessOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := repository.NewInMemoryAlertRuleRepository()
@@ -28,7 +32,7 @@ func TestAlertRuleServiceCRUDForProOwner(t *testing.T) {
 		return time.Date(2026, time.March, 20, 12, 0, 0, 0, time.UTC)
 	}
 
-	created, err := svc.CreateAlertRule(context.Background(), "user_123", domain.PlanPro, CreateAlertRuleRequest{
+	created, err := svc.CreateAlertRule(context.Background(), "user_123", domain.PlanFree, CreateAlertRuleRequest{
 		Name:            "Shadow Exit Hotlist",
 		RuleType:        "watchlist_signal",
 		IsEnabled:       boolPtr(true),
@@ -52,7 +56,7 @@ func TestAlertRuleServiceCRUDForProOwner(t *testing.T) {
 		t.Fatalf("expected normalized tags, got %v", created.Tags)
 	}
 
-	list, err := svc.ListAlertRules(context.Background(), "user_123", domain.PlanPro)
+	list, err := svc.ListAlertRules(context.Background(), "user_123", domain.PlanFree)
 	if err != nil {
 		t.Fatalf("ListAlertRules failed: %v", err)
 	}
@@ -63,7 +67,7 @@ func TestAlertRuleServiceCRUDForProOwner(t *testing.T) {
 		t.Fatalf("unexpected signal type %v", list.Items[0].Definition.SignalTypes)
 	}
 
-	updated, err := svc.UpdateAlertRule(context.Background(), "user_123", domain.PlanPro, created.ID, UpdateAlertRuleRequest{
+	updated, err := svc.UpdateAlertRule(context.Background(), "user_123", domain.PlanFree, created.ID, UpdateAlertRuleRequest{
 		Name:            "Updated Shadow Exit",
 		RuleType:        "watchlist_signal",
 		IsEnabled:       boolPtr(false),
@@ -87,10 +91,10 @@ func TestAlertRuleServiceCRUDForProOwner(t *testing.T) {
 		t.Fatalf("unexpected updated signal type %v", updated.Definition.SignalTypes)
 	}
 
-	if err := svc.DeleteAlertRule(context.Background(), "user_123", domain.PlanPro, created.ID); err != nil {
+	if err := svc.DeleteAlertRule(context.Background(), "user_123", domain.PlanFree, created.ID); err != nil {
 		t.Fatalf("DeleteAlertRule failed: %v", err)
 	}
-	if _, err := svc.GetAlertRule(context.Background(), "user_123", domain.PlanPro, created.ID); err == nil {
+	if _, err := svc.GetAlertRule(context.Background(), "user_123", domain.PlanFree, created.ID); err == nil {
 		t.Fatal("expected deleted rule to be missing")
 	}
 }
@@ -103,7 +107,7 @@ func TestAlertRuleServiceEvaluatesCooldownAndSeverityEscalation(t *testing.T) {
 	baseTime := time.Date(2026, time.March, 20, 12, 0, 0, 0, time.UTC)
 	svc.Now = func() time.Time { return baseTime }
 
-	rule, err := svc.CreateAlertRule(context.Background(), "user_123", domain.PlanPro, CreateAlertRuleRequest{
+	rule, err := svc.CreateAlertRule(context.Background(), "user_123", domain.PlanFree, CreateAlertRuleRequest{
 		Name:            "Shadow Exit Rule",
 		RuleType:        "watchlist_signal",
 		IsEnabled:       boolPtr(true),
@@ -119,7 +123,7 @@ func TestAlertRuleServiceEvaluatesCooldownAndSeverityEscalation(t *testing.T) {
 		t.Fatalf("CreateAlertRule failed: %v", err)
 	}
 
-	first, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanPro, rule.ID, TriggerAlertEventRequest{
+	first, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanFree, rule.ID, TriggerAlertEventRequest{
 		EventKey:   "wallet:evm:0x123",
 		SignalType: "shadow_exit",
 		Severity:   "high",
@@ -133,7 +137,7 @@ func TestAlertRuleServiceEvaluatesCooldownAndSeverityEscalation(t *testing.T) {
 		t.Fatalf("expected first evaluation to create event: %#v", first)
 	}
 
-	second, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanPro, rule.ID, TriggerAlertEventRequest{
+	second, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanFree, rule.ID, TriggerAlertEventRequest{
 		EventKey:   "wallet:evm:0x123",
 		SignalType: "shadow_exit",
 		Severity:   "high",
@@ -147,7 +151,7 @@ func TestAlertRuleServiceEvaluatesCooldownAndSeverityEscalation(t *testing.T) {
 		t.Fatalf("expected cooldown suppression, got %#v", second)
 	}
 
-	third, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanPro, rule.ID, TriggerAlertEventRequest{
+	third, err := svc.EvaluateAlertEvent(context.Background(), "user_123", domain.PlanFree, rule.ID, TriggerAlertEventRequest{
 		EventKey:   "wallet:evm:0x123",
 		SignalType: "shadow_exit",
 		Severity:   "critical",

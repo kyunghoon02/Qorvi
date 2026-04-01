@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeBillingRow struct {
@@ -70,7 +70,7 @@ func TestPostgresBillingStoreUpsertBillingAccount(t *testing.T) {
 		row: fakeBillingRow{
 			values: []any{
 				"user_123",
-				"ops@flowintel.test",
+				"ops@qorvi.test",
 				"pro",
 				"cus_123",
 				"sub_123",
@@ -86,7 +86,7 @@ func TestPostgresBillingStoreUpsertBillingAccount(t *testing.T) {
 	store := NewPostgresBillingStore(querier)
 	record, err := store.UpsertBillingAccount(context.Background(), BillingAccountRecord{
 		OwnerUserID:          "user_123",
-		Email:                "ops@flowintel.test",
+		Email:                "ops@qorvi.test",
 		CurrentTier:          domain.PlanPro,
 		StripeCustomerID:     "cus_123",
 		ActiveSubscriptionID: "sub_123",

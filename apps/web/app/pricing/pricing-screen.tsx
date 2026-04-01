@@ -1,6 +1,6 @@
 import React from "react";
 
-import { Badge, Pill, type Tone } from "@flowintel/ui";
+import { Badge, Pill, type Tone } from "@qorvi/ui";
 
 import type {
   BillingAccountPreview,
@@ -13,6 +13,7 @@ import {
   pricingPageRoute,
 } from "../../lib/account-billing";
 
+import { PageShell } from "../components/page-shell";
 import { PricingCheckoutAction } from "./pricing-checkout-action";
 
 const toneByPlan: Record<BillingPlanId, Tone> = {
@@ -118,206 +119,208 @@ export function PricingScreen({
   });
 
   return (
-    <main className="page-shell detail-shell">
-      <section className="detail-hero alert-center-hero">
-        <div className="eyebrow-row">
-          <Pill tone="amber">Billing</Pill>
-          <Pill tone="violet">pricing</Pill>
-        </div>
-
-        <div className="detail-hero-copy">
-          <h1>{viewModel.title}</h1>
-          <p>{viewModel.explanation}</p>
-        </div>
-
-        <div className="detail-identity">
-          <div>
-            <span>Current plan</span>
-            <strong>{viewModel.currentPlanLabel}</strong>
+    <PageShell>
+      <div className="detail-shell">
+        <section className="detail-hero alert-center-hero">
+          <div className="eyebrow-row">
+            <Pill tone="amber">Billing</Pill>
+            <Pill tone="violet">pricing</Pill>
           </div>
-          <div>
-            <span>Billing cycle</span>
-            <strong>{viewModel.billingCycleLabel}</strong>
-          </div>
-          <div>
-            <span>Role</span>
-            <strong>{viewModel.currentRoleLabel}</strong>
-          </div>
-          <div>
-            <span>Renewal</span>
-            <strong>{viewModel.renewalLabel}</strong>
-          </div>
-        </div>
 
-        <div className="detail-actions">
-          <a className="search-cta" href="/account">
-            Back to account
-          </a>
-          <a className="search-cta" href="/#wallet-search">
-            Back to search
-          </a>
-          <span className="detail-route-copy">{viewModel.route}</span>
-        </div>
+          <div className="detail-hero-copy">
+            <h1>{viewModel.title}</h1>
+            <p>{viewModel.explanation}</p>
+          </div>
 
-        {viewModel.checkoutFlash ? (
-          <div className="preview-status detail-status-inline">
-            <span className="preview-kicker">
-              {viewModel.checkoutFlash.title}
-            </span>
+          <div className="detail-identity">
+            <div>
+              <span>Current plan</span>
+              <strong>{viewModel.currentPlanLabel}</strong>
+            </div>
+            <div>
+              <span>Billing cycle</span>
+              <strong>{viewModel.billingCycleLabel}</strong>
+            </div>
+            <div>
+              <span>Role</span>
+              <strong>{viewModel.currentRoleLabel}</strong>
+            </div>
+            <div>
+              <span>Renewal</span>
+              <strong>{viewModel.renewalLabel}</strong>
+            </div>
+          </div>
+
+          <div className="detail-actions">
+            <a className="search-cta" href="/account">
+              Back to account
+            </a>
+            <a className="search-cta" href="/#wallet-search">
+              Back to home
+            </a>
+            <span className="detail-route-copy">{viewModel.route}</span>
+          </div>
+
+          {viewModel.checkoutFlash ? (
+            <div className="preview-status detail-status-inline">
+              <span className="preview-kicker">
+                {viewModel.checkoutFlash.title}
+              </span>
+              <div className="cluster-member-meta">
+                <Badge tone={viewModel.checkoutFlash.tone}>
+                  {viewModel.checkoutFlash.tone === "teal"
+                    ? "success"
+                    : "canceled"}
+                </Badge>
+                <span>{viewModel.checkoutFlash.message}</span>
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="detail-grid alert-center-grid">
+          <article className="preview-card detail-card">
+            <div className="preview-header">
+              <div>
+                <span className="preview-kicker">Checkout state</span>
+                <h2>{viewModel.checkoutIntent.title}</h2>
+              </div>
+              <div className="preview-state">
+                <Badge tone={preview.mode === "live" ? "teal" : "amber"}>
+                  {preview.mode === "live" ? "live snapshot" : "unavailable"}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="preview-status">
+              <span className="preview-kicker">Upgrade intent</span>
+              <p>{viewModel.checkoutIntent.description}</p>
+            </div>
+
             <div className="cluster-member-meta">
-              <Badge tone={viewModel.checkoutFlash.tone}>
-                {viewModel.checkoutFlash.tone === "teal"
-                  ? "success"
-                  : "canceled"}
-              </Badge>
-              <span>{viewModel.checkoutFlash.message}</span>
+              <Pill tone={viewModel.checkoutIntent.tone}>
+                {viewModel.checkoutIntent.recommendedPlanLabel}
+              </Pill>
+              <span>{viewModel.checkoutIntent.routeLabel}</span>
             </div>
-          </div>
-        ) : null}
-      </section>
 
-      <section className="detail-grid alert-center-grid">
-        <article className="preview-card detail-card">
-          <div className="preview-header">
+            <div className="pricing-plan-message">
+              <Badge tone="violet">{viewModel.checkoutIntent.state}</Badge>
+              <span>{viewModel.checkoutIntent.ctaHref}</span>
+            </div>
+          </article>
+
+          <article className="preview-card detail-card">
+            <div className="preview-header">
+              <div>
+                <span className="preview-kicker">Data status</span>
+                <h2>{viewModel.currentPlanLabel}</h2>
+              </div>
+              <div className="preview-state">
+                <Badge tone={preview.mode === "live" ? "teal" : "amber"}>
+                  {preview.mode === "live" ? "live data" : "unavailable"}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="preview-status">
+              <span className="preview-kicker">Session state</span>
+              <p>{viewModel.statusMessage}</p>
+            </div>
+
+            <div className="alert-inbox-list">
+              {viewModel.plans.map((plan) => (
+                <article key={plan.id} className="alert-inbox-item">
+                  <div className="alert-inbox-topline">
+                    <strong>
+                      {plan.name} {plan.current ? "(current)" : ""}
+                    </strong>
+                    <Badge tone={plan.current ? "teal" : plan.tone}>
+                      {plan.priceLabel}
+                    </Badge>
+                  </div>
+                  <p>{plan.summary}</p>
+                  <div className="cluster-member-meta">
+                    <Pill tone={plan.tone}>
+                      {plan.isRecommended
+                        ? "recommended"
+                        : (plan.features[0] ?? "")}
+                    </Pill>
+                    <span>{plan.features.join(" • ")}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="panel-section boundary-card" id="plans">
+          <div className="section-header">
             <div>
-              <span className="preview-kicker">Checkout state</span>
-              <h2>{viewModel.checkoutIntent.title}</h2>
+              <span className="preview-kicker">Plan cards</span>
+              <h2>Review a plan, then create a checkout session</h2>
             </div>
-            <div className="preview-state">
-              <Badge tone={preview.mode === "live" ? "teal" : "amber"}>
-                {preview.mode === "live" ? "live snapshot" : "unavailable"}
-              </Badge>
-            </div>
+            <Badge tone="violet">{billingCheckoutRoute}</Badge>
           </div>
 
-          <div className="preview-status">
-            <span className="preview-kicker">Upgrade intent</span>
-            <p>{viewModel.checkoutIntent.description}</p>
-          </div>
-
-          <div className="cluster-member-meta">
-            <Pill tone={viewModel.checkoutIntent.tone}>
-              {viewModel.checkoutIntent.recommendedPlanLabel}
-            </Pill>
-            <span>{viewModel.checkoutIntent.routeLabel}</span>
-          </div>
-
-          <div className="pricing-plan-message">
-            <Badge tone="violet">{viewModel.checkoutIntent.state}</Badge>
-            <span>{viewModel.checkoutIntent.ctaHref}</span>
-          </div>
-        </article>
-
-        <article className="preview-card detail-card">
-          <div className="preview-header">
-            <div>
-              <span className="preview-kicker">Data status</span>
-              <h2>{viewModel.currentPlanLabel}</h2>
-            </div>
-            <div className="preview-state">
-              <Badge tone={preview.mode === "live" ? "teal" : "amber"}>
-                {preview.mode === "live" ? "live data" : "unavailable"}
-              </Badge>
-            </div>
-          </div>
-
-          <div className="preview-status">
-            <span className="preview-kicker">Session state</span>
-            <p>{viewModel.statusMessage}</p>
-          </div>
-
-          <div className="alert-inbox-list">
+          <div className="pricing-grid">
             {viewModel.plans.map((plan) => (
-              <article key={plan.id} className="alert-inbox-item">
-                <div className="alert-inbox-topline">
-                  <strong>
-                    {plan.name} {plan.current ? "(current)" : ""}
-                  </strong>
-                  <Badge tone={plan.current ? "teal" : plan.tone}>
-                    {plan.priceLabel}
-                  </Badge>
+              <article
+                key={plan.id}
+                className="preview-card detail-card pricing-plan-card"
+              >
+                <div className="preview-header">
+                  <div>
+                    <span className="preview-kicker">Plan</span>
+                    <h2>
+                      {plan.name} {plan.current ? "(current)" : ""}
+                    </h2>
+                  </div>
+                  <div className="preview-state">
+                    <Badge tone={plan.current ? "teal" : plan.tone}>
+                      {plan.current
+                        ? "current"
+                        : plan.isRecommended
+                          ? "recommended"
+                          : "available"}
+                    </Badge>
+                    <Pill tone={plan.tone}>{plan.priceLabel}</Pill>
+                  </div>
                 </div>
-                <p>{plan.summary}</p>
+
+                <div className="preview-status">
+                  <span className="preview-kicker">Summary</span>
+                  <p>{plan.summary}</p>
+                </div>
+
                 <div className="cluster-member-meta">
-                  <Pill tone={plan.tone}>
-                    {plan.isRecommended
-                      ? "recommended"
-                      : (plan.features[0] ?? "")}
-                  </Pill>
-                  <span>{plan.features.join(" • ")}</span>
+                  <Pill tone={plan.tone}>{plan.upgradeLabel}</Pill>
+                  <span>
+                    {plan.canCheckout
+                      ? "Checkout preview available"
+                      : "No checkout action required"}
+                  </span>
                 </div>
+
+                <div className="cluster-member-meta">
+                  {plan.features.map((feature) => (
+                    <Pill key={`${plan.id}-${feature}`} tone={plan.tone}>
+                      {feature}
+                    </Pill>
+                  ))}
+                </div>
+
+                <PricingCheckoutAction
+                  planId={plan.id}
+                  planLabel={plan.name}
+                  checkoutRoute={billingCheckoutRoute}
+                  currentPlan={preview.currentPlan}
+                />
               </article>
             ))}
           </div>
-        </article>
-      </section>
-
-      <section className="panel-section boundary-card" id="plans">
-        <div className="section-header">
-          <div>
-            <span className="preview-kicker">Plan cards</span>
-            <h2>Review a plan, then create a checkout session</h2>
-          </div>
-          <Badge tone="violet">{billingCheckoutRoute}</Badge>
-        </div>
-
-        <div className="pricing-grid">
-          {viewModel.plans.map((plan) => (
-            <article
-              key={plan.id}
-              className="preview-card detail-card pricing-plan-card"
-            >
-              <div className="preview-header">
-                <div>
-                  <span className="preview-kicker">Plan</span>
-                  <h2>
-                    {plan.name} {plan.current ? "(current)" : ""}
-                  </h2>
-                </div>
-                <div className="preview-state">
-                  <Badge tone={plan.current ? "teal" : plan.tone}>
-                    {plan.current
-                      ? "current"
-                      : plan.isRecommended
-                        ? "recommended"
-                        : "available"}
-                  </Badge>
-                  <Pill tone={plan.tone}>{plan.priceLabel}</Pill>
-                </div>
-              </div>
-
-              <div className="preview-status">
-                <span className="preview-kicker">Summary</span>
-                <p>{plan.summary}</p>
-              </div>
-
-              <div className="cluster-member-meta">
-                <Pill tone={plan.tone}>{plan.upgradeLabel}</Pill>
-                <span>
-                  {plan.canCheckout
-                    ? "Checkout preview available"
-                    : "No checkout action required"}
-                </span>
-              </div>
-
-              <div className="cluster-member-meta">
-                {plan.features.map((feature) => (
-                  <Pill key={`${plan.id}-${feature}`} tone={plan.tone}>
-                    {feature}
-                  </Pill>
-                ))}
-              </div>
-
-              <PricingCheckoutAction
-                planId={plan.id}
-                planLabel={plan.name}
-                checkoutRoute={billingCheckoutRoute}
-                currentPlan={preview.currentPlan}
-              />
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
+        </section>
+      </div>
+    </PageShell>
   );
 }

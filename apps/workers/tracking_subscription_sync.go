@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 const workerModeWalletTrackingSubscriptionSync = "wallet-tracking-subscription-sync"
@@ -18,7 +21,7 @@ type walletTrackingRegistryReader interface {
 }
 
 type providerAddressReconciler interface {
-	ReplaceWebhookAddresses(context.Context, string, []string) error
+	EnsureWebhookAddresses(context.Context, string, string, []string) (providers.WebhookEnsureResult, error)
 }
 
 type TrackingSubscriptionSyncService struct {
@@ -27,7 +30,14 @@ type TrackingSubscriptionSyncService struct {
 	JobRuns           db.JobRunStore
 	AlchemyReconciler providerAddressReconciler
 	HeliusReconciler  providerAddressReconciler
+	WebhookBaseURL    string
 	Now               func() time.Time
+}
+
+type providerSyncState struct {
+	subscriptionKey string
+	status          string
+	metadata        map[string]any
 }
 
 type TrackingSubscriptionSyncReport struct {
@@ -92,42 +102,33 @@ func (s TrackingSubscriptionSyncService) syncProviders(ctx context.Context, limi
 			report.HeliusWallets = len(refs)
 		}
 
-		subscriptionKey := trackingSubscriptionRegistryKey(provider)
-		status := trackingSubscriptionStatus(provider)
-		configuredKey := trackingProviderWebhookKey(provider)
-		now := s.now().UTC()
-
-		for _, ref := range refs {
-			metadata := map[string]any{
-				"source":                    "tracking_registry_sync",
-				"provider_subscription_key": configuredKey,
-				"configured":                configuredKey != "",
+		state, err := s.syncProviderState(ctx, provider, refs)
+		if err != nil {
+			report.ErroredCount += len(refs)
+			if markErr := s.markProviderErrored(ctx, provider, trackingSubscriptionRegistryKey(provider), refs, err); markErr != nil {
+				return report, fmt.Errorf("mark provider errored after reconcile failure: %w", markErr)
 			}
+			continue
+		}
+
+		now := s.now().UTC()
+		for _, ref := range refs {
 			if err := s.Tracking.UpsertWalletTrackingSubscription(ctx, db.WalletTrackingSubscription{
 				Chain:           ref.Chain,
 				Address:         ref.Address,
 				Provider:        provider,
-				SubscriptionKey: subscriptionKey,
-				Status:          status,
+				SubscriptionKey: state.subscriptionKey,
+				Status:          state.status,
 				LastSyncedAt:    &now,
-				Metadata:        metadata,
+				Metadata:        cloneMetadata(state.metadata),
 			}); err != nil {
 				return report, fmt.Errorf("upsert tracking subscription for %s %s: %w", provider, ref.Address, err)
 			}
 			report.Subscriptions++
-			if status == "active" {
+			if state.status == "active" {
 				report.ActiveCount++
 			} else {
 				report.PendingCount++
-			}
-		}
-
-		if err := s.reconcileProvider(ctx, provider, subscriptionKey, configuredKey, refs); err != nil {
-			report.ActiveCount -= countStatus(provider, refs, status, "active")
-			report.PendingCount -= countStatus(provider, refs, status, "pending")
-			report.ErroredCount += len(refs)
-			if markErr := s.markProviderErrored(ctx, provider, subscriptionKey, refs, err); markErr != nil {
-				return report, fmt.Errorf("mark provider errored after reconcile failure: %w", markErr)
 			}
 		}
 	}
@@ -148,7 +149,7 @@ func buildTrackingSubscriptionSyncSummary(report TrackingSubscriptionSyncReport)
 }
 
 func trackingSubscriptionSyncLimitFromEnv() int {
-	raw := strings.TrimSpace(os.Getenv("FLOWINTEL_TRACKING_SUBSCRIPTION_SYNC_LIMIT"))
+	raw := strings.TrimSpace(os.Getenv("QORVI_TRACKING_SUBSCRIPTION_SYNC_LIMIT"))
 	if raw == "" {
 		return 1000
 	}
@@ -163,7 +164,7 @@ func trackingSubscriptionSyncLimitFromEnv() int {
 }
 
 func trackingSubscriptionRegistryKey(provider string) string {
-	return "flowintel:" + strings.ToLower(strings.TrimSpace(provider)) + ":address-activity"
+	return "qorvi:" + strings.ToLower(strings.TrimSpace(provider)) + ":address-activity"
 }
 
 func trackingSubscriptionStatus(provider string) string {
@@ -184,45 +185,77 @@ func trackingProviderWebhookKey(provider string) string {
 	}
 }
 
-func (s TrackingSubscriptionSyncService) reconcileProvider(
+func (s TrackingSubscriptionSyncService) syncProviderState(
 	ctx context.Context,
 	provider string,
-	subscriptionKey string,
-	configuredKey string,
 	refs []db.WalletRef,
-) error {
+) (providerSyncState, error) {
+	subscriptionKey := trackingSubscriptionRegistryKey(provider)
+	configuredKey := trackingProviderWebhookKey(provider)
+	callbackURL := s.callbackURLForProvider(provider)
 	reconciler := s.reconcilerForProvider(provider)
-	if strings.TrimSpace(configuredKey) == "" || reconciler == nil || len(refs) == 0 {
-		return nil
+	metadata := map[string]any{
+		"source":                    "tracking_registry_sync",
+		"provider_subscription_key": configuredKey,
+		"configured":                configuredKey != "",
 	}
+	if callbackURL != "" {
+		metadata["provider_callback_url"] = callbackURL
+	}
+
+	if len(refs) == 0 {
+		return providerSyncState{
+			subscriptionKey: subscriptionKey,
+			status:          trackingSubscriptionStatus(provider),
+			metadata:        metadata,
+		}, nil
+	}
+
+	if reconciler == nil {
+		metadata["remote_reconciled"] = false
+		metadata["pending_reason"] = "provider_reconciler_not_configured"
+		return providerSyncState{
+			subscriptionKey: subscriptionKey,
+			status:          "pending",
+			metadata:        metadata,
+		}, nil
+	}
+	if strings.TrimSpace(configuredKey) == "" && callbackURL == "" {
+		metadata["remote_reconciled"] = false
+		metadata["pending_reason"] = "webhook_public_base_url_required"
+		return providerSyncState{
+			subscriptionKey: subscriptionKey,
+			status:          "pending",
+			metadata:        metadata,
+		}, nil
+	}
+
 	addresses := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		addresses = append(addresses, ref.Address)
 	}
-	if err := reconciler.ReplaceWebhookAddresses(ctx, configuredKey, addresses); err != nil {
-		return err
+
+	result, err := reconciler.EnsureWebhookAddresses(ctx, configuredKey, callbackURL, addresses)
+	if err != nil {
+		return providerSyncState{}, err
 	}
-	now := s.now().UTC()
-	for _, ref := range refs {
-		if err := s.Tracking.UpsertWalletTrackingSubscription(ctx, db.WalletTrackingSubscription{
-			Chain:           ref.Chain,
-			Address:         ref.Address,
-			Provider:        provider,
-			SubscriptionKey: subscriptionKey,
-			Status:          "active",
-			LastSyncedAt:    &now,
-			Metadata: map[string]any{
-				"source":                    "tracking_registry_sync",
-				"provider_subscription_key": configuredKey,
-				"configured":                true,
-				"remote_reconciled":         true,
-				"remote_address_count":      len(addresses),
-			},
-		}); err != nil {
-			return err
-		}
+
+	metadata["remote_reconciled"] = true
+	metadata["remote_address_count"] = len(addresses)
+	metadata["provider_subscription_key"] = result.WebhookID
+	metadata["configured"] = configuredKey != ""
+	if result.Created {
+		metadata["provider_subscription_created"] = true
 	}
-	return nil
+	if result.Discovered {
+		metadata["provider_subscription_discovered"] = true
+	}
+
+	return providerSyncState{
+		subscriptionKey: subscriptionKey,
+		status:          "active",
+		metadata:        metadata,
+	}, nil
 }
 
 func (s TrackingSubscriptionSyncService) markProviderErrored(
@@ -264,11 +297,20 @@ func (s TrackingSubscriptionSyncService) reconcilerForProvider(provider string) 
 	}
 }
 
-func countStatus(_ string, refs []db.WalletRef, current string, target string) int {
-	if current == target {
-		return len(refs)
+func (s TrackingSubscriptionSyncService) callbackURLForProvider(provider string) string {
+	baseURL := publicWebhookBaseURL(s.WebhookBaseURL)
+	if baseURL == "" {
+		return ""
 	}
-	return 0
+
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "alchemy":
+		return baseURL + "/v1/webhooks/providers/alchemy/address-activity"
+	case "helius":
+		return baseURL + "/v1/webhooks/providers/helius/address-activity"
+	default:
+		return ""
+	}
 }
 
 func (s TrackingSubscriptionSyncService) now() time.Time {
@@ -276,6 +318,42 @@ func (s TrackingSubscriptionSyncService) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func cloneMetadata(source map[string]any) map[string]any {
+	if len(source) == 0 {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func publicWebhookBaseURL(fallback string) string {
+	baseURL := strings.TrimSpace(os.Getenv("QORVI_PROVIDER_WEBHOOK_BASE_URL"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(fallback)
+	}
+	if baseURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return ""
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
+		return ""
+	}
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func (s TrackingSubscriptionSyncService) recordJobRun(ctx context.Context, entry db.JobRunEntry) error {

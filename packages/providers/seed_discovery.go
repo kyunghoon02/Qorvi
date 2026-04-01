@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type SeedDiscoveryBatch struct {
@@ -14,6 +14,7 @@ type SeedDiscoveryBatch struct {
 	WindowStart time.Time
 	WindowEnd   time.Time
 	Limit       int
+	Metadata    map[string]any
 }
 
 type SeedDiscoveryCandidate struct {
@@ -124,6 +125,9 @@ func CreateSeedDiscoveryBatchFixture(provider ProviderName, chain domain.Chain, 
 
 func CreateSeedDiscoveryCandidateFixture(batch SeedDiscoveryBatch, input SeedDiscoveryCandidateInput) SeedDiscoveryCandidate {
 	metadata := map[string]any{}
+	for key, value := range batch.Metadata {
+		metadata[key] = value
+	}
 	for key, value := range input.Metadata {
 		metadata[key] = value
 	}

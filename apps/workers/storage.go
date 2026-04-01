@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
+	"github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
 )
 
 func openWorkerStorageClients(ctx context.Context, env config.WorkerEnv) (*db.StorageClients, error) {

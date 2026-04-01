@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestDeriveWalletLabelingBuildsInferredAndBehavioralLabels(t *testing.T) {

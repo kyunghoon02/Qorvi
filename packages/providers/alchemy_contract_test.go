@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestAlchemyHistoricalContractFixture(t *testing.T) {

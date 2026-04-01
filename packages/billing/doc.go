@@ -1,2 +1,2 @@
-// Package billing defines plan, entitlement, and Stripe-oriented placeholders for FlowIntel.
+// Package billing defines plan, entitlement, and Stripe-oriented placeholders for Qorvi.
 package billing

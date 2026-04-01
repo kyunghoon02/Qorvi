@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Badge } from "@flowintel/ui";
+import { Badge } from "@qorvi/ui";
 
 import {
   type BillingPlanId,

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type AccountPrincipalSummary struct {

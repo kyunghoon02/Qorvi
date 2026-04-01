@@ -4,8 +4,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
+
+type ClusterRouteSignals struct {
+	AggregatorRoutingCounterparties int
+	ExchangeHubCounterparties       int
+	BridgeInfraCounterparties       int
+	TreasuryAdjacencyCounterparties int
+}
 
 type ClusterRelationSignals struct {
 	SharedCounterpartiesStrength   int
@@ -21,20 +28,70 @@ func BuildClusterRelationSignals(graph domain.WalletGraph) ClusterRelationSignal
 
 func BuildClusterSignalFromWalletGraph(graph domain.WalletGraph, observedAt string) ClusterSignal {
 	relationSignals := BuildClusterRelationSignals(graph)
+	routeSignals := BuildClusterRouteSignals(graph)
 
 	return ClusterSignal{
-		Chain:                          graph.Chain,
-		ObservedAt:                     normalizeClusterObservedAt(observedAt, graph),
-		OverlappingWallets:             countGraphCounterparties(graph),
-		SharedCounterparties:           countGraphCounterparties(graph),
-		MutualTransferCount:            countMutualTransferEdges(graph),
-		SharedCounterpartiesStrength:   relationSignals.SharedCounterpartiesStrength,
-		InteractionPersistenceStrength: relationSignals.InteractionPersistenceStrength,
+		Chain:                           graph.Chain,
+		ObservedAt:                      normalizeClusterObservedAt(observedAt, graph),
+		OverlappingWallets:              countGraphWalletPeers(graph),
+		SharedCounterparties:            countGraphSharedEntityNeighbors(graph),
+		MutualTransferCount:             countBidirectionalFlowPeers(graph),
+		SharedCounterpartiesStrength:    relationSignals.SharedCounterpartiesStrength,
+		InteractionPersistenceStrength:  relationSignals.InteractionPersistenceStrength,
+		AggregatorRoutingCounterparties: routeSignals.AggregatorRoutingCounterparties,
+		ExchangeHubCounterparties:       routeSignals.ExchangeHubCounterparties,
+		BridgeInfraCounterparties:       routeSignals.BridgeInfraCounterparties,
+		TreasuryAdjacencyCounterparties: routeSignals.TreasuryAdjacencyCounterparties,
 	}
 }
 
 func BuildClusterScoreFromWalletGraph(graph domain.WalletGraph, observedAt string) domain.Score {
 	return BuildClusterScore(BuildClusterSignalFromWalletGraph(graph, observedAt))
+}
+
+func BuildClusterRouteSignals(graph domain.WalletGraph) ClusterRouteSignals {
+	nodesByID := make(map[string]domain.WalletGraphNode, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		nodesByID[strings.TrimSpace(node.ID)] = node
+	}
+
+	aggregatorIDs := map[string]struct{}{}
+	exchangeIDs := map[string]struct{}{}
+	bridgeIDs := map[string]struct{}{}
+	treasuryIDs := map[string]struct{}{}
+
+	for _, edge := range graph.Edges {
+		if edge.Kind != domain.WalletGraphEdgeInteractedWith {
+			continue
+		}
+		counterpartyID := strings.TrimSpace(edge.TargetID)
+		if counterpartyID == "" {
+			continue
+		}
+		node, ok := nodesByID[counterpartyID]
+		if !ok {
+			continue
+		}
+		if clusterNodeLooksAggregator(node) {
+			aggregatorIDs[counterpartyID] = struct{}{}
+		}
+		if clusterNodeLooksExchange(node) {
+			exchangeIDs[counterpartyID] = struct{}{}
+		}
+		if clusterNodeLooksBridge(node) {
+			bridgeIDs[counterpartyID] = struct{}{}
+		}
+		if clusterNodeLooksTreasury(node) {
+			treasuryIDs[counterpartyID] = struct{}{}
+		}
+	}
+
+	return ClusterRouteSignals{
+		AggregatorRoutingCounterparties: len(aggregatorIDs),
+		ExchangeHubCounterparties:       len(exchangeIDs),
+		BridgeInfraCounterparties:       len(bridgeIDs),
+		TreasuryAdjacencyCounterparties: len(treasuryIDs),
+	}
 }
 
 func CalculateSharedCounterpartiesStrength(graph domain.WalletGraph) int {
@@ -147,23 +204,142 @@ func countGraphCounterparties(graph domain.WalletGraph) int {
 	return len(unique)
 }
 
-func countMutualTransferEdges(graph domain.WalletGraph) int {
+func countGraphWalletPeers(graph domain.WalletGraph) int {
+	nodesByID := clusterGraphNodesByID(graph)
+	rootIDs := clusterGraphRootNodeIDs(graph)
+	unique := map[string]struct{}{}
+
+	for _, edge := range graph.Edges {
+		var candidateID string
+		switch edge.Kind {
+		case domain.WalletGraphEdgeInteractedWith:
+			candidateID = strings.TrimSpace(edge.TargetID)
+		case domain.WalletGraphEdgeFundedBy:
+			candidateID = strings.TrimSpace(edge.SourceID)
+		default:
+			continue
+		}
+		if candidateID == "" {
+			continue
+		}
+		if _, isRoot := rootIDs[candidateID]; isRoot {
+			continue
+		}
+		if node, ok := nodesByID[candidateID]; ok && node.Kind != domain.WalletGraphNodeWallet {
+			continue
+		}
+		unique[candidateID] = struct{}{}
+	}
+
+	if len(unique) == 0 {
+		return countGraphCounterparties(graph)
+	}
+	return len(unique)
+}
+
+func countGraphSharedEntityNeighbors(graph domain.WalletGraph) int {
+	nodesByID := clusterGraphNodesByID(graph)
+	unique := map[string]struct{}{}
+
+	for _, edge := range graph.Edges {
+		switch edge.Kind {
+		case domain.WalletGraphEdgeMemberOf, domain.WalletGraphEdgeEntityLinked:
+		default:
+			continue
+		}
+
+		candidateID := strings.TrimSpace(edge.TargetID)
+		if candidateID == "" {
+			continue
+		}
+		if node, ok := nodesByID[candidateID]; ok {
+			if node.Kind != domain.WalletGraphNodeCluster && node.Kind != domain.WalletGraphNodeEntity {
+				continue
+			}
+		}
+		unique[candidateID] = struct{}{}
+	}
+
+	return len(unique)
+}
+
+func countBidirectionalFlowPeers(graph domain.WalletGraph) int {
 	count := 0
 	for _, edge := range graph.Edges {
 		if edge.Kind != domain.WalletGraphEdgeInteractedWith {
 			continue
 		}
-
-		weight := edge.CounterpartyCount
-		if weight <= 0 {
-			weight = edge.Weight
+		if edge.Directionality == domain.WalletGraphEdgeDirectionalityMixed {
+			count++
+			continue
 		}
-		if weight >= 2 {
+		if edge.TokenFlow != nil && edge.TokenFlow.InboundCount > 0 && edge.TokenFlow.OutboundCount > 0 {
 			count++
 		}
 	}
 
 	return count
+}
+
+func clusterGraphNodesByID(graph domain.WalletGraph) map[string]domain.WalletGraphNode {
+	nodesByID := make(map[string]domain.WalletGraphNode, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		nodesByID[strings.TrimSpace(node.ID)] = node
+	}
+	return nodesByID
+}
+
+func clusterGraphRootNodeIDs(graph domain.WalletGraph) map[string]struct{} {
+	rootIDs := map[string]struct{}{}
+	rootAddress := strings.ToLower(strings.TrimSpace(graph.Address))
+	if rootAddress == "" {
+		return rootIDs
+	}
+	for _, node := range graph.Nodes {
+		if strings.ToLower(strings.TrimSpace(node.Address)) == rootAddress {
+			rootIDs[strings.TrimSpace(node.ID)] = struct{}{}
+		}
+	}
+	return rootIDs
+}
+
+func clusterNodeLooksAggregator(node domain.WalletGraphNode) bool {
+	return clusterNodeMatches(node, "router", "aggregator", "dex", "amm", "pool")
+}
+
+func clusterNodeLooksExchange(node domain.WalletGraphNode) bool {
+	return clusterNodeMatches(node, "exchange", "cex")
+}
+
+func clusterNodeLooksBridge(node domain.WalletGraphNode) bool {
+	return clusterNodeMatches(node, "bridge")
+}
+
+func clusterNodeLooksTreasury(node domain.WalletGraphNode) bool {
+	return clusterNodeMatches(node, "treasury")
+}
+
+func clusterNodeMatches(node domain.WalletGraphNode, fragments ...string) bool {
+	values := []string{
+		node.Label,
+		string(node.Kind),
+		string(node.Chain),
+	}
+	for _, label := range append(append([]domain.WalletLabel{}, node.Labels.Verified...), append(node.Labels.Inferred, node.Labels.Behavioral...)...) {
+		values = append(values, label.Key, label.Name, label.EntityType, label.EvidenceSummary)
+	}
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(normalized, strings.ToLower(strings.TrimSpace(fragment))) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func minInt(left int, right int) int {

@@ -150,6 +150,42 @@ test("loadSearchPreview forwards manual refresh requests to the backend", async 
   );
 });
 
+test("loadSearchPreview forwards request headers to the backend", async () => {
+  let requestedHeader = "";
+
+  await loadSearchPreview({
+    query: "0x1234567890abcdef1234567890abcdef12345678",
+    requestHeaders: {
+      "x-qorvi-plan": "pro",
+    },
+    fetchImpl: async (_, init) => {
+      const headers = new Headers(init?.headers);
+      requestedHeader = headers.get("x-qorvi-plan") ?? "";
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            query: "0x1234567890abcdef1234567890abcdef12345678",
+            inputKind: "evm_address",
+            explanation: "Recognized as an EVM wallet address.",
+            results: [],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(requestedHeader, "pro");
+});
+
 test("resolveWalletRequestFromSearchPreview parses wallet routes", () => {
   const request = resolveWalletRequestFromSearchPreview({
     mode: "live",

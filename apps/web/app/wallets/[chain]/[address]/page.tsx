@@ -3,13 +3,17 @@ import { headers } from "next/headers";
 import {
   deriveWalletGraphPreviewFromSummary,
   loadAnalystWalletBriefPreview,
+  loadSearchPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
+  shouldQueueWalletSummaryStaleRefresh,
 } from "../../../../lib/api-boundary";
 import { buildForwardedAuthHeaders } from "../../../../lib/request-headers";
 
 import { resolveWalletDetailRequestFromParams } from "./wallet-detail-route";
 import { WalletDetailScreen } from "./wallet-detail-screen";
+
+const DEFAULT_WALLET_GRAPH_DEPTH = 3;
 
 function InvalidWalletRoute() {
   return (
@@ -41,7 +45,10 @@ export default async function WalletDetailPage({
   }
 
   const [summary, brief, loadedGraph] = await Promise.all([
-    loadWalletSummaryPreview({ request }),
+    loadWalletSummaryPreview({
+      request,
+      ...(requestHeaders ? { requestHeaders } : {}),
+    }),
     loadAnalystWalletBriefPreview({
       request,
       ...(requestHeaders ? { requestHeaders } : {}),
@@ -49,8 +56,9 @@ export default async function WalletDetailPage({
     loadWalletGraphPreview({
       request: {
         ...request,
-        depthRequested: 1,
+        depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
       },
+      ...(requestHeaders ? { requestHeaders } : {}),
     }),
   ]);
   const graph =
@@ -58,12 +66,22 @@ export default async function WalletDetailPage({
       ? deriveWalletGraphPreviewFromSummary({
           request: {
             ...request,
-            depthRequested: 1,
+            depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
           },
           summary,
           fallback: loadedGraph,
         })
       : loadedGraph;
+
+  if (
+    summary.mode === "unavailable" ||
+    shouldQueueWalletSummaryStaleRefresh(summary)
+  ) {
+    await loadSearchPreview({
+      query: request.address,
+      ...(requestHeaders ? { requestHeaders } : {}),
+    });
+  }
 
   return (
     <WalletDetailScreen

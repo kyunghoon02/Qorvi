@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type fakeWalletTrackingRegistryReader struct {
@@ -18,6 +19,7 @@ type fakeWalletTrackingRegistryReader struct {
 
 type fakeProviderAddressReconciler struct {
 	webhookIDs []string
+	callbacks  []string
 	addresses  [][]string
 	err        error
 }
@@ -34,13 +36,19 @@ func (f *fakeWalletTrackingRegistryReader) ListWalletRefsForRealtimeTracking(
 	return append([]db.WalletRef(nil), f.refsByProvider[provider]...), nil
 }
 
-func (f *fakeProviderAddressReconciler) ReplaceWebhookAddresses(_ context.Context, webhookID string, addresses []string) error {
+func (f *fakeProviderAddressReconciler) EnsureWebhookAddresses(
+	_ context.Context,
+	webhookID string,
+	callbackURL string,
+	addresses []string,
+) (providers.WebhookEnsureResult, error) {
 	if f.err != nil {
-		return f.err
+		return providers.WebhookEnsureResult{}, f.err
 	}
 	f.webhookIDs = append(f.webhookIDs, webhookID)
+	f.callbacks = append(f.callbacks, callbackURL)
 	f.addresses = append(f.addresses, append([]string(nil), addresses...))
-	return nil
+	return providers.WebhookEnsureResult{WebhookID: webhookID}, nil
 }
 
 func TestTrackingSubscriptionSyncServiceRunBatchUpsertsSubscriptions(t *testing.T) {
@@ -67,6 +75,7 @@ func TestTrackingSubscriptionSyncServiceRunBatchUpsertsSubscriptions(t *testing.
 		Tracking:          tracking,
 		JobRuns:           jobRuns,
 		AlchemyReconciler: alchemy,
+		WebhookBaseURL:    "https://qorvi.test",
 		Now:               func() time.Time { return now },
 	}).RunBatch(t.Context(), 100)
 	if err != nil {
@@ -79,8 +88,8 @@ func TestTrackingSubscriptionSyncServiceRunBatchUpsertsSubscriptions(t *testing.
 	if report.Subscriptions != 2 || report.ActiveCount != 1 || report.PendingCount != 1 || report.ErroredCount != 0 {
 		t.Fatalf("unexpected sync report %#v", report)
 	}
-	if len(tracking.subscriptions) != 3 {
-		t.Fatalf("expected 3 subscription upserts, got %d", len(tracking.subscriptions))
+	if len(tracking.subscriptions) != 2 {
+		t.Fatalf("expected 2 subscription upserts, got %d", len(tracking.subscriptions))
 	}
 	var (
 		alchemySeen bool
@@ -90,13 +99,16 @@ func TestTrackingSubscriptionSyncServiceRunBatchUpsertsSubscriptions(t *testing.
 		switch subscription.Provider {
 		case "alchemy":
 			alchemySeen = true
-			if subscription.SubscriptionKey != "flowintel:alchemy:address-activity" {
+			if subscription.SubscriptionKey != "qorvi:alchemy:address-activity" {
 				t.Fatalf("unexpected alchemy subscription key %#v", subscription)
 			}
 		case "helius":
 			heliusSeen = true
 			if subscription.Status != "pending" {
 				t.Fatalf("unexpected helius subscription %#v", subscription)
+			}
+			if got := subscription.Metadata["pending_reason"]; got != "provider_reconciler_not_configured" {
+				t.Fatalf("unexpected helius pending reason %#v", subscription.Metadata)
 			}
 		}
 	}
@@ -105,6 +117,9 @@ func TestTrackingSubscriptionSyncServiceRunBatchUpsertsSubscriptions(t *testing.
 	}
 	if len(alchemy.webhookIDs) != 1 || alchemy.webhookIDs[0] != "wh_alchemy_live" {
 		t.Fatalf("unexpected alchemy reconcile calls %#v", alchemy.webhookIDs)
+	}
+	if len(alchemy.callbacks) != 1 || alchemy.callbacks[0] != "https://qorvi.test/v1/webhooks/providers/alchemy/address-activity" {
+		t.Fatalf("unexpected alchemy callbacks %#v", alchemy.callbacks)
 	}
 	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("expected succeeded job run, got %#v", jobRuns.entries)
@@ -133,12 +148,12 @@ func TestTrackingSubscriptionSyncServiceRunBatchReturnsRegistryFailure(t *testin
 }
 
 func TestTrackingSubscriptionHelpers(t *testing.T) {
-	t.Setenv("FLOWINTEL_TRACKING_SUBSCRIPTION_SYNC_LIMIT", "")
+	t.Setenv("QORVI_TRACKING_SUBSCRIPTION_SYNC_LIMIT", "")
 	if got := trackingSubscriptionSyncLimitFromEnv(); got != 1000 {
 		t.Fatalf("unexpected default sync limit %d", got)
 	}
 
-	t.Setenv("FLOWINTEL_TRACKING_SUBSCRIPTION_SYNC_LIMIT", "2500")
+	t.Setenv("QORVI_TRACKING_SUBSCRIPTION_SYNC_LIMIT", "2500")
 	if got := trackingSubscriptionSyncLimitFromEnv(); got != 2500 {
 		t.Fatalf("unexpected parsed sync limit %d", got)
 	}
@@ -175,11 +190,51 @@ func TestTrackingSubscriptionSyncServiceMarksErroredOnReconcileFailure(t *testin
 	if report.ErroredCount != 1 {
 		t.Fatalf("expected errored count, got %#v", report)
 	}
-	if len(tracking.subscriptions) != 2 {
-		t.Fatalf("expected initial + errored upserts, got %d", len(tracking.subscriptions))
+	if len(tracking.subscriptions) != 1 {
+		t.Fatalf("expected 1 errored upsert, got %d", len(tracking.subscriptions))
 	}
 	last := tracking.subscriptions[len(tracking.subscriptions)-1]
 	if last.Status != "errored" {
 		t.Fatalf("expected errored subscription status, got %#v", last)
+	}
+}
+
+func TestTrackingSubscriptionSyncServiceUsesPublicCallbackURLForAutoProvision(t *testing.T) {
+	t.Setenv("ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID", "")
+
+	reconciler := &fakeProviderAddressReconciler{}
+	report, err := (TrackingSubscriptionSyncService{
+		Registry: &fakeWalletTrackingRegistryReader{
+			refsByProvider: map[string][]db.WalletRef{
+				"alchemy": {
+					{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
+				},
+			},
+		},
+		Tracking:          &fakeWalletTrackingStateStore{},
+		AlchemyReconciler: reconciler,
+		WebhookBaseURL:    "https://qorvi.test",
+	}).RunBatch(t.Context(), 100)
+	if err != nil {
+		t.Fatalf("RunBatch returned error: %v", err)
+	}
+	if report.ActiveCount != 1 || report.PendingCount != 0 {
+		t.Fatalf("unexpected report %#v", report)
+	}
+	if len(reconciler.callbacks) != 1 || reconciler.callbacks[0] != "https://qorvi.test/v1/webhooks/providers/alchemy/address-activity" {
+		t.Fatalf("unexpected callback URLs %#v", reconciler.callbacks)
+	}
+}
+
+func TestPublicWebhookBaseURLRejectsLocalhostAndHTTP(t *testing.T) {
+	t.Setenv("QORVI_PROVIDER_WEBHOOK_BASE_URL", "")
+	if got := publicWebhookBaseURL("http://localhost:3000"); got != "" {
+		t.Fatalf("expected localhost base url to be rejected, got %q", got)
+	}
+	if got := publicWebhookBaseURL("http://qorvi.test"); got != "" {
+		t.Fatalf("expected non-https base url to be rejected, got %q", got)
+	}
+	if got := publicWebhookBaseURL("https://qorvi.test/"); got != "https://qorvi.test" {
+		t.Fatalf("unexpected normalized public base url %q", got)
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
 )
 
 type Config struct {

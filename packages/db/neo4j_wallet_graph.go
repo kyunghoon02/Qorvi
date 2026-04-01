@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const walletGraphCypher = `

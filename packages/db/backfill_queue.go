@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const DefaultWalletBackfillQueueName = "default"
+const PriorityWalletBackfillQueueName = "priority"
 
 type redisWalletBackfillQueueClient interface {
 	RPush(context.Context, string, ...interface{}) *redis.IntCmd
@@ -92,7 +93,8 @@ func (s *RedisWalletBackfillQueueStore) EnqueueWalletBackfill(ctx context.Contex
 		return fmt.Errorf("encode wallet backfill queue job: %w", err)
 	}
 
-	if err := s.Client.RPush(ctx, BuildWalletBackfillQueueKey(DefaultWalletBackfillQueueName), raw).Err(); err != nil {
+	queueName := walletBackfillQueueNameForJob(normalizedJob)
+	if err := s.Client.RPush(ctx, BuildWalletBackfillQueueKey(queueName), raw).Err(); err != nil {
 		return fmt.Errorf("enqueue wallet backfill job: %w", err)
 	}
 
@@ -107,14 +109,26 @@ func (s *RedisWalletBackfillQueueStore) DequeueWalletBackfill(
 		return WalletBackfillJob{}, false, fmt.Errorf("redis wallet backfill queue client is nil")
 	}
 
-	key := BuildWalletBackfillQueueKey(queueName)
-	raw, err := s.Client.LPop(ctx, key).Bytes()
+	queueNames := walletBackfillQueueReadOrder(queueName)
+	var (
+		raw []byte
+		err error
+	)
+	for _, candidateQueueName := range queueNames {
+		key := BuildWalletBackfillQueueKey(candidateQueueName)
+		raw, err = s.Client.LPop(ctx, key).Bytes()
+		if err == nil {
+			break
+		}
+		if errors.Is(err, redis.Nil) {
+			continue
+		}
+		return WalletBackfillJob{}, false, fmt.Errorf("dequeue wallet backfill job: %w", err)
+	}
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return WalletBackfillJob{}, false, nil
 		}
-
-		return WalletBackfillJob{}, false, fmt.Errorf("dequeue wallet backfill job: %w", err)
 	}
 
 	var job WalletBackfillJob
@@ -137,4 +151,38 @@ func BuildWalletBackfillQueueKey(queueName string) string {
 	}
 
 	return strings.Join([]string{"wallet-backfill-queue", normalizedQueueName}, ":")
+}
+
+func walletBackfillQueueNameForJob(job WalletBackfillJob) string {
+	source := strings.ToLower(strings.TrimSpace(job.Source))
+	if strings.EqualFold(walletBackfillSourceType(job.Metadata), WalletTrackingSourceTypeSeedList) {
+		return PriorityWalletBackfillQueueName
+	}
+	if strings.HasPrefix(source, "search_") {
+		return PriorityWalletBackfillQueueName
+	}
+	return DefaultWalletBackfillQueueName
+}
+
+func walletBackfillSourceType(metadata map[string]any) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	raw, ok := metadata["source_type"]
+	if !ok || raw == nil {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func walletBackfillQueueReadOrder(queueName string) []string {
+	normalizedQueueName := strings.ToLower(strings.TrimSpace(queueName))
+	if normalizedQueueName == "" || normalizedQueueName == DefaultWalletBackfillQueueName {
+		return []string{PriorityWalletBackfillQueueName, DefaultWalletBackfillQueueName}
+	}
+	return []string{normalizedQueueName}
 }

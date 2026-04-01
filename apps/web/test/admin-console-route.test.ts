@@ -70,6 +70,38 @@ test("buildAdminConsoleViewModel derives observability labels", () => {
           retryableCount: 1,
           lastFailureAt: "2026-03-22T11:50:00Z",
         },
+        walletTracking: {
+          candidateCount: 14,
+          trackedCount: 10,
+          labeledCount: 6,
+          scoredCount: 4,
+          staleCount: 2,
+          suppressedCount: 1,
+        },
+        trackingSubscriptions: {
+          pendingCount: 3,
+          activeCount: 7,
+          erroredCount: 1,
+          pausedCount: 0,
+          lastEventAt: "2026-03-22T11:59:30Z",
+        },
+        queueDepth: {
+          defaultDepth: 12,
+          priorityDepth: 2,
+        },
+        backfillHealth: {
+          jobs24h: 18,
+          activities24h: 2200,
+          transactions24h: 980,
+          expansions24h: 14,
+          lastSuccessAt: "2026-03-22T11:58:00Z",
+        },
+        staleRefresh: {
+          attempts24h: 5,
+          succeeded24h: 5,
+          productive24h: 3,
+          lastHitAt: "2026-03-22T11:40:00Z",
+        },
         recentRuns: [
           {
             jobName: "wallet-backfill-drain-batch",
@@ -100,6 +132,23 @@ test("buildAdminConsoleViewModel derives observability labels", () => {
   assert.equal(
     viewModel.observability.alertDelivery.deliveryRateLabel,
     "92% delivered",
+  );
+  assert.equal(
+    viewModel.observability.walletTracking.trackedCoverageLabel,
+    "10/34 wallets are labeled or scored",
+  );
+  assert.equal(
+    viewModel.observability.trackingSubscriptions.activeRatioLabel,
+    "7/11 subscriptions are active",
+  );
+  assert.equal(viewModel.observability.queueDepth.backlogLabel, "12 jobs in default queue");
+  assert.equal(
+    viewModel.observability.backfillHealth.throughputLabel,
+    "980 transactions and 2200 activities processed in the last 24 hours",
+  );
+  assert.equal(
+    viewModel.observability.staleRefresh.hitRateLabel,
+    "3/5 stale refresh attempts were productive (60% hit rate)",
   );
   assert.equal(
     viewModel.observability.recentRuns[0]?.successLabel,

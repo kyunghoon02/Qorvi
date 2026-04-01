@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeWalletGraphLoader struct {

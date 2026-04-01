@@ -8,6 +8,23 @@ export type WalletSummaryScorePreview = {
   value: number;
   rating: "low" | "medium" | "high";
   tone: "teal" | "amber" | "violet" | "emerald";
+  clusterBreakdown?: WalletSummaryClusterScoreBreakdownPreview;
+};
+
+export type WalletSummaryClusterScoreBreakdownPreview = {
+  peerWalletOverlap: number;
+  sharedEntityLinks: number;
+  bidirectionalPeerFlows: number;
+  contradictionPenalty: number;
+  suppressionDiscount: number;
+  samplingApplied: boolean;
+  sourceDensityCapped: boolean;
+  sourceNodeCount: number;
+  sourceEdgeCount: number;
+  analysisNodeCount: number;
+  analysisEdgeCount: number;
+  contradictionReasons: string[];
+  suppressionReasons: string[];
 };
 
 export type WalletSummaryCounterpartyPreview = {
@@ -181,6 +198,77 @@ export type WalletBriefPreview = {
   scores: WalletSummaryScorePreview[];
 };
 
+export type AnalystWalletExplanationPreview = {
+  chain: "evm" | "solana";
+  address: string;
+  source: string;
+  cached: boolean;
+  model?: string;
+  promptVersion: string;
+  summary: string;
+  evidence?: string[];
+  inference?: string[];
+  unknowns?: string[];
+  disconfirmers?: string[];
+  whyItMatters: string[];
+  confidenceNote: string;
+  watchNext: string[];
+  cooldownSecondsRemaining?: number;
+  queued?: boolean;
+};
+
+export type AnalystWalletAnalyzeEvidenceRefPreview = {
+  kind: string;
+  key?: string;
+  label?: string;
+  route?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AnalystWalletAnalyzeRecentTurnInput = {
+  question?: string;
+  headline?: string;
+  toolTrace?: string[];
+  evidenceRefs?: AnalystWalletAnalyzeEvidenceRefPreview[];
+};
+
+export type AnalystWalletAnalyzePreview = {
+  chain: "evm" | "solana";
+  address: string;
+  question: string;
+  contextReused: boolean;
+  recentTurnCount: number;
+  headline: string;
+  conclusion: string[];
+  confidence: "low" | "medium" | "high";
+  observedFacts: string[];
+  inferredInterpretations: string[];
+  alternativeExplanations: string[];
+  nextSteps: string[];
+  toolTrace: string[];
+  evidenceRefs: AnalystWalletAnalyzeEvidenceRefPreview[];
+};
+
+export type AnalystEntityAnalyzeRecentTurnInput =
+  AnalystWalletAnalyzeRecentTurnInput;
+
+export type AnalystEntityAnalyzePreview = {
+  entityKey: string;
+  displayName: string;
+  question: string;
+  contextReused: boolean;
+  recentTurnCount: number;
+  headline: string;
+  conclusion: string[];
+  confidence: "low" | "medium" | "high";
+  observedFacts: string[];
+  inferredInterpretations: string[];
+  alternativeExplanations: string[];
+  nextSteps: string[];
+  toolTrace: string[];
+  evidenceRefs: AnalystWalletAnalyzeEvidenceRefPreview[];
+};
+
 export type EntityInterpretationMemberPreview = {
   chain: "evm" | "solana";
   address: string;
@@ -209,6 +297,26 @@ export function shouldPollIndexedWalletSummary(
   preview: WalletSummaryPreview,
 ): boolean {
   return preview.indexing.status === "indexing";
+}
+
+const walletSummaryStaleRefreshAfterMs = 30 * 60 * 1000;
+
+export function shouldQueueWalletSummaryStaleRefresh(
+  preview: WalletSummaryPreview,
+  now = Date.now(),
+): boolean {
+  if (preview.mode !== "live") {
+    return false;
+  }
+  if (preview.indexing.status === "indexing") {
+    return false;
+  }
+  const lastIndexedAt = Date.parse(preview.indexing.lastIndexedAt);
+  if (Number.isNaN(lastIndexedAt)) {
+    return false;
+  }
+
+  return now - lastIndexedAt >= walletSummaryStaleRefreshAfterMs;
 }
 
 export type ClusterDetailMemberPreview = {
@@ -515,6 +623,43 @@ export type AdminConsoleObservabilityAlertDeliveryPreview = {
   lastFailureAt?: string | undefined;
 };
 
+export type AdminConsoleObservabilityWalletTrackingPreview = {
+  candidateCount: number;
+  trackedCount: number;
+  labeledCount: number;
+  scoredCount: number;
+  staleCount: number;
+  suppressedCount: number;
+};
+
+export type AdminConsoleObservabilityTrackingSubscriptionsPreview = {
+  pendingCount: number;
+  activeCount: number;
+  erroredCount: number;
+  pausedCount: number;
+  lastEventAt?: string | undefined;
+};
+
+export type AdminConsoleObservabilityQueueDepthPreview = {
+  defaultDepth: number;
+  priorityDepth: number;
+};
+
+export type AdminConsoleObservabilityBackfillHealthPreview = {
+  jobs24h: number;
+  activities24h: number;
+  transactions24h: number;
+  expansions24h: number;
+  lastSuccessAt?: string | undefined;
+};
+
+export type AdminConsoleObservabilityStaleRefreshPreview = {
+  attempts24h: number;
+  succeeded24h: number;
+  productive24h: number;
+  lastHitAt?: string | undefined;
+};
+
 export type AdminConsoleObservabilityRunPreview = {
   jobName: string;
   lastStatus: string;
@@ -537,8 +682,38 @@ export type AdminConsoleObservabilityPreview = {
   providerUsage: AdminConsoleObservabilityProviderPreview[];
   ingest: AdminConsoleObservabilityIngestPreview;
   alertDelivery: AdminConsoleObservabilityAlertDeliveryPreview;
+  walletTracking: AdminConsoleObservabilityWalletTrackingPreview;
+  trackingSubscriptions: AdminConsoleObservabilityTrackingSubscriptionsPreview;
+  queueDepth: AdminConsoleObservabilityQueueDepthPreview;
+  backfillHealth: AdminConsoleObservabilityBackfillHealthPreview;
+  staleRefresh: AdminConsoleObservabilityStaleRefreshPreview;
   recentRuns: AdminConsoleObservabilityRunPreview[];
   recentFailures: AdminConsoleObservabilityFailurePreview[];
+};
+
+export type AdminBacktestCheckPreview = {
+  key: string;
+  label: string;
+  description: string;
+  status: "ready" | "missing" | "not_configured";
+  configured: boolean;
+  path?: string | undefined;
+};
+
+export type AdminBacktestRunResultPreview = {
+  key: string;
+  label: string;
+  status: "succeeded" | "failed";
+  summary: string;
+  executedAt: string;
+  details: Record<string, unknown>;
+};
+
+export type AdminBacktestOpsPreview = {
+  route: string;
+  statusMessage: string;
+  checks: AdminBacktestCheckPreview[];
+  latestResult?: AdminBacktestRunResultPreview | undefined;
 };
 
 export type AdminConsoleCuratedListPreview = {
@@ -583,6 +758,7 @@ export type AdminConsolePreview = {
   curatedLists: AdminConsoleCuratedListPreview[];
   auditLogs: AdminConsoleAuditEntryPreview[];
   observability: AdminConsoleObservabilityPreview;
+  backtestOps: AdminBacktestOpsPreview;
 };
 
 type WalletSummaryApiScore = {
@@ -875,6 +1051,31 @@ type FindingsFeedEnvelope = {
   } | null;
 };
 
+export type DiscoverFeaturedWalletSeedPreview = {
+  chain: "evm" | "solana";
+  address: string;
+  displayName: string;
+  description: string;
+  category: string;
+  tags: string[];
+  provider?: string;
+  confidence?: number;
+  observedAt?: string;
+};
+
+type DiscoverFeaturedWalletApiResponse = {
+  items: DiscoverFeaturedWalletSeedPreview[];
+};
+
+type DiscoverFeaturedWalletEnvelope = {
+  success: boolean;
+  data: DiscoverFeaturedWalletApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
 type WalletBriefApiResponse = {
   chain: "evm" | "solana";
   address: string;
@@ -954,6 +1155,33 @@ type WalletBriefApiResponse = {
 type WalletBriefEnvelope = {
   success: boolean;
   data: WalletBriefApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type AnalystWalletExplanationEnvelope = {
+  success: boolean;
+  data: AnalystWalletExplanationPreview | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type AnalystWalletAnalyzeEnvelope = {
+  success: boolean;
+  data: AnalystWalletAnalyzePreview | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type AnalystEntityAnalyzeEnvelope = {
+  success: boolean;
+  data: AnalystEntityAnalyzePreview | null;
   error?: {
     code: string;
     message: string;
@@ -1224,6 +1452,38 @@ type AdminObservabilityApiResponse = {
     retryableCount: number;
     lastFailureAt?: string;
   };
+  walletTracking?: {
+    candidateCount: number;
+    trackedCount: number;
+    labeledCount: number;
+    scoredCount: number;
+    staleCount: number;
+    suppressedCount: number;
+  };
+  trackingSubscriptions?: {
+    pendingCount: number;
+    activeCount: number;
+    erroredCount: number;
+    pausedCount: number;
+    lastEventAt?: string;
+  };
+  queueDepth?: {
+    defaultDepth: number;
+    priorityDepth: number;
+  };
+  backfillHealth?: {
+    jobs24h: number;
+    activities24h: number;
+    transactions24h: number;
+    expansions24h: number;
+    lastSuccessAt?: string;
+  };
+  staleRefresh?: {
+    attempts24h: number;
+    succeeded24h: number;
+    productive24h: number;
+    lastHitAt?: string;
+  };
   recentRuns?: Array<{
     jobName: string;
     lastStatus: string;
@@ -1324,6 +1584,34 @@ type AdminAuditLogCollectionEnvelope = {
   } | null;
 };
 
+type AdminBacktestOpsEnvelope = {
+  success: boolean;
+  data: {
+    statusMessage: string;
+    checks: Array<{
+      key: string;
+      label: string;
+      description: string;
+      status: "ready" | "missing" | "not_configured";
+      configured: boolean;
+      path?: string;
+    }>;
+  } | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type AdminBacktestRunEnvelope = {
+  success: boolean;
+  data?: AdminBacktestRunResultPreview | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
 export type WalletSummaryRequest = {
   chain: "evm" | "solana";
   address: string;
@@ -1357,6 +1645,7 @@ type LoadWalletSummaryPreviewOptions = {
   fetchImpl?: typeof fetch;
   fallback?: WalletSummaryPreview;
   request?: WalletSummaryRequest;
+  requestHeaders?: HeadersInit;
 };
 
 type LoadWalletGraphPreviewOptions = {
@@ -1364,6 +1653,7 @@ type LoadWalletGraphPreviewOptions = {
   fetchImpl?: typeof fetch;
   fallback?: WalletGraphPreview;
   request?: WalletGraphRequest;
+  requestHeaders?: HeadersInit;
 };
 
 type LoadWalletBriefPreviewOptions = {
@@ -1372,6 +1662,34 @@ type LoadWalletBriefPreviewOptions = {
   fallback?: WalletBriefPreview;
   request?: WalletBriefRequest;
   requestHeaders?: HeadersInit;
+};
+
+type ExplainAnalystWalletOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  request?: WalletBriefRequest;
+  requestHeaders?: HeadersInit;
+  question?: string;
+  forceRefresh?: boolean;
+  async?: boolean;
+};
+
+type AnalyzeAnalystWalletOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  request?: WalletBriefRequest;
+  requestHeaders?: HeadersInit;
+  question?: string;
+  recentTurns?: AnalystWalletAnalyzeRecentTurnInput[];
+};
+
+type AnalyzeAnalystEntityOptions = {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  request?: EntityInterpretationRequest;
+  requestHeaders?: HeadersInit;
+  question?: string;
+  recentTurns?: AnalystEntityAnalyzeRecentTurnInput[];
 };
 
 type LoadFindingsFeedPreviewOptions = {
@@ -1388,6 +1706,7 @@ type LoadSearchPreviewOptions = {
   fallback?: SearchPreview;
   query: string;
   refreshMode?: "manual";
+  requestHeaders?: HeadersInit;
 };
 
 type LoadClusterDetailPreviewOptions = {
@@ -1470,6 +1789,13 @@ type LoadAdminConsolePreviewOptions = {
   requestHeaders?: HeadersInit;
 };
 
+type RunAdminBacktestOperationOptions = {
+  checkKey: string;
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  requestHeaders?: HeadersInit;
+};
+
 type CreateAdminSuppressionOptions = {
   scope: string;
   target: string;
@@ -1494,9 +1820,15 @@ export type AdminConsoleMutationResult = {
 
 export const walletSummaryRoute = "GET /v1/wallets/:chain/:address/summary";
 export const walletBriefRoute = "GET /v1/wallets/:chain/:address/brief";
+export const analystWalletExplainRoute =
+  "POST /v1/analyst/wallets/:chain/:address/explain";
+export const analystWalletAnalyzeRoute =
+  "POST /v1/analyst/wallets/:chain/:address/analyze";
+export const analystEntityAnalyzeRoute = "POST /v1/analyst/entity/:id/analyze";
 export const walletGraphRoute = "GET /v1/wallets/:chain/:address/graph";
 export const clusterDetailRoute = "GET /v1/clusters/:clusterId";
 export const findingsFeedRoute = "GET /v1/findings";
+export const discoverFeaturedWalletsRoute = "GET /v1/discover/featured-wallets";
 export const entityInterpretationRoute = "GET /v1/entity/:id";
 export const analystWalletBriefRoute =
   "GET /v1/analyst/wallets/:chain/:address/brief";
@@ -1515,6 +1847,8 @@ export const adminProviderQuotasRoute = "GET /v1/admin/provider-quotas";
 export const adminObservabilityRoute = "GET /v1/admin/observability";
 export const adminCuratedListsRoute = "GET /v1/admin/curated-lists";
 export const adminAuditLogsRoute = "GET /v1/admin/audit-logs";
+export const adminBacktestsRoute = "GET /v1/admin/backtests";
+export const adminBacktestRunRoute = "POST /v1/admin/backtests/:checkKey/run";
 
 const walletSummaryRoutePattern =
   /^\/v1\/wallets\/(evm|solana)\/([^/]+)\/summary$/;
@@ -1665,6 +1999,48 @@ function buildAnalystWalletBriefUrl(
   return new URL(path, resolvedBaseUrl).toString();
 }
 
+function buildAnalystWalletExplainUrl(
+  request: WalletSummaryRequest,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/analyst/wallets/${request.chain}/${request.address}/explain`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAnalystWalletAnalyzeUrl(
+  request: WalletSummaryRequest,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/analyst/wallets/${request.chain}/${request.address}/analyze`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAnalystEntityAnalyzeUrl(
+  request: EntityInterpretationRequest,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/analyst/entity/${encodeURIComponent(request.entityKey)}/analyze`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
 function buildWalletGraphUrl(
   request: WalletGraphRequest,
   apiBaseUrl?: string,
@@ -1799,6 +2175,17 @@ function buildClusterDetailUrl(
 
 function buildShadowExitFeedUrl(apiBaseUrl?: string): string {
   const path = "/v1/signals/shadow-exits";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildDiscoverFeaturedWalletsUrl(apiBaseUrl?: string): string {
+  const path = "/v1/discover/featured-wallets";
   const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
 
   if (!resolvedBaseUrl) {
@@ -1985,6 +2372,27 @@ function buildAdminAuditLogsUrl(apiBaseUrl?: string): string {
   return new URL(path, resolvedBaseUrl).toString();
 }
 
+function buildAdminBacktestsUrl(apiBaseUrl?: string): string {
+  const path = "/v1/admin/backtests";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAdminBacktestRunUrl(
+  checkKey: string,
+  apiBaseUrl?: string,
+): string {
+  const path = `/v1/admin/backtests/${encodeURIComponent(checkKey)}/run`;
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
 function buildAlertDeliveryChannelsUrl(apiBaseUrl?: string): string {
   const path = "/v1/alert-delivery-channels";
   const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
@@ -2109,8 +2517,168 @@ function mapWalletSummaryResponse(
       value: score.value,
       rating: score.rating,
       tone: mapEvidenceTone(score),
+      ...(() => {
+        if (score.name !== "cluster_score") {
+          return {};
+        }
+        const clusterBreakdown = deriveClusterScoreBreakdown(score);
+        return clusterBreakdown ? { clusterBreakdown } : {};
+      })(),
     })),
   };
+}
+
+function deriveClusterScoreBreakdown(
+  score: WalletSummaryApiScore,
+): WalletSummaryClusterScoreBreakdownPreview | undefined {
+  const evidence = score.evidence ?? [];
+  if (evidence.length === 0) {
+    return undefined;
+  }
+
+  let peerWalletOverlap = 0;
+  let sharedEntityLinks = 0;
+  let bidirectionalPeerFlows = 0;
+  let contradictionPenalty = 0;
+  let suppressionDiscount = 0;
+  let sourceNodeCount = 0;
+  let sourceEdgeCount = 0;
+  let analysisNodeCount = 0;
+  let analysisEdgeCount = 0;
+  let samplingApplied = false;
+  let sourceDensityCapped = false;
+  const contradictionReasons = new Set<string>();
+  const suppressionReasons = new Set<string>();
+
+  for (const item of evidence) {
+    const metadata = item.metadata ?? {};
+    peerWalletOverlap = Math.max(
+      peerWalletOverlap,
+      readMetadataNumber(metadata.wallet_peer_overlap),
+      readMetadataNumber(metadata.overlapping_wallets),
+    );
+    sharedEntityLinks = Math.max(
+      sharedEntityLinks,
+      readMetadataNumber(metadata.shared_entity_neighbors),
+      readMetadataNumber(metadata.shared_counterparties),
+    );
+    bidirectionalPeerFlows = Math.max(
+      bidirectionalPeerFlows,
+      readMetadataNumber(metadata.bidirectional_flow_peers),
+      readMetadataNumber(metadata.mutual_transfer_count),
+    );
+    contradictionPenalty = Math.max(
+      contradictionPenalty,
+      readMetadataNumber(metadata.contradiction_penalty),
+      readMetadataNumber(metadata.route_contradiction_penalty),
+    );
+    suppressionDiscount = Math.max(
+      suppressionDiscount,
+      readMetadataNumber(metadata.suppression_discount),
+    );
+    sourceNodeCount = Math.max(
+      sourceNodeCount,
+      readMetadataNumber(metadata.graph_node_count),
+      readMetadataNumber(metadata.source_graph_node_count),
+    );
+    sourceEdgeCount = Math.max(
+      sourceEdgeCount,
+      readMetadataNumber(metadata.graph_edge_count),
+      readMetadataNumber(metadata.source_graph_edge_count),
+    );
+    analysisNodeCount = Math.max(
+      analysisNodeCount,
+      readMetadataNumber(metadata.analysis_graph_node_count),
+    );
+    analysisEdgeCount = Math.max(
+      analysisEdgeCount,
+      readMetadataNumber(metadata.analysis_graph_edge_count),
+    );
+    samplingApplied =
+      samplingApplied ||
+      readMetadataBoolean(metadata.analysis_graph_sampling_applied);
+    sourceDensityCapped =
+      sourceDensityCapped ||
+      readMetadataBoolean(metadata.source_density_capped);
+
+    for (const reason of readMetadataStringArray(
+      metadata.contradiction_reasons,
+    )) {
+      contradictionReasons.add(reason);
+    }
+    for (const reason of readMetadataStringArray(
+      metadata.suppression_reasons,
+    )) {
+      suppressionReasons.add(reason);
+    }
+  }
+
+  if (
+    peerWalletOverlap === 0 &&
+    sharedEntityLinks === 0 &&
+    bidirectionalPeerFlows === 0 &&
+    contradictionPenalty === 0 &&
+    suppressionDiscount === 0 &&
+    !samplingApplied &&
+    !sourceDensityCapped &&
+    sourceNodeCount === 0 &&
+    sourceEdgeCount === 0 &&
+    analysisNodeCount === 0 &&
+    analysisEdgeCount === 0 &&
+    contradictionReasons.size === 0 &&
+    suppressionReasons.size === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    peerWalletOverlap,
+    sharedEntityLinks,
+    bidirectionalPeerFlows,
+    contradictionPenalty,
+    suppressionDiscount,
+    samplingApplied,
+    sourceDensityCapped,
+    sourceNodeCount,
+    sourceEdgeCount,
+    analysisNodeCount,
+    analysisEdgeCount,
+    contradictionReasons: [...contradictionReasons],
+    suppressionReasons: [...suppressionReasons],
+  };
+}
+
+function readMetadataNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function readMetadataBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return value === "true";
+  }
+  return false;
+}
+
+function readMetadataStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return [value.trim()];
+  }
+  return [];
 }
 
 function cloneFindingPreview(item: FindingPreview): FindingPreview {
@@ -2677,6 +3245,17 @@ function mapAdminConsoleResponse(input: {
   observability: AdminObservabilityApiResponse;
   curatedLists: AdminCuratedListCollectionApiResponse;
   auditLogs: AdminAuditLogCollectionApiResponse;
+  backtests: {
+    statusMessage: string;
+    checks: Array<{
+      key: string;
+      label: string;
+      description: string;
+      status: "ready" | "missing" | "not_configured";
+      configured: boolean;
+      path?: string;
+    }>;
+  };
 }): AdminConsolePreview {
   return {
     mode: "live",
@@ -2687,8 +3266,20 @@ function mapAdminConsoleResponse(input: {
     observabilityRoute: adminObservabilityRoute,
     curatedListsRoute: adminCuratedListsRoute,
     auditLogsRoute: adminAuditLogsRoute,
+    backtestOps: {
+      route: adminBacktestsRoute,
+      statusMessage: input.backtests.statusMessage,
+      checks: (input.backtests.checks ?? []).map((item) => ({
+        key: item.key,
+        label: item.label,
+        description: item.description,
+        status: item.status,
+        configured: item.configured,
+        ...(item.path ? { path: item.path } : {}),
+      })),
+    },
     statusMessage:
-      "Admin console is using live backend data for labels, suppressions, quota pressure, observability health, curated lists, and audit logs.",
+      "Admin console is using live backend data for labels, suppressions, quota pressure, observability health, curated lists, audit logs, and backtest operations.",
     labels: (input.labels.items ?? []).map((item) => ({
       id: item.id,
       name: item.name,
@@ -2729,6 +3320,55 @@ function mapAdminConsoleResponse(input: {
         retryableCount: input.observability.alertDelivery?.retryableCount ?? 0,
         ...(input.observability.alertDelivery?.lastFailureAt
           ? { lastFailureAt: input.observability.alertDelivery.lastFailureAt }
+          : {}),
+      },
+      walletTracking: {
+        candidateCount: input.observability.walletTracking?.candidateCount ?? 0,
+        trackedCount: input.observability.walletTracking?.trackedCount ?? 0,
+        labeledCount: input.observability.walletTracking?.labeledCount ?? 0,
+        scoredCount: input.observability.walletTracking?.scoredCount ?? 0,
+        staleCount: input.observability.walletTracking?.staleCount ?? 0,
+        suppressedCount:
+          input.observability.walletTracking?.suppressedCount ?? 0,
+      },
+      trackingSubscriptions: {
+        pendingCount:
+          input.observability.trackingSubscriptions?.pendingCount ?? 0,
+        activeCount:
+          input.observability.trackingSubscriptions?.activeCount ?? 0,
+        erroredCount:
+          input.observability.trackingSubscriptions?.erroredCount ?? 0,
+        pausedCount:
+          input.observability.trackingSubscriptions?.pausedCount ?? 0,
+        ...(input.observability.trackingSubscriptions?.lastEventAt
+          ? {
+              lastEventAt:
+                input.observability.trackingSubscriptions.lastEventAt,
+            }
+          : {}),
+      },
+      queueDepth: {
+        defaultDepth: input.observability.queueDepth?.defaultDepth ?? 0,
+        priorityDepth: input.observability.queueDepth?.priorityDepth ?? 0,
+      },
+      backfillHealth: {
+        jobs24h: input.observability.backfillHealth?.jobs24h ?? 0,
+        activities24h: input.observability.backfillHealth?.activities24h ?? 0,
+        transactions24h:
+          input.observability.backfillHealth?.transactions24h ?? 0,
+        expansions24h: input.observability.backfillHealth?.expansions24h ?? 0,
+        ...(input.observability.backfillHealth?.lastSuccessAt
+          ? {
+              lastSuccessAt: input.observability.backfillHealth.lastSuccessAt,
+            }
+          : {}),
+      },
+      staleRefresh: {
+        attempts24h: input.observability.staleRefresh?.attempts24h ?? 0,
+        succeeded24h: input.observability.staleRefresh?.succeeded24h ?? 0,
+        productive24h: input.observability.staleRefresh?.productive24h ?? 0,
+        ...(input.observability.staleRefresh?.lastHitAt
+          ? { lastHitAt: input.observability.staleRefresh.lastHitAt }
           : {}),
       },
       recentRuns: (input.observability.recentRuns ?? []).map((item) => ({
@@ -3132,6 +3772,12 @@ function createUnavailableAdminConsolePreview(): AdminConsolePreview {
     observabilityRoute: adminObservabilityRoute,
     curatedListsRoute: adminCuratedListsRoute,
     auditLogsRoute: adminAuditLogsRoute,
+    backtestOps: {
+      route: adminBacktestsRoute,
+      statusMessage:
+        "Backtest operations are unavailable until the admin backtest APIs respond.",
+      checks: [],
+    },
     statusMessage:
       "Live admin data is unavailable until the admin APIs respond.",
     labels: [],
@@ -3150,6 +3796,35 @@ function createUnavailableAdminConsolePreview(): AdminConsolePreview {
         delivered24h: 0,
         failed24h: 0,
         retryableCount: 0,
+      },
+      walletTracking: {
+        candidateCount: 0,
+        trackedCount: 0,
+        labeledCount: 0,
+        scoredCount: 0,
+        staleCount: 0,
+        suppressedCount: 0,
+      },
+      trackingSubscriptions: {
+        pendingCount: 0,
+        activeCount: 0,
+        erroredCount: 0,
+        pausedCount: 0,
+      },
+      queueDepth: {
+        defaultDepth: 0,
+        priorityDepth: 0,
+      },
+      backfillHealth: {
+        jobs24h: 0,
+        activities24h: 0,
+        transactions24h: 0,
+        expansions24h: 0,
+      },
+      staleRefresh: {
+        attempts24h: 0,
+        succeeded24h: 0,
+        productive24h: 0,
       },
       recentRuns: [],
       recentFailures: [],
@@ -3404,6 +4079,7 @@ export async function loadWalletSummaryPreview({
   fetchImpl = fetch,
   fallback,
   request = walletSummaryRequest,
+  requestHeaders,
 }: LoadWalletSummaryPreviewOptions = {}): Promise<WalletSummaryPreview> {
   const nextFallback =
     fallback ?? createUnavailableWalletSummaryPreview(request);
@@ -3411,9 +4087,12 @@ export async function loadWalletSummaryPreview({
 
   try {
     const response = await fetchImpl(endpoint, {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
     });
 
     if (!response.ok) {
@@ -3502,6 +4181,128 @@ export async function loadAnalystWalletBriefPreview({
   }
 }
 
+export async function explainAnalystWallet({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  request = walletBriefRequest,
+  requestHeaders,
+  question,
+  forceRefresh,
+  async,
+}: ExplainAnalystWalletOptions = {}): Promise<AnalystWalletExplanationPreview> {
+  const endpoint = buildAnalystWalletExplainUrl(request, apiBaseUrl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: mergeRequestHeaders(
+      {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      requestHeaders,
+    ),
+    body: JSON.stringify({
+      ...(question ? { question } : {}),
+      ...(forceRefresh ? { forceRefresh } : {}),
+      ...(async ? { async } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw Object.assign(new Error("wallet explain request failed"), {
+      status: response.status,
+    });
+  }
+
+  const payload = (await response.json()) as AnalystWalletExplanationEnvelope;
+  if (!payload.success || !payload.data) {
+    throw Object.assign(new Error("wallet explain request failed"), {
+      status: response.status,
+    });
+  }
+
+  return payload.data;
+}
+
+export async function analyzeAnalystWallet({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  request = walletBriefRequest,
+  requestHeaders,
+  question,
+  recentTurns,
+}: AnalyzeAnalystWalletOptions = {}): Promise<AnalystWalletAnalyzePreview> {
+  const endpoint = buildAnalystWalletAnalyzeUrl(request, apiBaseUrl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: mergeRequestHeaders(
+      {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      requestHeaders,
+    ),
+    body: JSON.stringify({
+      ...(question ? { question } : {}),
+      ...(recentTurns && recentTurns.length > 0 ? { recentTurns } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw Object.assign(new Error("wallet analyze request failed"), {
+      status: response.status,
+    });
+  }
+
+  const payload = (await response.json()) as AnalystWalletAnalyzeEnvelope;
+  if (!payload.success || !payload.data) {
+    throw Object.assign(new Error("wallet analyze request failed"), {
+      status: response.status,
+    });
+  }
+
+  return payload.data;
+}
+
+export async function analyzeAnalystEntity({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  request = entityInterpretationRequest,
+  requestHeaders,
+  question,
+  recentTurns,
+}: AnalyzeAnalystEntityOptions = {}): Promise<AnalystEntityAnalyzePreview> {
+  const endpoint = buildAnalystEntityAnalyzeUrl(request, apiBaseUrl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: mergeRequestHeaders(
+      {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      requestHeaders,
+    ),
+    body: JSON.stringify({
+      ...(question ? { question } : {}),
+      ...(recentTurns && recentTurns.length > 0 ? { recentTurns } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw Object.assign(new Error("entity analyze request failed"), {
+      status: response.status,
+    });
+  }
+
+  const payload = (await response.json()) as AnalystEntityAnalyzeEnvelope;
+  if (!payload.success || !payload.data) {
+    throw Object.assign(new Error("entity analyze request failed"), {
+      status: response.status,
+    });
+  }
+
+  return payload.data;
+}
+
 export async function loadFindingsFeedPreview({
   apiBaseUrl,
   fetchImpl = fetch,
@@ -3587,15 +4388,19 @@ export async function loadWalletGraphPreview({
   fetchImpl = fetch,
   fallback,
   request = walletGraphRequest,
+  requestHeaders,
 }: LoadWalletGraphPreviewOptions = {}): Promise<WalletGraphPreview> {
   const nextFallback = fallback ?? createUnavailableWalletGraphPreview(request);
   const endpoint = buildWalletGraphUrl(request, apiBaseUrl);
 
   try {
     const response = await fetchImpl(endpoint, {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
     });
 
     if (response.status === 403 && request.depthRequested > 1) {
@@ -3603,6 +4408,7 @@ export async function loadWalletGraphPreview({
         ...(apiBaseUrl ? { apiBaseUrl } : {}),
         fetchImpl,
         fallback: nextFallback,
+        ...(requestHeaders ? { requestHeaders } : {}),
         request: {
           ...request,
           depthRequested: 1,
@@ -3766,6 +4572,42 @@ export async function loadShadowExitFeedPreview({
   }
 }
 
+export async function loadDiscoverFeaturedWalletSeedsPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  requestHeaders,
+}: {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  requestHeaders?: HeadersInit;
+} = {}): Promise<DiscoverFeaturedWalletSeedPreview[]> {
+  const endpoint = buildDiscoverFeaturedWalletsUrl(apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as DiscoverFeaturedWalletEnvelope;
+    if (!payload.success || !payload.data) {
+      return [];
+    }
+
+    return Array.isArray(payload.data.items) ? payload.data.items : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function loadFirstConnectionFeedPreview({
   apiBaseUrl,
   fetchImpl = fetch,
@@ -3813,6 +4655,7 @@ export async function loadSearchPreview({
   fallback,
   query,
   refreshMode,
+  requestHeaders,
 }: LoadSearchPreviewOptions): Promise<SearchPreview> {
   const trimmed = query.trim();
   const nextFallback = fallback ?? createUnavailableSearchPreview(trimmed);
@@ -3824,9 +4667,12 @@ export async function loadSearchPreview({
 
   try {
     const response = await fetchImpl(endpoint, {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
     });
 
     if (!response.ok) {
@@ -4422,17 +5268,14 @@ export async function trackWalletAlertRule({
         ok: false,
         message: "Sign in is required before tracking a wallet.",
         status,
-        nextHref: "/account",
       };
     }
 
     if (status === 403) {
       return {
         ok: false,
-        message:
-          "Tracking wallets and alert rules require a higher access tier.",
+        message: "Wallet tracking is temporarily unavailable right now.",
         status,
-        nextHref: "/pricing",
       };
     }
 
@@ -4457,6 +5300,7 @@ export async function loadAdminConsolePreview({
   const observabilityEndpoint = buildAdminObservabilityUrl(apiBaseUrl);
   const curatedListsEndpoint = buildAdminCuratedListsUrl(apiBaseUrl);
   const auditLogsEndpoint = buildAdminAuditLogsUrl(apiBaseUrl);
+  const backtestsEndpoint = buildAdminBacktestsUrl(apiBaseUrl);
 
   try {
     const [
@@ -4466,6 +5310,7 @@ export async function loadAdminConsolePreview({
       observabilityResponse,
       curatedListsResponse,
       auditLogsResponse,
+      backtestsResponse,
     ] = await Promise.all([
       fetchImpl(labelsEndpoint, {
         method: "GET",
@@ -4497,6 +5342,11 @@ export async function loadAdminConsolePreview({
         cache: "no-store",
         headers: mergeRequestHeaders({}, requestHeaders),
       }),
+      fetchImpl(backtestsEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
     ]);
 
     if (
@@ -4505,7 +5355,8 @@ export async function loadAdminConsolePreview({
       !quotasResponse.ok ||
       !observabilityResponse.ok ||
       !curatedListsResponse.ok ||
-      !auditLogsResponse.ok
+      !auditLogsResponse.ok ||
+      !backtestsResponse.ok
     ) {
       return fallbackPreview;
     }
@@ -4517,6 +5368,7 @@ export async function loadAdminConsolePreview({
       observabilityEnvelope,
       curatedListsEnvelope,
       auditLogsEnvelope,
+      backtestsEnvelope,
     ] = (await Promise.all([
       labelsResponse.json(),
       suppressionsResponse.json(),
@@ -4524,6 +5376,7 @@ export async function loadAdminConsolePreview({
       observabilityResponse.json(),
       curatedListsResponse.json(),
       auditLogsResponse.json(),
+      backtestsResponse.json(),
     ])) as [
       AdminLabelCollectionEnvelope,
       AdminSuppressionCollectionEnvelope,
@@ -4531,6 +5384,7 @@ export async function loadAdminConsolePreview({
       AdminObservabilityEnvelope,
       AdminCuratedListCollectionEnvelope,
       AdminAuditLogCollectionEnvelope,
+      AdminBacktestOpsEnvelope,
     ];
 
     if (
@@ -4545,7 +5399,9 @@ export async function loadAdminConsolePreview({
       !curatedListsEnvelope.success ||
       !curatedListsEnvelope.data ||
       !auditLogsEnvelope.success ||
-      !auditLogsEnvelope.data
+      !auditLogsEnvelope.data ||
+      !backtestsEnvelope.success ||
+      !backtestsEnvelope.data
     ) {
       return fallbackPreview;
     }
@@ -4557,6 +5413,7 @@ export async function loadAdminConsolePreview({
       observability: observabilityEnvelope.data,
       curatedLists: curatedListsEnvelope.data,
       auditLogs: auditLogsEnvelope.data,
+      backtests: backtestsEnvelope.data,
     });
   } catch {
     return fallbackPreview;
@@ -4655,6 +5512,57 @@ export async function deleteAdminSuppression({
     return {
       ok: false,
       message: "Unable to remove this suppression right now.",
+    };
+  }
+}
+
+export async function runAdminBacktestOperation({
+  checkKey,
+  apiBaseUrl,
+  fetchImpl = fetch,
+  requestHeaders,
+}: RunAdminBacktestOperationOptions): Promise<{
+  ok: boolean;
+  message: string;
+  result?: AdminBacktestRunResultPreview;
+}> {
+  const endpoint = buildAdminBacktestRunUrl(checkKey, apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: "Unable to run this backtest operation right now.",
+      };
+    }
+
+    const payload = (await response.json()) as AdminBacktestRunEnvelope;
+    if (!payload.success || !payload.data) {
+      return {
+        ok: false,
+        message: "Unable to run this backtest operation right now.",
+      };
+    }
+
+    return {
+      ok: true,
+      message: payload.data.summary,
+      result: payload.data,
+    };
+  } catch {
+    return {
+      ok: false,
+      message: "Unable to run this backtest operation right now.",
     };
   }
 }

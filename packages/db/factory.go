@@ -248,6 +248,14 @@ func NewWalletEntryFeaturesStoreFromClients(clients *StorageClients) *PostgresWa
 	return NewPostgresWalletEntryFeaturesStoreFromPool(clients.Postgres)
 }
 
+func NewAIExplanationStoreFromClients(clients *StorageClients) *PostgresAIExplanationStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresAIExplanationStoreFromPool(clients.Postgres)
+}
+
 func NewEntityInterpretationReaderFromClients(clients *StorageClients) *PostgresEntityInterpretationReader {
 	if clients == nil {
 		return nil

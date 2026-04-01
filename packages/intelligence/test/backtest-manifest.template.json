@@ -1,0 +1,12 @@
+{
+  "version": "2026-03-31",
+  "policy": {
+    "requireRealWorldData": true,
+    "requireSourceCitations": true,
+    "requireOnchainEvidence": true,
+    "requireReviewedCases": true,
+    "minimumCasesPerCohort": 20,
+    "minimumCasesPerCaseType": 20
+  },
+  "datasets": []
+}

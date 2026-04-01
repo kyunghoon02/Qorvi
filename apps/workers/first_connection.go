@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
 	"github.com/jackc/pgx/v5"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 const workerModeFirstConnectionSnapshot = "first-connection-snapshot"
@@ -28,6 +28,7 @@ type FirstConnectionSnapshotService struct {
 	EntryFeatures db.WalletEntryFeaturesStore
 	Reader        FirstConnectionSignalReader
 	Signals       db.SignalEventStore
+	Tracking      db.WalletTrackingStateStore
 	Labels        db.WalletLabelReader
 	Findings      db.FindingStore
 	Cache         db.WalletSummaryCache
@@ -160,6 +161,8 @@ func (s FirstConnectionSnapshotService) runSnapshot(
 			"new_common_entries":                   signal.NewCommonEntries,
 			"first_seen_counterparties":            signal.FirstSeenCounterparties,
 			"hot_feed_mentions":                    signal.HotFeedMentions,
+			"aggregator_counterparties":            signal.AggregatorCounterparties,
+			"deployer_collector_counterparties":    signal.DeployerCollectorCounterparties,
 			"quality_wallet_overlap_count":         report.QualityWalletOverlapCount,
 			"sustained_overlap_counterparty_count": report.SustainedOverlapCounterpartyCount,
 			"strong_lead_counterparty_count":       report.StrongLeadCounterpartyCount,
@@ -208,6 +211,21 @@ func (s FirstConnectionSnapshotService) runSnapshot(
 			return FirstConnectionSnapshotReport{}, err
 		}
 	}
+	if err := markWalletScored(
+		ctx,
+		s.Tracking,
+		db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+		signalObservedAt,
+		firstConnectionSnapshotSignalType,
+		map[string]any{
+			"score_name":   string(score.Name),
+			"score_value":  score.Value,
+			"score_rating": string(score.Rating),
+			"observed_at":  snapshotObservedAt,
+		},
+	); err != nil {
+		return FirstConnectionSnapshotReport{}, err
+	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   signal.Chain,
 		Address: signal.Address,
@@ -235,17 +253,19 @@ func (s FirstConnectionSnapshotService) runSnapshot(
 			score,
 			snapshotObservedAt,
 			map[string]any{
-				"wallet_id":                 signal.WalletID,
-				"score_name":                string(score.Name),
-				"score_value":               score.Value,
-				"score_rating":              string(score.Rating),
-				"observed_at":               snapshotObservedAt,
-				"chain":                     string(signal.Chain),
-				"address":                   signal.Address,
-				"new_common_entries":        signal.NewCommonEntries,
-				"first_seen_counterparties": signal.FirstSeenCounterparties,
-				"hot_feed_mentions":         signal.HotFeedMentions,
-				"evidence":                  score.Evidence,
+				"wallet_id":                         signal.WalletID,
+				"score_name":                        string(score.Name),
+				"score_value":                       score.Value,
+				"score_rating":                      string(score.Rating),
+				"observed_at":                       snapshotObservedAt,
+				"chain":                             string(signal.Chain),
+				"address":                           signal.Address,
+				"new_common_entries":                signal.NewCommonEntries,
+				"first_seen_counterparties":         signal.FirstSeenCounterparties,
+				"hot_feed_mentions":                 signal.HotFeedMentions,
+				"aggregator_counterparties":         signal.AggregatorCounterparties,
+				"deployer_collector_counterparties": signal.DeployerCollectorCounterparties,
+				"evidence":                          score.Evidence,
 			},
 		))
 	}
@@ -259,25 +279,27 @@ func (s FirstConnectionSnapshotService) runSnapshot(
 			return &finishedAt
 		}(),
 		Details: map[string]any{
-			"wallet_id":                       signal.WalletID,
-			"chain":                           string(signal.Chain),
-			"address":                         signal.Address,
-			"score_name":                      string(score.Name),
-			"score_value":                     score.Value,
-			"score_rating":                    string(score.Rating),
-			"new_common_entries":              signal.NewCommonEntries,
-			"first_seen_counterparties":       signal.FirstSeenCounterparties,
-			"hot_feed_mentions":               signal.HotFeedMentions,
-			"alerts_matched_rules":            alertReport.MatchedRules,
-			"alerts_created":                  alertReport.EventsCreated,
-			"alerts_suppressed":               alertReport.SuppressedRules,
-			"alerts_deduped":                  alertReport.DedupedRules,
-			"alert_delivery_matched_channels": alertReport.MatchedChannels,
-			"alert_delivery_attempts_created": alertReport.DeliveryAttempts,
-			"alert_delivery_delivered":        alertReport.DeliveredChannels,
-			"alert_delivery_failed":           alertReport.FailedChannels,
-			"alert_delivery_deduped":          alertReport.DedupedChannels,
-			"alerts_error":                    alertErrorString(alertErr),
+			"wallet_id":                         signal.WalletID,
+			"chain":                             string(signal.Chain),
+			"address":                           signal.Address,
+			"score_name":                        string(score.Name),
+			"score_value":                       score.Value,
+			"score_rating":                      string(score.Rating),
+			"new_common_entries":                signal.NewCommonEntries,
+			"first_seen_counterparties":         signal.FirstSeenCounterparties,
+			"hot_feed_mentions":                 signal.HotFeedMentions,
+			"aggregator_counterparties":         signal.AggregatorCounterparties,
+			"deployer_collector_counterparties": signal.DeployerCollectorCounterparties,
+			"alerts_matched_rules":              alertReport.MatchedRules,
+			"alerts_created":                    alertReport.EventsCreated,
+			"alerts_suppressed":                 alertReport.SuppressedRules,
+			"alerts_deduped":                    alertReport.DedupedRules,
+			"alert_delivery_matched_channels":   alertReport.MatchedChannels,
+			"alert_delivery_attempts_created":   alertReport.DeliveryAttempts,
+			"alert_delivery_delivered":          alertReport.DeliveredChannels,
+			"alert_delivery_failed":             alertReport.FailedChannels,
+			"alert_delivery_deduped":            alertReport.DedupedChannels,
+			"alerts_error":                      alertErrorString(alertErr),
 		},
 	}); err != nil {
 		return FirstConnectionSnapshotReport{}, err
@@ -408,15 +430,21 @@ func (s FirstConnectionSnapshotService) RunSnapshotForWallet(
 	if err != nil {
 		return FirstConnectionSnapshotReport{}, err
 	}
+	aggregatorCounterparties, deployerCollectorCounterparties, err := s.loadFirstConnectionCounterpartyRouteCounts(ctx, metrics.TopCounterparties)
+	if err != nil {
+		return FirstConnectionSnapshotReport{}, err
+	}
 
 	signal := intelligence.BuildFirstConnectionSignalFromInputs(intelligence.FirstConnectionDetectorInputs{
-		WalletID:                identity.WalletID,
-		Chain:                   identity.Chain,
-		Address:                 identity.Address,
-		ObservedAt:              normalizeFirstConnectionObservedAt(observedAt, metrics.WindowEnd),
-		NewCommonEntries:        int(metrics.NewCommonEntries),
-		FirstSeenCounterparties: int(metrics.FirstSeenCounterparties),
-		HotFeedMentions:         int(metrics.HotFeedMentions),
+		WalletID:                        identity.WalletID,
+		Chain:                           identity.Chain,
+		Address:                         identity.Address,
+		ObservedAt:                      normalizeFirstConnectionObservedAt(observedAt, metrics.WindowEnd),
+		NewCommonEntries:                int(metrics.NewCommonEntries),
+		FirstSeenCounterparties:         int(metrics.FirstSeenCounterparties),
+		HotFeedMentions:                 int(metrics.HotFeedMentions),
+		AggregatorCounterparties:        aggregatorCounterparties,
+		DeployerCollectorCounterparties: deployerCollectorCounterparties,
 	})
 
 	return s.runSnapshot(ctx, signal, &metrics)
@@ -476,6 +504,82 @@ func buildFirstConnectionSnapshotReport(
 	report.TopCounterparties = topCounterparties
 
 	return report
+}
+
+func (s FirstConnectionSnapshotService) loadFirstConnectionCounterpartyRouteCounts(
+	ctx context.Context,
+	items []db.FirstConnectionCandidateCounterparty,
+) (int, int, error) {
+	if s.Labels == nil || len(items) == 0 {
+		return 0, 0, nil
+	}
+	refs := make([]db.WalletRef, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		ref := db.WalletRef{
+			Chain:   item.Chain,
+			Address: strings.TrimSpace(item.Address),
+		}
+		if ref.Chain == "" || ref.Address == "" {
+			continue
+		}
+		key := walletLabelLookupKey(ref)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return 0, 0, nil
+	}
+	labelsByWallet, err := s.Labels.ReadWalletLabels(ctx, refs)
+	if err != nil {
+		return 0, 0, err
+	}
+	aggregatorCounterparties := 0
+	deployerCollectorCounterparties := 0
+	for _, ref := range refs {
+		set := labelsByWallet[walletLabelLookupKey(ref)]
+		if firstConnectionLabelSetMatchesAggregator(set) {
+			aggregatorCounterparties++
+		}
+		if firstConnectionLabelSetMatchesDeployerCollector(set) {
+			deployerCollectorCounterparties++
+		}
+	}
+	return aggregatorCounterparties, deployerCollectorCounterparties, nil
+}
+
+func firstConnectionLabelSetMatchesAggregator(set domain.WalletLabelSet) bool {
+	return firstConnectionLabelSetMatches(set, "router", "aggregator", "dex", "amm", "pool")
+}
+
+func firstConnectionLabelSetMatchesDeployerCollector(set domain.WalletLabelSet) bool {
+	return firstConnectionLabelSetMatches(set, "deployer", "fee collector", "fee_collector", "collector")
+}
+
+func firstConnectionLabelSetMatches(set domain.WalletLabelSet, fragments ...string) bool {
+	labels := append([]domain.WalletLabel{}, set.Verified...)
+	labels = append(labels, set.Inferred...)
+	labels = append(labels, set.Behavioral...)
+	for _, label := range labels {
+		joined := strings.ToLower(strings.TrimSpace(strings.Join([]string{
+			label.Key,
+			label.Name,
+			label.EntityType,
+			label.EvidenceSummary,
+		}, " ")))
+		if joined == "" {
+			continue
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(joined, strings.ToLower(strings.TrimSpace(fragment))) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func firstConnectionHasRepeatableOverlapCounterparty(
@@ -591,43 +695,43 @@ func (s FirstConnectionSnapshotService) recordJobRun(ctx context.Context, entry 
 
 func firstConnectionSignalFromEnv() intelligence.FirstConnectionSignal {
 	return intelligence.BuildFirstConnectionSignalFromInputs(intelligence.FirstConnectionDetectorInputs{
-		WalletID:                strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID")),
-		Chain:                   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_CHAIN"))),
-		Address:                 strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS")),
-		ObservedAt:              strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT")),
-		NewCommonEntries:        firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", 0),
-		FirstSeenCounterparties: firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", 0),
-		HotFeedMentions:         firstConnectionIntFromEnv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", 0),
+		WalletID:                strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_WALLET_ID")),
+		Chain:                   domain.Chain(strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_CHAIN"))),
+		Address:                 strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_ADDRESS")),
+		ObservedAt:              strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_OBSERVED_AT")),
+		NewCommonEntries:        firstConnectionIntFromEnv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", 0),
+		FirstSeenCounterparties: firstConnectionIntFromEnv("QORVI_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", 0),
+		HotFeedMentions:         firstConnectionIntFromEnv("QORVI_FIRST_CONNECTION_HOT_FEED_MENTIONS", 0),
 	})
 }
 
 func firstConnectionTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_ADDRESS")),
 	}
 }
 
 func firstConnectionObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_OBSERVED_AT"))
 }
 
 func firstConnectionShouldAutoDetect() bool {
-	if configured := strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_AUTO_DETECT")); configured != "" {
+	if configured := strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_AUTO_DETECT")); configured != "" {
 		parsed, err := strconv.ParseBool(configured)
 		if err == nil {
 			return parsed
 		}
 	}
 
-	if strings.TrimSpace(os.Getenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID")) != "" {
+	if strings.TrimSpace(os.Getenv("QORVI_FIRST_CONNECTION_WALLET_ID")) != "" {
 		return false
 	}
 
 	for _, key := range []string{
-		"FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES",
-		"FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES",
-		"FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS",
+		"QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES",
+		"QORVI_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES",
+		"QORVI_FIRST_CONNECTION_HOT_FEED_MENTIONS",
 	} {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return false

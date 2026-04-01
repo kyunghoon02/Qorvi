@@ -1,0 +1,49 @@
+{
+  "version": "2026-03-31",
+  "source": {
+    "provider": "dune",
+    "queryId": 0,
+    "queryName": "replace-me",
+    "executionId": "replace-me",
+    "generatedAt": "2026-03-31T00:00:00Z"
+  },
+  "rows": [
+    {
+      "caseId": "evm-known-positive-smart-money-001",
+      "chain": "evm",
+      "cohort": "known_positive",
+      "caseType": "smart_money_early_entry",
+      "subjectAddress": "0x0000000000000000000000000000000000000000",
+      "entityKey": "",
+      "subjectRole": "primary_wallet",
+      "windowStartAt": "2026-02-01T00:00:00Z",
+      "windowEndAt": "2026-02-07T00:00:00Z",
+      "observationCutoffAt": "2026-02-03T00:00:00Z",
+      "detectionDeadlineAt": "2026-02-05T00:00:00Z",
+      "expectedOutcome": "Qorvi should detect the early entry before the broader follow-on wave.",
+      "expectedSignal": "alpha_score",
+      "expectedRoute": "funding_inflow",
+      "sourceTxHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceBlockNumber": 0,
+      "sourceTitle": "replace-me-source-title",
+      "sourceUrl": "https://example.com/research/case-1",
+      "narrative": "Wallet accumulated before wider crowding and held through the breakout window.",
+      "analystNote": "Candidate extracted from Dune; requires human review before manifest promotion.",
+      "review": {
+        "curatedBy": "",
+        "reviewStatus": "",
+        "caseTicket": "",
+        "expectedHighSignals": [],
+        "expectedSuppressed": []
+      },
+      "metadata": {
+        "projectSlug": "replace-me",
+        "tokenAddress": "",
+        "tokenSymbol": "TOKEN",
+        "counterpartyAddress": "",
+        "queryConfidence": 0.8,
+        "dedupKey": "replace-me"
+      }
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const walletGraphEntityLinksSQL = `

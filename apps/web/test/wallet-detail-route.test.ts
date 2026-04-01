@@ -175,6 +175,21 @@ function createSummaryFixture(request: {
         value: 82,
         rating: "high" as const,
         tone: "emerald" as const,
+        clusterBreakdown: {
+          peerWalletOverlap: 6,
+          sharedEntityLinks: 4,
+          bidirectionalPeerFlows: 2,
+          contradictionPenalty: 12,
+          suppressionDiscount: 0,
+          samplingApplied: true,
+          sourceDensityCapped: true,
+          sourceNodeCount: 82,
+          sourceEdgeCount: 144,
+          analysisNodeCount: 30,
+          analysisEdgeCount: 49,
+          contradictionReasons: ["aggregator_routing_hub_neighbors"],
+          suppressionReasons: [],
+        },
       },
       {
         name: "shadow_exit_risk",
@@ -396,6 +411,7 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.title, "Seed Whale");
@@ -409,6 +425,10 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.equal(viewModel.clusterDetailHref, "/clusters/cluster_seed_whales");
   assert.equal(viewModel.summaryScores[0]?.name, "cluster_score");
   assert.equal(viewModel.summaryScores[0]?.tone, "emerald");
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.peerWalletOverlap, 6);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.sharedEntityLinks, 4);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.bidirectionalPeerFlows, 2);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.samplingApplied, true);
   assert.equal(viewModel.relatedAddresses.length, 3);
   assert.equal(viewModel.relatedAddressCountAvailable, 74);
   assert.equal(viewModel.relatedAddressCountShown, 3);
@@ -462,6 +482,7 @@ test("buildWalletDetailViewModel prefers live brief bundles when available", () 
     summary: createSummaryFixture(request),
     brief: createBriefFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.aiBrief.headline, "Seed Whale AI brief");
@@ -495,6 +516,7 @@ test("filterAndSortRelatedAddresses applies direction filter and stable sort key
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const outboundOnly = filterAndSortRelatedAddresses(
@@ -582,6 +604,7 @@ test("buildWalletDetailViewModel labels ready coverage expansion clearly", () =>
     request,
     summary,
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.indexing.coverageWindowLabel, "180 days");
@@ -645,6 +668,7 @@ test("resolveGraphExpansionState enforces stop rules and hop budgets", () => {
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const walletState = resolveGraphExpansionState({
@@ -677,8 +701,8 @@ test("resolveGraphExpansionState enforces stop rules and hop budgets", () => {
     graphNodes: viewModel.graphNodes,
     relatedAddresses: viewModel.relatedAddresses,
   });
-  assert.equal(budgetState.canExpand, false);
-  assert.match(budgetState.reason, /Global hop budget reached/i);
+  assert.equal(budgetState.canExpand, true);
+  assert.match(budgetState.reason, /Expand this wallet neighborhood/i);
   assert.equal(budgetState.hopBudget, 20);
 });
 
@@ -691,6 +715,7 @@ test("resolveExpandableGraphNodeIds returns wallet and cluster nodes that can st
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const expandableNodeIds = resolveExpandableGraphNodeIds({

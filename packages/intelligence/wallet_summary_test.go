@@ -3,7 +3,7 @@ package intelligence
 import (
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestBuildWalletSummaryScores(t *testing.T) {

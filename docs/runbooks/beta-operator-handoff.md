@@ -1,6 +1,6 @@
 # Beta Operator Handoff
 
-이 문서는 FlowIntel beta 운영자가 바로 참고하는 handoff 요약본이다. gate 판단은 `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`, release closeout 순서는 `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`, 세부 운영 절차는 `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`를 따른다.
+이 문서는 Qorvi beta 운영자가 바로 참고하는 handoff 요약본이다. gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`, release closeout 순서는 `/Users/kh/Github/Qorvi/docs/runbooks/beta-release-package.md`, 세부 운영 절차는 `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`를 따른다.
 
 ## 1. Scope
 
@@ -23,7 +23,7 @@ beta 운영자는 아래 5가지를 책임진다.
 
 기본 아키텍처 참고:
 
-- `/Users/kh/Github/FlowIntel/docs/architecture/sprint-0-bootstrap.md`
+- `/Users/kh/Github/Qorvi/docs/architecture/sprint-0-bootstrap.md`
 
 ## 3. Daily Operator Checks
 
@@ -41,9 +41,9 @@ curl http://localhost:4000/healthz
 
 핵심 문서와 경로:
 
-- `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`
-- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/admin_console.go`
+- `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`
+- `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/admin_console.go`
 
 ## 4. Common Actions
 
@@ -56,19 +56,19 @@ corepack pnpm dev:stack:no-worker
 wallet backfill 재시도:
 
 ```bash
-FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+QORVI_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
 optional billing subscription sync 재실행:
 
 ```bash
-FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+QORVI_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 ```
 
 Moralis enrichment refresh 재실행:
 
 ```bash
-FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ## 5. Incident Triage

@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestAccountServiceBuildsPlanAndEntitlementsFromTier(t *testing.T) {
@@ -23,7 +23,7 @@ func TestAccountServiceBuildsPlanAndEntitlementsFromTier(t *testing.T) {
 		UserID:    "user_123",
 		SessionID: "sess_123",
 		Role:      "admin",
-		Email:     "ops@flowintel.test",
+		Email:     "ops@qorvi.test",
 	}, "pro")
 	if err != nil {
 		t.Fatalf("GetAccount returned error: %v", err)

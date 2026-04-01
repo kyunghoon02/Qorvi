@@ -1,6 +1,6 @@
 # Beta Release Package
 
-이 문서는 FlowIntel beta open 직전 운영자와 개발자가 함께 확인하는 handoff 패키지다. 상세 gate 판단은 `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`를 따르고, 이 문서는 실제 실행 순서와 운영 인계를 다룬다.
+이 문서는 Qorvi beta open 직전 운영자와 개발자가 함께 확인하는 handoff 패키지다. 상세 gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`를 따르고, 이 문서는 실제 실행 순서와 운영 인계를 다룬다.
 
 ## 1. Primary Entry Points
 
@@ -20,9 +20,9 @@ corepack pnpm beta:hardening
 
 관련 스크립트:
 
-- `/Users/kh/Github/FlowIntel/scripts/beta-hardening.sh`
-- `/Users/kh/Github/FlowIntel/scripts/dev-stack.sh`
-- `/Users/kh/Github/FlowIntel/scripts/dev-worker-loop.sh`
+- `/Users/kh/Github/Qorvi/scripts/beta-hardening.sh`
+- `/Users/kh/Github/Qorvi/scripts/dev-stack.sh`
+- `/Users/kh/Github/Qorvi/scripts/dev-worker-loop.sh`
 
 ## 2. Release Day Preflight
 
@@ -40,7 +40,7 @@ corepack pnpm beta:hardening
 반드시 보관할 evidence:
 
 1. `corepack pnpm beta:evidence:core` 실행 결과
-2. `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md` 검토 결과
+2. `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md` 검토 결과
 3. admin/ops operator 확인 결과
    - `/v1/admin/provider-quotas`
    - `/v1/admin/observability`
@@ -55,11 +55,11 @@ corepack pnpm beta:hardening
 
 운영 인계 시 같이 전달해야 하는 문서:
 
-- gate source of truth: `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`
-- launch review: `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`
-- beta open prep: `/Users/kh/Github/FlowIntel/docs/runbooks/beta-open-prep.md`
-- operator handoff: `/Users/kh/Github/FlowIntel/docs/runbooks/beta-operator-handoff.md`
-- admin runbook: `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
+- gate source of truth: `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`
+- launch review: `/Users/kh/Github/Qorvi/docs/runbooks/beta-launch-review.md`
+- beta open prep: `/Users/kh/Github/Qorvi/docs/runbooks/beta-open-prep.md`
+- operator handoff: `/Users/kh/Github/Qorvi/docs/runbooks/beta-operator-handoff.md`
+- admin runbook: `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
 - release package: 이 문서
 
 운영자가 launch 이후 바로 확인할 것:
@@ -81,19 +81,19 @@ corepack pnpm dev:stack:no-worker
 wallet indexing 재시도:
 
 ```bash
-FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+QORVI_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
 billing reconciliation 재시도:
 
 ```bash
-FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+QORVI_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 ```
 
 Moralis enrichment 재시도:
 
 ```bash
-FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ## 6. Residual Warn Items
@@ -110,7 +110,7 @@ FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 아래 조건을 만족하면 `go`로 본다.
 
-1. `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`에 `block`이 없다.
+1. `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`에 `block`이 없다.
 2. `corepack pnpm beta:evidence:core`가 통과한다.
 3. operator가 admin/ops surface를 직접 확인했다.
 4. billing을 beta에서 켠 경우 billing/account mixed flow가 현재 환경에서 재현 가능하다.

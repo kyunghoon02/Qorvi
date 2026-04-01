@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/flowintel/flowintel/apps/api/internal/config"
+	"github.com/qorvi/qorvi/apps/api/internal/config"
 )
 
 func TestLoadRuntimeConfigFallsBackWhenEnvIsMissing(t *testing.T) {

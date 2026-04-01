@@ -447,7 +447,7 @@ export function WalletGraphVisual({
     const chargeForce = graph.d3Force("charge") as
       | { strength?: (value: number) => unknown }
       | undefined;
-    chargeForce?.strength?.(isHero ? -300 : isCompact ? -420 : -560);
+    chargeForce?.strength?.(isHero ? -360 : isCompact ? -520 : -800);
 
     const linkForce = graph.d3Force("link") as
       | {
@@ -463,22 +463,22 @@ export function WalletGraphVisual({
     linkForce?.distance?.((link) =>
       isWalletForceGraphLinkConnectedToNode(link, primaryNodeId)
         ? isCompact
-          ? 204
-          : 272
+          ? 284
+          : 420
         : isCompact
-          ? 248
-          : 334,
+          ? 356
+          : 580,
     );
     linkForce?.strength?.((link) =>
-      isWalletForceGraphLinkConnectedToNode(link, primaryNodeId) ? 0.14 : 0.06,
+      isWalletForceGraphLinkConnectedToNode(link, primaryNodeId) ? 0.16 : 0.08,
     );
     graph.d3Force(
       "wallet-collide",
-      createWalletGraphCollisionForce(isCompact ? 18 : 28),
+      createWalletGraphCollisionForce(isCompact ? 28 : 42),
     );
     graph.d3Force(
       "wallet-lanes",
-      createWalletGraphLaneForce(ringSeedPositions, isCompact ? 0.075 : 0.09),
+      createWalletGraphLaneForce(ringSeedPositions, isCompact ? 0.06 : 0.07),
     );
 
     graph.d3ReheatSimulation();

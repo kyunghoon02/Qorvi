@@ -3,17 +3,24 @@ import test from "node:test";
 
 import {
   adminAuditLogsRoute,
+  adminBacktestsRoute,
+  adminBacktestRunRoute,
   adminCuratedListsRoute,
   adminLabelsRoute,
   adminObservabilityRoute,
   adminProviderQuotasRoute,
   adminSuppressionsRoute,
+  analystEntityAnalyzeRoute,
   analystEntityInterpretationRoute,
   analystFindingsRoute,
+  analystWalletAnalyzeRoute,
+  analystWalletExplainRoute,
   analystWalletBriefRoute,
   alertDeliveryChannelsRoute,
   alertInboxRoute,
   alertRulesCollectionRoute,
+  analyzeAnalystEntity,
+  analyzeAnalystWallet,
   buildEntityDetailHref,
   buildClusterDetailHref,
   buildProductSearchHref,
@@ -21,6 +28,8 @@ import {
   createAdminSuppression,
   deleteAdminSuppression,
   deriveWalletGraphPreviewFromSummary,
+  discoverFeaturedWalletsRoute,
+  explainAnalystWallet,
   entityInterpretationRoute,
   firstConnectionFeedRoute,
   findingsFeedRoute,
@@ -43,6 +52,7 @@ import {
   loadAnalystFindingsPreview,
   loadAnalystWalletBriefPreview,
   loadClusterDetailPreview,
+  loadDiscoverFeaturedWalletSeedsPreview,
   loadEntityInterpretationPreview,
   loadFirstConnectionFeedPreview,
   loadFindingsFeedPreview,
@@ -50,10 +60,12 @@ import {
   loadWalletBriefPreview,
   loadWalletGraphPreview,
   loadWalletSummaryPreview,
+  runAdminBacktestOperation,
   walletBriefRoute,
   shadowExitFeedRoute,
   shouldPersistSearchPreviewToUrl,
   shouldPollIndexedWalletSummary,
+  shouldQueueWalletSummaryStaleRefresh,
   trackWalletAlertRule,
   updateAlertInboxEvent,
   updateAlertRuleMutation,
@@ -134,12 +146,63 @@ test("admin console routes stay aligned with the backend contract", () => {
   assert.equal(adminObservabilityRoute, "GET /v1/admin/observability");
   assert.equal(adminCuratedListsRoute, "GET /v1/admin/curated-lists");
   assert.equal(adminAuditLogsRoute, "GET /v1/admin/audit-logs");
+  assert.equal(adminBacktestsRoute, "GET /v1/admin/backtests");
+  assert.equal(
+    adminBacktestRunRoute,
+    "POST /v1/admin/backtests/:checkKey/run",
+  );
 });
 
 test("findings, wallet brief, and entity interpretation routes stay aligned with the backend contract", () => {
   assert.equal(findingsFeedRoute, "GET /v1/findings");
+  assert.equal(
+    discoverFeaturedWalletsRoute,
+    "GET /v1/discover/featured-wallets",
+  );
   assert.equal(walletBriefRoute, "GET /v1/wallets/:chain/:address/brief");
   assert.equal(entityInterpretationRoute, "GET /v1/entity/:id");
+});
+
+test("loadDiscoverFeaturedWalletSeedsPreview maps live backend data when available", async () => {
+  let requestedUrl = "";
+  const items = await loadDiscoverFeaturedWalletSeedsPreview({
+    apiBaseUrl: "http://localhost:4000",
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [
+              {
+                chain: "evm",
+                address: "0x28C6c06298d514Db089934071355E5743bf21d60",
+                displayName: "Binance Hot Wallet",
+                description: "Curated exchange wallet.",
+                category: "exchange",
+                tags: ["featured", "exchange"],
+              },
+            ],
+          },
+        }),
+      );
+    },
+  });
+
+  assert.equal(
+    requestedUrl,
+    "http://localhost:4000/v1/discover/featured-wallets",
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.displayName, "Binance Hot Wallet");
+});
+
+test("loadDiscoverFeaturedWalletSeedsPreview falls back to an empty array on invalid responses", async () => {
+  const items = await loadDiscoverFeaturedWalletSeedsPreview({
+    fetchImpl: async () => new Response(null, { status: 503 }),
+  });
+
+  assert.deepEqual(items, []);
 });
 
 test("analyst tool routes stay aligned with the backend contract", () => {
@@ -148,7 +211,16 @@ test("analyst tool routes stay aligned with the backend contract", () => {
     analystWalletBriefRoute,
     "GET /v1/analyst/wallets/:chain/:address/brief",
   );
+  assert.equal(
+    analystWalletExplainRoute,
+    "POST /v1/analyst/wallets/:chain/:address/explain",
+  );
+  assert.equal(
+    analystWalletAnalyzeRoute,
+    "POST /v1/analyst/wallets/:chain/:address/analyze",
+  );
   assert.equal(analystEntityInterpretationRoute, "GET /v1/analyst/entity/:id");
+  assert.equal(analystEntityAnalyzeRoute, "POST /v1/analyst/entity/:id/analyze");
 });
 
 test("entity detail href encodes the entity key", () => {
@@ -255,6 +327,28 @@ test("loadWalletSummaryPreview maps live backend data when available", async () 
                 name: "cluster_score",
                 value: 91,
                 rating: "high",
+                evidence: [
+                  {
+                    kind: "cluster_overlap",
+                    label: "cluster snapshot",
+                    source: "cluster-score-snapshot",
+                    confidence: 0.92,
+                    observedAt: "2026-03-22T00:00:00.000Z",
+                    metadata: {
+                      wallet_peer_overlap: 7,
+                      shared_entity_neighbors: 4,
+                      bidirectional_flow_peers: 2,
+                      contradiction_penalty: 10,
+                      analysis_graph_sampling_applied: true,
+                      source_density_capped: true,
+                      graph_node_count: 91,
+                      graph_edge_count: 160,
+                      analysis_graph_node_count: 30,
+                      analysis_graph_edge_count: 52,
+                      contradiction_reasons: ["aggregator_routing_hub_neighbors"],
+                    },
+                  },
+                ],
               },
             ],
           },
@@ -287,6 +381,15 @@ test("loadWalletSummaryPreview maps live backend data when available", async () 
   assert.equal(preview.indexing.status, "ready");
   assert.equal(preview.indexing.coverageWindowDays, 78);
   assert.equal(preview.scores[0]?.tone, "emerald");
+  assert.equal(preview.scores[0]?.clusterBreakdown?.peerWalletOverlap, 7);
+  assert.equal(preview.scores[0]?.clusterBreakdown?.sharedEntityLinks, 4);
+  assert.equal(preview.scores[0]?.clusterBreakdown?.bidirectionalPeerFlows, 2);
+  assert.equal(preview.scores[0]?.clusterBreakdown?.samplingApplied, true);
+  assert.equal(preview.scores[0]?.clusterBreakdown?.sourceDensityCapped, true);
+  assert.equal(
+    preview.scores[0]?.clusterBreakdown?.contradictionReasons[0],
+    "aggregator_routing_hub_neighbors",
+  );
   assert.match(preview.statusMessage, /live backend data/i);
 });
 
@@ -743,6 +846,246 @@ test("analyst wallet brief preview loader preserves richer evidence metadata", a
   assert.match(preview.statusMessage, /live backend data/i);
 });
 
+test("explainAnalystWallet posts the explain payload and returns the explanation", async () => {
+  let requestedUrl = "";
+  let requestedMethod = "";
+  let requestedBody = "";
+
+  const explanation = await explainAnalystWallet({
+    request: {
+      chain: "evm",
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    },
+    question: "why does this wallet matter?",
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestedMethod = String(init?.method ?? "");
+      requestedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            chain: "evm",
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            source: "openai",
+            cached: false,
+            model: "gpt-4o-mini",
+            promptVersion: "wallet-explainer-v1",
+            summary: "This wallet matters because it leads quality peers.",
+            whyItMatters: ["Quality overlap is elevated."],
+            confidenceNote: "Evidence-backed interpretation.",
+            watchNext: ["Track the top counterparty"],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.match(
+    requestedUrl,
+    /\/v1\/analyst\/wallets\/evm\/0x1234567890abcdef1234567890abcdef12345678\/explain$/,
+  );
+  assert.equal(requestedMethod, "POST");
+  assert.match(requestedBody, /why does this wallet matter\?/);
+  assert.equal(explanation.source, "openai");
+  assert.equal(
+    explanation.summary,
+    "This wallet matters because it leads quality peers.",
+  );
+});
+
+test("explainAnalystWallet preserves queued 202 responses", async () => {
+  const explanation = await explainAnalystWallet({
+    request: {
+      chain: "evm",
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    },
+    async: true,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            chain: "evm",
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            source: "queued",
+            cached: false,
+            promptVersion: "wallet-explainer-v1",
+            summary: "Queued explanation fallback summary.",
+            whyItMatters: ["Review the latest findings and counterparties."],
+            confidenceNote: "Queued regeneration is in progress.",
+            watchNext: ["Open the graph"],
+            queued: true,
+            cooldownSecondsRemaining: 45,
+          },
+          error: null,
+        }),
+        {
+          status: 202,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+  });
+
+  assert.equal(explanation.source, "queued");
+  assert.equal(explanation.queued, true);
+  assert.equal(explanation.cooldownSecondsRemaining, 45);
+});
+
+test("analyzeAnalystWallet posts question and recent turns", async () => {
+  let requestedUrl = "";
+  let requestedMethod = "";
+  let requestedBody = "";
+
+  const analysis = await analyzeAnalystWallet({
+    request: {
+      chain: "evm",
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    },
+    question: "Why does this wallet matter?",
+    recentTurns: [
+      {
+        question: "Who is this wallet connected to?",
+        headline: "Prior headline",
+        toolTrace: ["get_wallet_brief", "get_counterparties"],
+        evidenceRefs: [{ kind: "wallet_brief", key: "evm:0x123" }],
+      },
+    ],
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestedMethod = String(init?.method ?? "");
+      requestedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            chain: "evm",
+            address: "0x1234567890abcdef1234567890abcdef12345678",
+            question: "Why does this wallet matter?",
+            contextReused: true,
+            recentTurnCount: 1,
+            headline: "High conviction entry detected before broader crowding.",
+            conclusion: ["High conviction entry detected before broader crowding."],
+            confidence: "high",
+            observedFacts: ["Indexed coverage window is 30 days."],
+            inferredInterpretations: ["Early-entry overlap is elevated."],
+            alternativeExplanations: ["Operational routing is still possible."],
+            nextSteps: ["Inspect the top counterparty in detail."],
+            toolTrace: ["get_wallet_brief", "detect_behavior_patterns"],
+            evidenceRefs: [
+              { kind: "wallet_brief", key: "evm:0x123" },
+              {
+                kind: "cluster_context",
+                key: "evm:0x123:cluster",
+                metadata: {
+                  peerWalletOverlap: 6,
+                  sharedEntityLinks: 4,
+                  bidirectionalPeerFlow: 2,
+                  contradictionPenalty: 12,
+                  samplingApplied: true,
+                },
+              },
+            ],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.match(
+    requestedUrl,
+    /\/v1\/analyst\/wallets\/evm\/0x1234567890abcdef1234567890abcdef12345678\/analyze$/,
+  );
+  assert.equal(requestedMethod, "POST");
+  assert.match(requestedBody, /Why does this wallet matter\?/);
+  assert.match(requestedBody, /Who is this wallet connected to\?/);
+  assert.equal(analysis.contextReused, true);
+  assert.equal(analysis.recentTurnCount, 1);
+  assert.equal(analysis.toolTrace[0], "get_wallet_brief");
+  assert.equal(analysis.evidenceRefs[1]?.kind, "cluster_context");
+  assert.equal(
+    analysis.evidenceRefs[1]?.metadata?.peerWalletOverlap,
+    6,
+  );
+});
+
+test("analyzeAnalystEntity posts question and recent turns", async () => {
+  let requestedUrl = "";
+  let requestedMethod = "";
+  let requestedBody = "";
+
+  const analysis = await analyzeAnalystEntity({
+    request: {
+      entityKey: "entity:seed",
+    },
+    question: "Why does this entity matter?",
+    recentTurns: [
+      {
+        question: "What does this entity represent?",
+        headline: "Prior entity headline",
+        toolTrace: ["get_entity_interpretation"],
+        evidenceRefs: [{ kind: "entity_interpretation", key: "entity:seed" }],
+      },
+    ],
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestedMethod = String(init?.method ?? "");
+      requestedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            entityKey: "entity:seed",
+            displayName: "Seed Entity",
+            question: "Why does this entity matter?",
+            contextReused: true,
+            recentTurnCount: 1,
+            headline: "Fund-adjacent activity is elevated across member wallets.",
+            conclusion: ["Seed Entity currently groups 2 member wallets."],
+            confidence: "medium",
+            observedFacts: ["Entity key is entity:seed."],
+            inferredInterpretations: ["Entity appears fund-adjacent rather than retail."],
+            alternativeExplanations: ["Operational grouping is still possible."],
+            nextSteps: ["Open lead member wallet 0xfeed...feed."],
+            toolTrace: ["get_entity_interpretation"],
+            evidenceRefs: [{ kind: "entity_interpretation", key: "entity:seed" }],
+          },
+          error: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(requestedUrl, "/v1/analyst/entity/entity%3Aseed/analyze");
+  assert.equal(requestedMethod, "POST");
+  assert.match(requestedBody, /Why does this entity matter\?/);
+  assert.match(requestedBody, /What does this entity represent\?/);
+  assert.equal(analysis.entityKey, "entity:seed");
+  assert.equal(analysis.contextReused, true);
+});
+
 test("get and load entity interpretation previews stay aligned with the backend contract", async () => {
   const fallback = getEntityInterpretationPreview({
     entityKey: "curated:exchange:binance",
@@ -932,6 +1275,46 @@ test("shouldPollIndexedWalletSummary only polls while coverage is warming", () =
   assert.equal(shouldPollIndexedWalletSummary(ready), false);
 });
 
+test("shouldQueueWalletSummaryStaleRefresh only when a live ready summary is stale", () => {
+  const base = getWalletSummaryPreview();
+  const stale = {
+    ...base,
+    mode: "live" as const,
+    source: "live-api" as const,
+    indexing: {
+      ...base.indexing,
+      status: "ready" as const,
+      lastIndexedAt: "2026-03-20T00:00:00.000Z",
+      coverageWindowDays: 30,
+    },
+  };
+  const fresh = {
+    ...stale,
+    indexing: {
+      ...stale.indexing,
+      lastIndexedAt: "2026-03-26T00:05:00.000Z",
+    },
+  };
+  const unavailable = {
+    ...stale,
+    mode: "unavailable" as const,
+    source: "boundary-unavailable" as const,
+  };
+  const indexing = {
+    ...stale,
+    indexing: {
+      ...stale.indexing,
+      status: "indexing" as const,
+    },
+  };
+
+  const now = Date.parse("2026-03-26T00:30:00.000Z");
+  assert.equal(shouldQueueWalletSummaryStaleRefresh(stale, now), true);
+  assert.equal(shouldQueueWalletSummaryStaleRefresh(fresh, now), false);
+  assert.equal(shouldQueueWalletSummaryStaleRefresh(unavailable, now), false);
+  assert.equal(shouldQueueWalletSummaryStaleRefresh(indexing, now), false);
+});
+
 test("trackWalletAlertRule creates tracked watchlist, adds wallet, and returns alerts redirect", async () => {
   const requests: Array<{
     url: string;
@@ -1058,7 +1441,7 @@ test("trackWalletAlertRule creates tracked watchlist, adds wallet, and returns a
   assert.match(requests[5]?.body ?? "", /watchlist_signal/);
 });
 
-test("trackWalletAlertRule redirects pricing when plan access is denied", async () => {
+test("trackWalletAlertRule does not redirect to pricing when access is denied", async () => {
   const result = await trackWalletAlertRule({
     chain: "evm",
     address: "0x1234567890abcdef1234567890abcdef12345678",
@@ -1068,8 +1451,8 @@ test("trackWalletAlertRule redirects pricing when plan access is denied", async 
 
   assert.equal(result.ok, false);
   assert.equal(result.status, 403);
-  assert.equal(result.nextHref, "/pricing");
-  assert.match(result.message, /higher access tier/i);
+  assert.equal(result.nextHref, undefined);
+  assert.match(result.message, /temporarily unavailable/i);
 });
 
 test("loadWalletGraphPreview falls back when the backend is unavailable", async () => {
@@ -1800,6 +2183,38 @@ test("loadAdminConsolePreview maps live backend data when available", async () =
                 retryableCount: 1,
                 lastFailureAt: "2026-03-21T02:58:00Z",
               },
+              walletTracking: {
+                candidateCount: 14,
+                trackedCount: 10,
+                labeledCount: 6,
+                scoredCount: 4,
+                staleCount: 2,
+                suppressedCount: 1,
+              },
+              trackingSubscriptions: {
+                pendingCount: 3,
+                activeCount: 7,
+                erroredCount: 1,
+                pausedCount: 0,
+                lastEventAt: "2026-03-21T02:59:30Z",
+              },
+              queueDepth: {
+                defaultDepth: 12,
+                priorityDepth: 2,
+              },
+              backfillHealth: {
+                jobs24h: 18,
+                activities24h: 2200,
+                transactions24h: 980,
+                expansions24h: 14,
+                lastSuccessAt: "2026-03-21T02:58:00Z",
+              },
+              staleRefresh: {
+                attempts24h: 5,
+                succeeded24h: 5,
+                productive24h: 3,
+                lastHitAt: "2026-03-21T02:40:00Z",
+              },
               recentRuns: [
                 {
                   jobName: "wallet-backfill-drain-batch",
@@ -1816,6 +2231,28 @@ test("loadAdminConsolePreview maps live backend data when available", async () =
                   occurredAt: "2026-03-21T02:58:00Z",
                   summary: "transfers.backfill returned 500",
                   details: { status_code: 500 },
+                },
+              ],
+            },
+            error: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("/v1/admin/backtests")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              statusMessage: "Manual checks available.",
+              checks: [
+                {
+                  key: "analysis_benchmark_fixture",
+                  label: "Analysis benchmark fixture",
+                  description: "Runs benchmark scenarios.",
+                  status: "ready",
+                  configured: true,
                 },
               ],
             },
@@ -1857,7 +2294,13 @@ test("loadAdminConsolePreview maps live backend data when available", async () =
   assert.equal(preview.auditLogs.length, 1);
   assert.equal(preview.observability.providerUsage.length, 1);
   assert.equal(preview.observability.ingest.lagStatus, "healthy");
+  assert.equal(preview.observability.walletTracking.trackedCount, 10);
+  assert.equal(preview.observability.trackingSubscriptions.activeCount, 7);
+  assert.equal(preview.observability.queueDepth.priorityDepth, 2);
+  assert.equal(preview.observability.backfillHealth.transactions24h, 980);
+  assert.equal(preview.observability.staleRefresh.productive24h, 3);
   assert.equal(preview.observability.recentFailures.length, 1);
+  assert.equal(preview.backtestOps.checks.length, 1);
   assert.equal(preview.quotas[0]?.provider, "alchemy");
   assert.equal(preview.curatedLists[0]?.items[0]?.itemKey, "evm:0x123");
   assert.equal(preview.auditLogs[0]?.action, "label_upsert");
@@ -1875,6 +2318,46 @@ test("loadAdminConsolePreview maps live backend data when available", async () =
     requestedUrls.some((url) => url.includes("/v1/admin/curated-lists")),
   );
   assert.ok(requestedUrls.some((url) => url.includes("/v1/admin/audit-logs")));
+  assert.ok(requestedUrls.some((url) => url.includes("/v1/admin/backtests")));
+});
+
+test("runAdminBacktestOperation posts to the admin backtest route", async () => {
+  let requestedUrl = "";
+  let requestedMethod = "";
+
+  const result = await runAdminBacktestOperation({
+    checkKey: "analysis_benchmark_fixture",
+    apiBaseUrl: "http://localhost:4000",
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestedMethod = String(init?.method ?? "");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            key: "analysis_benchmark_fixture",
+            label: "Analysis benchmark fixture",
+            status: "succeeded",
+            summary: "Passed release gate.",
+            executedAt: "2026-03-31T12:00:00Z",
+            details: {
+              scenarioCount: 11,
+            },
+          },
+          error: null,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  });
+
+  assert.equal(
+    requestedUrl,
+    "http://localhost:4000/v1/admin/backtests/analysis_benchmark_fixture/run",
+  );
+  assert.equal(requestedMethod, "POST");
+  assert.equal(result.ok, true);
+  assert.equal(result.result?.status, "succeeded");
 });
 
 test("createAdminSuppression posts a human override request", async () => {

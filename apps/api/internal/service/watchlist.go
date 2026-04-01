@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var (
@@ -398,28 +397,11 @@ func (s *WatchlistService) now() time.Time {
 }
 
 func ensureWatchlistEnabled(tier domain.PlanTier) error {
-	plan, err := billing.FindPlan(tier)
-	if err != nil {
-		return ErrWatchlistForbidden
-	}
-
-	entitlement, ok := billing.EntitlementFor(plan, billing.FeatureWatchlist)
-	if !ok || !entitlement.Enabled {
-		return ErrWatchlistForbidden
-	}
-
 	return nil
 }
 
 func limitsForTier(tier domain.PlanTier) (watchlistLimits, error) {
-	switch tier {
-	case domain.PlanPro:
-		return watchlistLimits{MaxWatchlists: 3, MaxItems: 50}, nil
-	case domain.PlanTeam:
-		return watchlistLimits{MaxWatchlists: 10, MaxItems: 250}, nil
-	default:
-		return watchlistLimits{}, ErrWatchlistForbidden
-	}
+	return watchlistLimits{MaxWatchlists: 25, MaxItems: 1000}, nil
 }
 
 func toWatchlistSummary(watchlist domain.Watchlist) WatchlistSummary {

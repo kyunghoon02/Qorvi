@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 const workerModeShadowExitSnapshot = "shadow-exit-snapshot"
@@ -22,6 +22,7 @@ type ShadowExitSnapshotService struct {
 	BridgeExchange db.WalletBridgeExchangeEvidenceReadWriter
 	TreasuryMM     db.WalletTreasuryMMEvidenceReadWriter
 	Signals        db.SignalEventStore
+	Tracking       db.WalletTrackingStateStore
 	Labels         db.WalletLabelReader
 	Findings       db.FindingStore
 	Cache          db.WalletSummaryCache
@@ -177,6 +178,21 @@ func (s ShadowExitSnapshotService) RunSnapshot(ctx context.Context, signal intel
 		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
 			return ShadowExitSnapshotReport{}, err
 		}
+	}
+	if err := markWalletScored(
+		ctx,
+		s.Tracking,
+		db.WalletRef{Chain: signal.Chain, Address: signal.Address},
+		signalObservedAt,
+		shadowExitSnapshotSignalType,
+		map[string]any{
+			"score_name":   string(score.Name),
+			"score_value":  score.Value,
+			"score_rating": string(score.Rating),
+			"observed_at":  snapshotObservedAt,
+		},
+	); err != nil {
+		return ShadowExitSnapshotReport{}, err
 	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   signal.Chain,
@@ -390,6 +406,11 @@ func (s ShadowExitSnapshotService) RunSnapshotForWallet(
 		repeatMMCounterpartyCount = treasuryMMReport.MMFeatures.RepeatMMCounterpartyCount
 	}
 
+	routeSummary := intelligence.MergeRouteSummaries(
+		intelligence.SummarizeBridgeExchangeRoutes(bridgeExchangeReport),
+		intelligence.SummarizeTreasuryMMRoutes(treasuryMMReport),
+	)
+
 	signal := intelligence.BuildShadowExitSignalFromInputs(intelligence.ShadowExitDetectorInputs{
 		WalletID:                       identity.WalletID,
 		Chain:                          identity.Chain,
@@ -402,6 +423,9 @@ func (s ShadowExitSnapshotService) RunSnapshotForWallet(
 		OutboundTransferCount24h:       int(candidate.OutboundTxCount),
 		InboundTransferCount24h:        int(candidate.InboundTxCount),
 		BridgeEscapeCount:              bridgeEscapeCount,
+		AggregatorRoutingCount:         routeSummary.Count(intelligence.RouteAggregatorRouting),
+		TreasuryRebalanceRouteCount:    routeSummary.Count(intelligence.RouteTreasuryRebalance),
+		BridgeReturnCandidateCount:     routeSummary.Count(intelligence.RouteBridgeReturnCandidate),
 		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(candidate.DiscountInputs.RootWhitelist || candidate.DiscountInputs.RootTreasury),
 		InternalRebalanceEvidenceCount: shadowExitBoolToInt(candidate.DiscountInputs.RootInternalRebalance || candidate.InternalRebalanceCounterpartyCount > 0),
 	})
@@ -531,17 +555,17 @@ func shadowExitSignalFromEnv() intelligence.ShadowExitSignal {
 
 func shadowExitTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_ADDRESS")),
 	}
 }
 
 func shadowExitObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_OBSERVED_AT"))
 }
 
 func shadowExitShouldAutoDetect() bool {
-	configured := strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_AUTO_DETECT"))
+	configured := strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_AUTO_DETECT"))
 	if configured != "" {
 		parsed, err := strconv.ParseBool(configured)
 		if err == nil {
@@ -549,20 +573,20 @@ func shadowExitShouldAutoDetect() bool {
 		}
 	}
 
-	if strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID")) != "" {
+	if strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_WALLET_ID")) != "" {
 		return false
 	}
 
 	for _, key := range []string{
-		"FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS",
-		"FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT",
-		"FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT",
-		"FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H",
-		"FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H",
-		"FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H",
-		"FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT",
-		"FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT",
-		"FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT",
+		"QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS",
+		"QORVI_SHADOW_EXIT_CEX_PROXIMITY_COUNT",
+		"QORVI_SHADOW_EXIT_FAN_OUT_COUNT",
+		"QORVI_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H",
+		"QORVI_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H",
+		"QORVI_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H",
+		"QORVI_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT",
+		"QORVI_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT",
+		"QORVI_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT",
 	} {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return false
@@ -610,19 +634,19 @@ func shadowExitBoolToInt(value bool) int {
 
 func shadowExitDetectorInputsFromEnv() intelligence.ShadowExitDetectorInputs {
 	return intelligence.ShadowExitDetectorInputs{
-		WalletID:                       strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID")),
-		Chain:                          domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_CHAIN"))),
-		Address:                        strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_ADDRESS")),
-		ObservedAt:                     strings.TrimSpace(os.Getenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT")),
-		BridgeTransfers:                shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", 0),
-		CEXProximityCount:              shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", 0),
-		FanOutCount:                    shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", 0),
-		FanOutCandidateCount24h:        shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", 0),
-		OutboundTransferCount24h:       shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", 0),
-		InboundTransferCount24h:        shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", 0),
-		BridgeEscapeCount:              shadowExitIntFromEnv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", 0),
-		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", false)),
-		InternalRebalanceEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", false)),
+		WalletID:                       strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_WALLET_ID")),
+		Chain:                          domain.Chain(strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_CHAIN"))),
+		Address:                        strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_ADDRESS")),
+		ObservedAt:                     strings.TrimSpace(os.Getenv("QORVI_SHADOW_EXIT_OBSERVED_AT")),
+		BridgeTransfers:                shadowExitIntFromEnv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", 0),
+		CEXProximityCount:              shadowExitIntFromEnv("QORVI_SHADOW_EXIT_CEX_PROXIMITY_COUNT", 0),
+		FanOutCount:                    shadowExitIntFromEnv("QORVI_SHADOW_EXIT_FAN_OUT_COUNT", 0),
+		FanOutCandidateCount24h:        shadowExitIntFromEnv("QORVI_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", 0),
+		OutboundTransferCount24h:       shadowExitIntFromEnv("QORVI_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", 0),
+		InboundTransferCount24h:        shadowExitIntFromEnv("QORVI_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", 0),
+		BridgeEscapeCount:              shadowExitIntFromEnv("QORVI_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", 0),
+		TreasuryWhitelistEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("QORVI_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", false)),
+		InternalRebalanceEvidenceCount: shadowExitBoolToInt(shadowExitBoolFromEnv("QORVI_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", false)),
 	}
 }
 

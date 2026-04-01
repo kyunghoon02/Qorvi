@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestMoralisEnrichmentContractFixture(t *testing.T) {
