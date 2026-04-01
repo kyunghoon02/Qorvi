@@ -7,20 +7,30 @@ import "./globals.css";
 import { ClerkAuthChrome } from "./components/clerk-auth-chrome";
 
 export const metadata: Metadata = {
-  title: "FlowIntel",
-  description:
-    "FlowIntel product scaffold for wallet intelligence exploration.",
+  title: "Qorvi",
+  description: "Qorvi product scaffold for wallet intelligence exploration.",
 };
 
-export default function RootLayout({
+import { getLocaleCookie } from "../lib/i18n/actions";
+import { getDictionary } from "../lib/i18n/dictionaries";
+import { I18nProvider } from "../lib/i18n/provider";
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const locale = await getLocaleCookie();
+  const dictionary = getDictionary(locale);
+
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body>
-        <ClerkAuthChrome>{children}</ClerkAuthChrome>
+        <ClerkAuthChrome>
+          <I18nProvider locale={locale} dictionary={dictionary}>
+            {children}
+          </I18nProvider>
+        </ClerkAuthChrome>
       </body>
     </html>
   );
