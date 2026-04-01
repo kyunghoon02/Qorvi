@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
-func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
+func TestAlertDeliveryServiceInboxAndChannelCrudForOpenAccessOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := repository.NewInMemoryAlertDeliveryRepository()
@@ -30,7 +30,7 @@ func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
 	svc := NewAlertDeliveryService(repo)
 	svc.Now = func() time.Time { return now }
 
-	inbox, err := svc.ListInboxEvents(context.Background(), "user_1", domain.PlanPro, AlertInboxQuery{Limit: 10})
+	inbox, err := svc.ListInboxEvents(context.Background(), "user_1", domain.PlanFree, AlertInboxQuery{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListInboxEvents returned error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
 		t.Fatalf("unexpected inbox %#v", inbox)
 	}
 
-	created, err := svc.CreateAlertDeliveryChannel(context.Background(), "user_1", domain.PlanPro, CreateAlertDeliveryChannelRequest{
+	created, err := svc.CreateAlertDeliveryChannel(context.Background(), "user_1", domain.PlanFree, CreateAlertDeliveryChannelRequest{
 		Label:       "Ops Email",
 		ChannelType: "email",
 		Target:      "ops@example.com",
@@ -52,7 +52,7 @@ func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
 		t.Fatalf("unexpected created channel %#v", created)
 	}
 
-	list, err := svc.ListAlertDeliveryChannels(context.Background(), "user_1", domain.PlanPro)
+	list, err := svc.ListAlertDeliveryChannels(context.Background(), "user_1", domain.PlanFree)
 	if err != nil {
 		t.Fatalf("ListAlertDeliveryChannels returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
 		t.Fatalf("expected 1 channel, got %d", len(list.Items))
 	}
 
-	updated, err := svc.UpdateAlertDeliveryChannel(context.Background(), "user_1", domain.PlanPro, created.ID, UpdateAlertDeliveryChannelRequest{
+	updated, err := svc.UpdateAlertDeliveryChannel(context.Background(), "user_1", domain.PlanFree, created.ID, UpdateAlertDeliveryChannelRequest{
 		Label:     "Ops Email Updated",
 		Target:    "ops+alerts@example.com",
 		Metadata:  map[string]any{"format": "long"},
@@ -73,16 +73,16 @@ func TestAlertDeliveryServiceInboxAndChannelCrudForPro(t *testing.T) {
 		t.Fatalf("unexpected updated channel %#v", updated)
 	}
 
-	if err := svc.DeleteAlertDeliveryChannel(context.Background(), "user_1", domain.PlanPro, created.ID); err != nil {
+	if err := svc.DeleteAlertDeliveryChannel(context.Background(), "user_1", domain.PlanFree, created.ID); err != nil {
 		t.Fatalf("DeleteAlertDeliveryChannel returned error: %v", err)
 	}
 }
 
-func TestAlertDeliveryServiceFreeTierForbidden(t *testing.T) {
+func TestAlertDeliveryServiceAllowsFreeTierInboxAccess(t *testing.T) {
 	t.Parallel()
 
 	svc := NewAlertDeliveryService(repository.NewInMemoryAlertDeliveryRepository())
-	if _, err := svc.ListInboxEvents(context.Background(), "user_1", domain.PlanFree, AlertInboxQuery{}); err == nil {
-		t.Fatal("expected free tier to be forbidden")
+	if _, err := svc.ListInboxEvents(context.Background(), "user_1", domain.PlanFree, AlertInboxQuery{}); err != nil {
+		t.Fatalf("expected free tier inbox access, got %v", err)
 	}
 }
