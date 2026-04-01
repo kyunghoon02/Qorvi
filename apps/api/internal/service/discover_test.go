@@ -1,0 +1,80 @@
+package service
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+)
+
+type fakeDiscoverSeedReader struct {
+	items []db.CuratedWalletSeed
+	err   error
+}
+
+func (r *fakeDiscoverSeedReader) ListAdminCuratedWalletSeeds(_ context.Context) ([]db.CuratedWalletSeed, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return append([]db.CuratedWalletSeed(nil), r.items...), nil
+}
+
+func TestDiscoverServiceListFeaturedWalletsUsesAdminCuratedSeeds(t *testing.T) {
+	t.Parallel()
+
+	svc := NewDiscoverService(&fakeDiscoverSeedReader{
+		items: []db.CuratedWalletSeed{
+			{
+				Chain:     domain.ChainEVM,
+				Address:   "0x1111111111111111111111111111111111111111",
+				ListTags:  []string{"admin-curated", "wallet-seeds", "exchange"},
+				ItemTags:  []string{"featured", "verified-public", "exchange"},
+				ItemNotes: "Public explorer-labeled exchange wallet.",
+				UpdatedAt: time.Date(2026, time.March, 29, 12, 0, 0, 0, time.UTC),
+			},
+			{
+				Chain:     domain.ChainEVM,
+				Address:   "0x2222222222222222222222222222222222222222",
+				ListTags:  []string{"admin-curated", "wallet-seeds", "fund"},
+				ItemTags:  []string{"probable", "fund"},
+				ItemNotes: "Probable fund wallet.",
+				UpdatedAt: time.Date(2026, time.March, 28, 8, 0, 0, 0, time.UTC),
+			},
+		},
+	})
+	response, err := svc.ListFeaturedWallets(context.Background())
+	if err != nil {
+		t.Fatalf("ListFeaturedWallets returned error: %v", err)
+	}
+
+	if len(response.Items) != 2 {
+		t.Fatalf("expected 2 featured wallets, got %d", len(response.Items))
+	}
+	if response.Items[0].Category != "exchange" {
+		t.Fatalf("unexpected top category %q", response.Items[0].Category)
+	}
+	if response.Items[0].Description != "Public explorer-labeled exchange wallet." {
+		t.Fatalf("unexpected top description %q", response.Items[0].Description)
+	}
+	if response.Items[0].ObservedAt != "2026-03-29T12:00:00Z" {
+		t.Fatalf("unexpected observed_at %q", response.Items[0].ObservedAt)
+	}
+	if response.Items[1].Category != "fund" {
+		t.Fatalf("unexpected secondary category %q", response.Items[1].Category)
+	}
+}
+
+func TestDiscoverServiceListFeaturedWalletsReturnsEmptyWithoutSeeds(t *testing.T) {
+	t.Parallel()
+
+	svc := NewDiscoverService(nil)
+	response, err := svc.ListFeaturedWallets(context.Background())
+	if err != nil {
+		t.Fatalf("ListFeaturedWallets returned error: %v", err)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("expected empty items, got %d", len(response.Items))
+	}
+}
