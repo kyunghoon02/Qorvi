@@ -1,6 +1,6 @@
 # Beta Launch Gates
 
-이 문서는 FlowIntel beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
+이 문서는 Qorvi beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
 
 ## 1. Gate Status Rules
 
@@ -8,19 +8,20 @@
 - `warn`: beta 운영은 가능하지만 launch 직후 후속 hardening이 권장됨
 - `block`: beta open 전 반드시 수정 필요
 
-현재 기준 시점: `2026-03-23`
+현재 기준 시점: `2026-04-01`
 
 ## 2. Current Launch Decision
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| Functional Gates | `pass` | search, wallet detail, graph, alerts 핵심 흐름 검증 완료 |
-| Reliability Gates | `pass` | replay, provider contract, webhook duplicate safety, worker refresh/invalidation 경로 검증 완료 |
-| UX Gates | `pass` | loading/indexing/ready degraded states와 beta mixed-flow E2E 검증 완료 |
-| Ops Gates | `pass` | observability, provider quotas, alert delivery, audit/admin surfaces 존재 |
+| Functional Gates | `warn` | `@qorvi/web lint`, `@qorvi/web typecheck`, backend/provider/worker contracts는 2026-04-01 재검증 완료, representative browser/E2E 재실행은 아직 안 함 |
+| Reliability Gates | `pass` | provider contract, backend server tests, worker contracts는 2026-04-01 기준 재검증 완료 |
+| UX Gates | `warn` | latest web/app changes 이후 degraded state와 mixed-flow E2E를 다시 돌리지 않음 |
+| Ops Gates | `warn` | admin/observability/provider quota surfaces는 존재하지만 target env operator smoke를 이번 패스에서 다시 확인하지 않음 |
 | Residual Hardening | `warn` | billing activation, residual ops polish는 가능하지만 launch blocker는 아님 |
 
-결론: `beta go`, 단 `Residual Hardening`은 launch 직후 follow-up으로 유지한다.
+결론: `beta warn`.
+코드/정적 검사는 다시 green이지만, browser/E2E와 target env operator 확인을 재실행하기 전까지는 최종 `go`로 올리지 않는다.
 
 ## 3. Functional Gates
 
@@ -33,23 +34,23 @@
 3. `GET /v1/wallets/:chain/:address/graph`가 `live`, `summary-derived`, `unavailable` 상태를 일관되게 반환한다.
 4. search -> wallet detail -> graph evidence 흐름이 브라우저에서 동작한다.
 
-현재 상태: `pass`
+현재 상태: `warn`
 
 증빙 명령:
 
 ```bash
-corepack pnpm --filter @flowintel/web typecheck
-corepack pnpm --filter @flowintel/web lint
-GOCACHE=/tmp/flowintel-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
-corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
+corepack pnpm --filter @qorvi/web typecheck
+corepack pnpm --filter @qorvi/web lint
+GOCACHE=/tmp/qorvi-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
+corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts
 ```
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/server.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/server.go`
+- `/Users/kh/Github/Qorvi/apps/web/app/page.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/app/wallets/[chain]/[address]/page.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
 
 ### 3.2 Tracking And Alerts
 
@@ -59,14 +60,20 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 2. wallet detail에서 tracked alerts flow가 열리고 `/alerts` flash state가 연결된다.
 3. alert inbox read/unread, mute, snooze 경로가 동작한다.
 
-현재 상태: `pass`
+현재 상태: `warn`
+
+beta 정책:
+
+1. alerts와 alert delivery는 beta 동안 `signed-in free tier`까지 개방한다.
+2. billing entitlement은 유지하되, alerts 자체를 paid-only gate로 취급하지 않는다.
+3. abuse 방지를 위해 free tier는 delivery channel 수를 낮게 유지한다.
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/watchlist.go`
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/alert_rule.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/alert-center-screen.tsx`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/watchlist.go`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/alert_rule.go`
+- `/Users/kh/Github/Qorvi/apps/web/app/alerts/page.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/app/alerts/alert-center-screen.tsx`
 
 ### 3.3 Billing Activation Readiness
 
@@ -87,11 +94,11 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/billing.go`
-- `/Users/kh/Github/FlowIntel/apps/workers/billing_sync.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/account/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/pricing/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/billing.go`
+- `/Users/kh/Github/Qorvi/apps/workers/billing_sync.go`
+- `/Users/kh/Github/Qorvi/apps/web/app/account/page.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/app/pricing/page.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
 
 ## 4. Reliability Gates
 
@@ -108,10 +115,10 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/webhook_replay_test.go`
-- `/Users/kh/Github/FlowIntel/packages/db/ingest_dedup.go`
-- `/Users/kh/Github/FlowIntel/packages/db/wallet_graph_invalidation.go`
-- `/Users/kh/Github/FlowIntel/packages/db/wallet_summary.go`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/webhook_replay_test.go`
+- `/Users/kh/Github/Qorvi/packages/db/ingest_dedup.go`
+- `/Users/kh/Github/Qorvi/packages/db/wallet_graph_invalidation.go`
+- `/Users/kh/Github/Qorvi/packages/db/wallet_summary.go`
 
 ### 4.2 Provider And Worker Stability
 
@@ -127,9 +134,9 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 ```bash
 corepack pnpm dev:stack
-FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
-FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
-FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+QORVI_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+QORVI_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ## 5. UX Gates
@@ -145,10 +152,10 @@ FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/web/lib/api-boundary.ts`
-- `/Users/kh/Github/FlowIntel/apps/web/app/home-screen.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `/Users/kh/Github/Qorvi/apps/web/lib/api-boundary.ts`
+- `/Users/kh/Github/Qorvi/apps/web/app/home-screen.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
+- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
 
 ## 6. Ops Gates
 
@@ -163,9 +170,9 @@ FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/admin_console.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/admin/page.tsx`
-- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
+- `/Users/kh/Github/Qorvi/apps/api/internal/server/admin_console.go`
+- `/Users/kh/Github/Qorvi/apps/web/app/admin/page.tsx`
+- `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
 
 ## 7. Evidence Bundle
 
@@ -178,17 +185,17 @@ corepack pnpm beta:hardening
 ```
 
 1. backend contract evidence
-   - `GOCACHE=/tmp/flowintel-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers`
+   - `GOCACHE=/tmp/qorvi-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers`
 2. web type/lint evidence
-   - `corepack pnpm --filter @flowintel/web typecheck`
-   - `corepack pnpm --filter @flowintel/web lint`
+   - `corepack pnpm --filter @qorvi/web typecheck`
+   - `corepack pnpm --filter @qorvi/web lint`
 3. browser/API mixed beta flow evidence
-   - `corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
+   - `corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
 4. gate document review
-   - 이 문서와 `/Users/kh/Github/FlowIntel/plan.md`
-   - `/Users/kh/Github/FlowIntel/task.md`
-   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`
-   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`
+   - 이 문서와 `/Users/kh/Github/Qorvi/plan.md`
+   - `/Users/kh/Github/Qorvi/task.md`
+   - `/Users/kh/Github/Qorvi/docs/runbooks/beta-release-package.md`
+   - `/Users/kh/Github/Qorvi/docs/runbooks/beta-launch-review.md`
 
 optional billing evidence:
 
@@ -211,7 +218,7 @@ optional billing evidence:
 3. 필요하면 worker를 개별 mode로 재기동한다.
 
 ```bash
-FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+QORVI_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
 ### 8.2 Billing Regression
@@ -228,7 +235,7 @@ FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 3. billing blocker가 남으면 `/pricing`의 upgrade CTA는 유지하되 beta open 판단은 `warn`으로 남긴다.
 
 ```bash
-FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+QORVI_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 ```
 
 ### 8.3 Enrichment Or Provider Pressure
@@ -246,7 +253,7 @@ FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 3. 필요 시 `moralis-enrichment-refresh`를 수동 실행한다.
 
 ```bash
-FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ### 8.4 Operator Action Rules
