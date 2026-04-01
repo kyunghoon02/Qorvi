@@ -1,0 +1,427 @@
+services:
+  - type: web
+    name: qorvi-web
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.web
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_APP_BASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false
+      - key: API_PROXY_TARGET
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+
+  - type: web
+    name: qorvi-api
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.api
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 4000
+      - key: APP_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_BASE_URL
+        sync: false
+      - key: STRIPE_SUCCESS_URL
+        sync: false
+      - key: STRIPE_CANCEL_URL
+        sync: false
+      - key: QORVI_PROVIDER_WEBHOOK_AUTH_HEADER
+        sync: false
+      - key: ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID
+        sync: false
+      - key: HELIUS_ADDRESS_ACTIVITY_WEBHOOK_ID
+        sync: false
+
+  - type: worker
+    name: qorvi-worker-drain
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: >-
+      /bin/sh -lc 'while true; do /app/qorvi-workers; sleep "${WORKER_LOOP_INTERVAL_SECONDS:-5}"; done'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: QORVI_WORKER_MODE
+        value: wallet-backfill-drain-batch
+      - key: QORVI_RAW_PAYLOAD_ROOT
+        value: /tmp/qorvi/raw-payloads
+      - key: DUNE_API_KEY
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: MORALIS_API_KEY
+        sync: false
+      - key: MOBULA_API_KEY
+        sync: false
+
+  - type: worker
+    name: qorvi-worker-tracking-sync
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: >-
+      /bin/sh -lc 'while true; do /app/qorvi-workers; sleep "${WORKER_LOOP_INTERVAL_SECONDS:-300}"; done'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_BASE_URL
+        sync: false
+      - key: QORVI_PROVIDER_WEBHOOK_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: QORVI_WORKER_MODE
+        value: wallet-tracking-subscription-sync
+      - key: DUNE_API_KEY
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: MORALIS_API_KEY
+        sync: false
+      - key: MOBULA_API_KEY
+        sync: false
+      - key: ALCHEMY_NOTIFY_AUTH_TOKEN
+        sync: false
+      - key: ALCHEMY_NOTIFY_BASE_URL
+        value: https://dashboard.alchemy.com
+      - key: QORVI_PROVIDER_WEBHOOK_AUTH_HEADER
+        sync: false
+      - key: ALCHEMY_ADDRESS_ACTIVITY_NETWORK
+        value: ETH_MAINNET
+      - key: ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID
+        sync: false
+      - key: HELIUS_ADDRESS_ACTIVITY_WEBHOOK_ID
+        sync: false
+
+  - type: worker
+    name: qorvi-worker-curated-seeds
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: >-
+      /bin/sh -lc 'while true; do /app/qorvi-workers; sleep "${WORKER_LOOP_INTERVAL_SECONDS:-21600}"; done'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: QORVI_WORKER_MODE
+        value: curated-wallet-seed-enqueue
+
+  - type: worker
+    name: qorvi-worker-mobula
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: >-
+      /bin/sh -lc 'while true; do /app/qorvi-workers; sleep "${WORKER_LOOP_INTERVAL_SECONDS:-1800}"; done'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: QORVI_WORKER_MODE
+        value: mobula-smart-money-enqueue
+      - key: DUNE_API_KEY
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: MORALIS_API_KEY
+        sync: false
+      - key: MOBULA_API_KEY
+        sync: false
+      - key: QORVI_MOBULA_SMART_MONEY_SEEDS_JSON
+        sync: false
+
+  - type: worker
+    name: qorvi-worker-seed-watchlist
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: >-
+      /bin/sh -lc 'while true; do /app/qorvi-workers; sleep "${WORKER_LOOP_INTERVAL_SECONDS:-1800}"; done'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_BASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: qorvi-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qorvi-redis
+          property: connectionString
+      - key: NEO4J_URL
+        value: bolt://qorvi-neo4j:7687
+      - key: NEO4J_USERNAME
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AUTH_PROVIDER
+        value: clerk
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_AUDIENCE
+        value: qorvi
+      - key: CLERK_CLOCK_SKEW_SECONDS
+        value: 60
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: QORVI_WORKER_MODE
+        value: seed-discovery-seed-watchlist
+      - key: QORVI_SEED_DISCOVERY_TOP_N
+        value: 10
+      - key: QORVI_SEED_DISCOVERY_MIN_CONFIDENCE
+        value: 0.8
+      - key: DUNE_API_KEY
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: MORALIS_API_KEY
+        sync: false
+      - key: MOBULA_API_KEY
+        sync: false
+      - key: QORVI_MOBULA_SMART_MONEY_SEEDS_JSON
+        sync: false
+
+  - type: pserv
+    name: qorvi-neo4j
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.neo4j
+    disk:
+      name: qorvi-neo4j-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: NEO4J_AUTH
+        sync: false
+      - key: NEO4J_server_memory_heap_initial__size
+        value: 512M
+      - key: NEO4J_server_memory_heap_max__size
+        value: 512M
+      - key: NEO4J_server_memory_pagecache_size
+        value: 512M
+
+  - type: keyvalue
+    name: qorvi-redis
+    plan: starter
+    ipAllowList: []
+
+databases:
+  - name: qorvi-postgres
+    plan: starter
+    databaseName: qorvi
+    user: qorvi
