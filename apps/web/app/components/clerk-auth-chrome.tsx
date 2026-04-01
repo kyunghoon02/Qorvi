@@ -21,29 +21,7 @@ export function ClerkAuthChrome({ children }: { children: ReactNode }) {
 
   return (
     <ClerkProvider publishableKey={publishableKey}>
-      <div className="app-auth-shell">
-        <header className="app-auth-header">
-          <SignedOut>
-            <SignInButton mode="modal">
-              <button className="app-auth-button" type="button">
-                Log in
-              </button>
-            </SignInButton>
-            <SignUpButton mode="modal">
-              <button
-                className="app-auth-button app-auth-button-primary"
-                type="button"
-              >
-                Sign up
-              </button>
-            </SignUpButton>
-          </SignedOut>
-          <SignedIn>
-            <UserButton />
-          </SignedIn>
-        </header>
-        {children}
-      </div>
+      <div className="app-auth-shell">{children}</div>
     </ClerkProvider>
   );
 }
