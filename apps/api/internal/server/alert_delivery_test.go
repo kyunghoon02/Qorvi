@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
-func TestAlertDeliveryRoutesRequireAuthAndPlan(t *testing.T) {
+func TestAlertDeliveryRoutesRequireAuthAndAllowSignedInUsers(t *testing.T) {
 	t.Parallel()
 
 	srv := NewWithDependencies(Dependencies{
@@ -28,18 +28,18 @@ func TestAlertDeliveryRoutesRequireAuthAndPlan(t *testing.T) {
 		t.Fatalf("expected status 401, got %d", rr.Code)
 	}
 
-	forbidden := httptest.NewRecorder()
+	allowed := httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	srv.Handler().ServeHTTP(forbidden, req)
-	if forbidden.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d", forbidden.Code)
+	srv.Handler().ServeHTTP(allowed, req)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", allowed.Code)
 	}
 }
 
-func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) {
+func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForSignedInOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := repository.NewInMemoryAlertDeliveryRepository()
@@ -66,7 +66,6 @@ func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) 
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	req.Header.Set("X-Whalegraph-Plan", "pro")
 	srv.Handler().ServeHTTP(inbox, req)
 	if inbox.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", inbox.Code)
@@ -89,7 +88,6 @@ func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) 
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	req.Header.Set("X-Whalegraph-Plan", "pro")
 	srv.Handler().ServeHTTP(create, req)
 	if create.Code != http.StatusCreated {
 		t.Fatalf("expected status 201, got %d", create.Code)
@@ -106,7 +104,6 @@ func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) 
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	req.Header.Set("X-Whalegraph-Plan", "pro")
 	srv.Handler().ServeHTTP(list, req)
 	if list.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", list.Code)
@@ -122,7 +119,6 @@ func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) 
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	req.Header.Set("X-Whalegraph-Plan", "pro")
 	srv.Handler().ServeHTTP(update, req)
 	if update.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", update.Code)
@@ -133,7 +129,6 @@ func TestAlertDeliveryRoutesSupportInboxAndChannelCrudForProOwner(t *testing.T) 
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	req.Header.Set("X-Whalegraph-Plan", "pro")
 	srv.Handler().ServeHTTP(deleteChannel, req)
 	if deleteChannel.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", deleteChannel.Code)
