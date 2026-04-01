@@ -9,24 +9,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 const workerModeSeedDiscoveryFixture = "seed-discovery-fixture"
 const workerModeSeedDiscoveryEnqueue = "seed-discovery-enqueue"
 const workerModeSeedDiscoverySeedWatchlist = "seed-discovery-seed-watchlist"
+const workerModeMobulaSmartMoneyEnqueue = "mobula-smart-money-enqueue"
 
 const seedDiscoveryOwnerUserID = "__seed_discovery__"
 const seedDiscoveryWatchlistName = "Seed discovery candidates"
 
 type SeedDiscoveryJobRunner struct {
-	Runner     providers.SeedDiscoveryRunner
-	Queue      db.WalletBackfillQueueStore
-	Tracking   db.WalletTrackingStateStore
-	Dedup      db.IngestDedupStore
-	JobRuns    db.JobRunStore
+	Runner       providers.SeedDiscoveryRunner
+	Queue        db.WalletBackfillQueueStore
+	Tracking     db.WalletTrackingStateStore
+	CuratedSeeds interface {
+		ListAdminCuratedWalletSeeds(context.Context) ([]db.CuratedWalletSeed, error)
+	}
+	EntityIndex interface {
+		SyncAdminCuratedEntityIndex(context.Context, string) error
+	}
+	Dedup   db.IngestDedupStore
+	JobRuns db.JobRunStore
 	Watchlists interface {
 		ListWatchlists(context.Context, string) ([]domain.Watchlist, error)
 		CreateWatchlist(context.Context, string, string, string, []string) (domain.Watchlist, error)
@@ -55,6 +62,19 @@ type SeedDiscoveryWatchlistReport struct {
 	ProvidersSeen       []string
 }
 
+type seedDiscoveryEnqueueOptions struct {
+	JobName                      string
+	DedupNamespace               string
+	QueueSource                  string
+	SourceType                   string
+	TrackingPriority             int
+	DiscoveryReason              string
+	BackfillWindowDays           int
+	BackfillLimit                int
+	BackfillExpansionDepth       int
+	BackfillStopServiceAddresses bool
+}
+
 func NewSeedDiscoveryJobRunner(registry providers.Registry) SeedDiscoveryJobRunner {
 	return SeedDiscoveryJobRunner{
 		Runner: providers.NewSeedDiscoveryRunner(registry),
@@ -64,6 +84,10 @@ func NewSeedDiscoveryJobRunner(registry providers.Registry) SeedDiscoveryJobRunn
 
 func (r SeedDiscoveryJobRunner) RunFixtureFlow() ([]providers.SeedDiscoveryResult, error) {
 	batches := buildSeedDiscoveryFixtureBatches()
+	return r.runBatches(batches)
+}
+
+func (r SeedDiscoveryJobRunner) runBatches(batches []providers.SeedDiscoveryBatch) ([]providers.SeedDiscoveryResult, error) {
 	results := make([]providers.SeedDiscoveryResult, 0, len(batches))
 
 	for _, batch := range batches {
@@ -107,7 +131,19 @@ func (r SeedDiscoveryJobRunner) RunSeedWatchlist(
 	}
 
 	startedAt := r.now().UTC()
-	results, err := r.RunFixtureFlow()
+	batches, err := r.liveSeedDiscoveryBatches()
+	if err != nil {
+		_ = r.recordJobRun(ctx, db.JobRunEntry{
+			JobName:    workerModeSeedDiscoverySeedWatchlist,
+			Status:     db.JobRunStatusFailed,
+			StartedAt:  startedAt,
+			FinishedAt: pointerToTime(r.now().UTC()),
+			Details:    map[string]any{"error": err.Error()},
+		})
+		return SeedDiscoveryWatchlistReport{}, err
+	}
+
+	results, err := r.runBatches(batches)
 	if err != nil {
 		_ = r.recordJobRun(ctx, db.JobRunEntry{
 			JobName:    workerModeSeedDiscoverySeedWatchlist,
@@ -219,11 +255,62 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 		return SeedDiscoveryIngestReport{}, fmt.Errorf("wallet backfill queue is required")
 	}
 
+	return r.runEnqueueBatches(ctx, buildSeedDiscoveryFixtureBatches(), seedDiscoveryEnqueueOptions{
+		JobName:                      workerModeSeedDiscoveryEnqueue,
+		DedupNamespace:               "seed-discovery",
+		QueueSource:                  "seed_discovery",
+		SourceType:                   db.WalletTrackingSourceTypeDuneCandidate,
+		TrackingPriority:             180,
+		DiscoveryReason:              "new_candidate",
+		BackfillWindowDays:           365,
+		BackfillLimit:                750,
+		BackfillExpansionDepth:       2,
+		BackfillStopServiceAddresses: true,
+	})
+}
+
+func (r SeedDiscoveryJobRunner) RunMobulaSmartMoneyEnqueue(ctx context.Context) (SeedDiscoveryIngestReport, error) {
+	if r.Queue == nil {
+		return SeedDiscoveryIngestReport{}, fmt.Errorf("wallet backfill queue is required")
+	}
+
+	batches, err := r.mobulaSmartMoneyBatches()
+	if err != nil {
+		startedAt := r.now().UTC()
+		_ = r.recordJobRun(ctx, db.JobRunEntry{
+			JobName:    workerModeMobulaSmartMoneyEnqueue,
+			Status:     db.JobRunStatusFailed,
+			StartedAt:  startedAt,
+			FinishedAt: pointerToTime(r.now().UTC()),
+			Details:    map[string]any{"error": err.Error()},
+		})
+		return SeedDiscoveryIngestReport{}, err
+	}
+
+	return r.runEnqueueBatches(ctx, batches, seedDiscoveryEnqueueOptions{
+		JobName:                      workerModeMobulaSmartMoneyEnqueue,
+		DedupNamespace:               "mobula-smart-money",
+		QueueSource:                  "mobula_smart_money",
+		SourceType:                   db.WalletTrackingSourceTypeMobulaCandidate,
+		TrackingPriority:             190,
+		DiscoveryReason:              "mobula_smart_money",
+		BackfillWindowDays:           365,
+		BackfillLimit:                750,
+		BackfillExpansionDepth:       2,
+		BackfillStopServiceAddresses: true,
+	})
+}
+
+func (r SeedDiscoveryJobRunner) runEnqueueBatches(
+	ctx context.Context,
+	batches []providers.SeedDiscoveryBatch,
+	options seedDiscoveryEnqueueOptions,
+) (SeedDiscoveryIngestReport, error) {
 	startedAt := r.now().UTC()
-	results, err := r.RunFixtureFlow()
+	results, err := r.runBatches(batches)
 	if err != nil {
 		_ = r.recordJobRun(ctx, db.JobRunEntry{
-			JobName:    workerModeSeedDiscoveryEnqueue,
+			JobName:    options.JobName,
 			Status:     db.JobRunStatusFailed,
 			StartedAt:  startedAt,
 			FinishedAt: pointerToTime(r.now().UTC()),
@@ -237,13 +324,13 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 		for _, candidate := range result.Candidates {
 			if r.Dedup != nil {
 				key := db.BuildIngestDedupKey(
-					"seed-discovery",
+					options.DedupNamespace,
 					fmt.Sprintf("%s:%s", candidate.SourceID, domain.BuildWalletCanonicalKey(candidate.Chain, candidate.WalletAddress)),
 				)
 				claimed, claimErr := r.Dedup.Claim(ctx, key, 24*time.Hour)
 				if claimErr != nil {
 					_ = r.recordJobRun(ctx, db.JobRunEntry{
-						JobName:    workerModeSeedDiscoveryEnqueue,
+						JobName:    options.JobName,
 						Status:     db.JobRunStatusFailed,
 						StartedAt:  startedAt,
 						FinishedAt: pointerToTime(r.now().UTC()),
@@ -263,34 +350,30 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 			}
 
 			metadata := cloneSeedDiscoveryMetadata(candidate.Metadata)
-			sourceType := db.WalletTrackingSourceTypeDuneCandidate
-			if candidate.Provider != providers.ProviderDune {
-				sourceType = "seed_candidate"
-			}
 			metadata["seed_discovery_kind"] = candidate.Kind
 			metadata["seed_discovery_confidence"] = candidate.Confidence
 			metadata["seed_discovery_source_id"] = candidate.SourceID
 			metadata["seed_discovery_observed_at"] = candidate.ObservedAt.Format(time.RFC3339)
-			metadata["reason"] = "new_candidate"
-			metadata["priority"] = 180
-			metadata["source_type"] = sourceType
+			metadata["reason"] = options.DiscoveryReason
+			metadata["priority"] = options.TrackingPriority
+			metadata["source_type"] = options.SourceType
 			metadata["source_ref"] = candidate.SourceID
 			metadata["candidate_score"] = candidate.Confidence
 			metadata["tracking_status_target"] = db.WalletTrackingStatusCandidate
-			metadata["backfill_window_days"] = 365
-			metadata["backfill_limit"] = 750
-			metadata["backfill_expansion_depth"] = 2
-			metadata["backfill_stop_service_addresses"] = true
+			metadata["backfill_window_days"] = options.BackfillWindowDays
+			metadata["backfill_limit"] = options.BackfillLimit
+			metadata["backfill_expansion_depth"] = options.BackfillExpansionDepth
+			metadata["backfill_stop_service_addresses"] = options.BackfillStopServiceAddresses
 			if r.Tracking != nil {
 				if err := r.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
 					Chain:            candidate.Chain,
 					Address:          candidate.WalletAddress,
-					SourceType:       sourceType,
+					SourceType:       options.SourceType,
 					SourceRef:        candidate.SourceID,
-					DiscoveryReason:  "new_candidate",
+					DiscoveryReason:  options.DiscoveryReason,
 					Confidence:       candidate.Confidence,
 					CandidateScore:   candidate.Confidence,
-					TrackingPriority: 180,
+					TrackingPriority: options.TrackingPriority,
 					ObservedAt:       candidate.ObservedAt,
 					Payload:          cloneSeedDiscoveryMetadata(candidate.Metadata),
 					Notes: map[string]any{
@@ -305,12 +388,12 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 			if err := r.Queue.EnqueueWalletBackfill(ctx, db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
 				Chain:       candidate.Chain,
 				Address:     candidate.WalletAddress,
-				Source:      "seed_discovery",
+				Source:      options.QueueSource,
 				RequestedAt: r.now().UTC(),
 				Metadata:    metadata,
 			})); err != nil {
 				_ = r.recordJobRun(ctx, db.JobRunEntry{
-					JobName:    workerModeSeedDiscoveryEnqueue,
+					JobName:    options.JobName,
 					Status:     db.JobRunStatusFailed,
 					StartedAt:  startedAt,
 					FinishedAt: pointerToTime(r.now().UTC()),
@@ -328,7 +411,7 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 	}
 
 	if err := r.recordJobRun(ctx, db.JobRunEntry{
-		JobName:    workerModeSeedDiscoveryEnqueue,
+		JobName:    options.JobName,
 		Status:     db.JobRunStatusSucceeded,
 		StartedAt:  startedAt,
 		FinishedAt: pointerToTime(r.now().UTC()),
@@ -344,6 +427,50 @@ func (r SeedDiscoveryJobRunner) RunEnqueue(ctx context.Context) (SeedDiscoveryIn
 	}
 
 	return report, nil
+}
+
+func (r SeedDiscoveryJobRunner) mobulaSmartMoneyBatches() ([]providers.SeedDiscoveryBatch, error) {
+	adapter, ok := r.Runner.Registry[providers.ProviderMobula]
+	if !ok {
+		return nil, fmt.Errorf("Mobula provider is not registered")
+	}
+	source, ok := adapter.(providers.SeedDiscoveryBatchSource)
+	if !ok {
+		return nil, fmt.Errorf("Mobula provider does not expose seed batches")
+	}
+	batches := source.SeedDiscoveryBatches(r.now().UTC())
+	if len(batches) == 0 {
+		return nil, fmt.Errorf("Mobula smart money seeds are not configured")
+	}
+	return batches, nil
+}
+
+func (r SeedDiscoveryJobRunner) liveSeedDiscoveryBatches() ([]providers.SeedDiscoveryBatch, error) {
+	if len(r.Runner.Registry) == 0 {
+		return nil, fmt.Errorf("seed discovery provider registry is empty")
+	}
+
+	providersSeen := make([]string, 0, len(r.Runner.Registry))
+	for name := range r.Runner.Registry {
+		providersSeen = append(providersSeen, string(name))
+	}
+	sort.Strings(providersSeen)
+
+	batches := make([]providers.SeedDiscoveryBatch, 0)
+	for _, providerName := range providersSeen {
+		adapter := r.Runner.Registry[providers.ProviderName(providerName)]
+		source, ok := adapter.(providers.SeedDiscoveryBatchSource)
+		if !ok {
+			continue
+		}
+		batches = append(batches, source.SeedDiscoveryBatches(r.now().UTC())...)
+	}
+
+	if len(batches) == 0 {
+		return nil, fmt.Errorf("no live seed discovery batches are configured")
+	}
+
+	return batches, nil
 }
 
 func summarizeSeedDiscoveryResults(results []providers.SeedDiscoveryResult) SeedDiscoveryIngestReport {
@@ -363,6 +490,17 @@ func summarizeSeedDiscoveryResults(results []providers.SeedDiscoveryResult) Seed
 func buildSeedDiscoveryEnqueueSummary(report SeedDiscoveryIngestReport) string {
 	return fmt.Sprintf(
 		"Seed discovery enqueue complete (providers=%s, batches=%d, candidates=%d, enqueued=%d, deduped=%d)",
+		strings.Join(report.ProvidersSeen, ","),
+		report.BatchesWritten,
+		report.CandidatesSeen,
+		report.CandidatesEnqueued,
+		report.CandidatesDeduped,
+	)
+}
+
+func buildMobulaSmartMoneyEnqueueSummary(report SeedDiscoveryIngestReport) string {
+	return fmt.Sprintf(
+		"Mobula smart money enqueue complete (providers=%s, batches=%d, candidates=%d, enqueued=%d, deduped=%d)",
 		strings.Join(report.ProvidersSeen, ","),
 		report.BatchesWritten,
 		report.CandidatesSeen,
@@ -428,20 +566,23 @@ func rankSeedDiscoveryCandidates(
 	scored := make([]scoredCandidate, 0)
 	for _, result := range results {
 		for _, candidate := range result.Candidates {
-			if strings.TrimSpace(candidate.Kind) != "seed_label" {
+			kind := strings.TrimSpace(candidate.Kind)
+			label := strings.TrimSpace(stringValue(candidate.Metadata["seed_label"]))
+			reason := strings.TrimSpace(stringValue(candidate.Metadata["seed_label_reason"]))
+			if kind != "seed_label" && label == "" {
 				continue
 			}
 			if candidate.Confidence < minConfidence {
 				continue
 			}
 			score := candidate.Confidence * 100
-			if strings.TrimSpace(candidate.Kind) == "seed_label" {
+			if kind == "seed_label" {
 				score += 5
 			}
-			if strings.TrimSpace(stringValue(candidate.Metadata["seed_label"])) != "" {
+			if label != "" {
 				score += 3
 			}
-			if strings.TrimSpace(stringValue(candidate.Metadata["seed_label_reason"])) != "" {
+			if reason != "" {
 				score += 2
 			}
 			scored = append(scored, scoredCandidate{candidate: candidate, score: score})
@@ -519,7 +660,7 @@ func stringValue(value any) string {
 }
 
 func seedDiscoveryTopNFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_SEED_DISCOVERY_TOP_N"))
+	value := strings.TrimSpace(os.Getenv("QORVI_SEED_DISCOVERY_TOP_N"))
 	if value == "" {
 		return 10
 	}
@@ -533,7 +674,7 @@ func seedDiscoveryTopNFromEnv() int {
 }
 
 func seedDiscoveryMinConfidenceFromEnv() float64 {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_SEED_DISCOVERY_MIN_CONFIDENCE"))
+	value := strings.TrimSpace(os.Getenv("QORVI_SEED_DISCOVERY_MIN_CONFIDENCE"))
 	if value == "" {
 		return 0.8
 	}
