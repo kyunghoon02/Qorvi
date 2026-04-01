@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type WalletLabel struct {
@@ -199,6 +199,9 @@ func buildDeterministicWalletBrief(summary domain.WalletSummary, findings []doma
 			leadHours,
 		)
 	}
+	if text := buildClusterDeterministicWalletBrief(summary); strings.TrimSpace(text) != "" {
+		return text
+	}
 	if len(summary.Labels.Behavioral) > 0 {
 		label := summary.Labels.Behavioral[0]
 		if strings.TrimSpace(label.Name) != "" {
@@ -213,6 +216,93 @@ func buildDeterministicWalletBrief(summary domain.WalletSummary, findings []doma
 		return fmt.Sprintf("%s has recent %s activity worth reviewing.", summary.DisplayName, strings.ReplaceAll(string(signal.Name), "_", " "))
 	}
 	return fmt.Sprintf("%s has indexed activity, but no major findings have been materialized yet.", summary.DisplayName)
+}
+
+func buildClusterDeterministicWalletBrief(summary domain.WalletSummary) string {
+	cluster := latestScoreByName(summary.Scores, domain.ScoreCluster)
+	if cluster == nil {
+		return ""
+	}
+	if cluster.Rating != domain.RatingHigh && cluster.Value < 70 {
+		return ""
+	}
+
+	peerOverlap, sharedEntities, bidirectionalPeers := walletBriefClusterScoreSummaryMetrics(*cluster)
+	if peerOverlap == 0 && sharedEntities == 0 && bidirectionalPeers == 0 {
+		return ""
+	}
+
+	displayName := strings.TrimSpace(summary.DisplayName)
+	if displayName == "" {
+		displayName = compactWalletEntryCounterparty(summary.Address)
+	}
+
+	if bidirectionalPeers > 0 {
+		return fmt.Sprintf(
+			"%s is moving with a coordinated wallet cohort: %d peer overlaps, %d shared entity links, and %d bidirectional peer flows are active inside the indexed coverage window.",
+			displayName,
+			peerOverlap,
+			sharedEntities,
+			bidirectionalPeers,
+		)
+	}
+	return fmt.Sprintf(
+		"%s is showing coordinated cohort overlap through %d peer wallets and %d shared entity links. Direct two-way flow is still limited, so conviction should be read with some caution.",
+		displayName,
+		peerOverlap,
+		sharedEntities,
+	)
+}
+
+func latestScoreByName(scores []domain.Score, name domain.ScoreName) *domain.Score {
+	var best *domain.Score
+	for index := range scores {
+		if scores[index].Name != name {
+			continue
+		}
+		if best == nil {
+			best = &scores[index]
+			continue
+		}
+		if latestObservedAt(scores[index]) > latestObservedAt(*best) {
+			best = &scores[index]
+		}
+	}
+	return best
+}
+
+func latestObservedAt(score domain.Score) string {
+	latest := ""
+	for _, evidence := range score.Evidence {
+		if candidate := strings.TrimSpace(evidence.ObservedAt); candidate > latest {
+			latest = candidate
+		}
+	}
+	return latest
+}
+
+func walletBriefClusterScoreSummaryMetrics(score domain.Score) (int, int, int) {
+	peerOverlap := 0
+	sharedEntities := 0
+	bidirectionalPeers := 0
+	for _, evidence := range score.Evidence {
+		if len(evidence.Metadata) == 0 {
+			continue
+		}
+		peerOverlap = maxInt(peerOverlap, metadataInt(evidence.Metadata["wallet_peer_overlap"]))
+		if peerOverlap == 0 {
+			peerOverlap = maxInt(peerOverlap, metadataInt(evidence.Metadata["overlapping_wallets"]))
+		}
+		sharedEntities = maxInt(sharedEntities, metadataInt(evidence.Metadata["shared_entity_neighbors"]))
+		if sharedEntities == 0 {
+			sharedEntities = maxInt(sharedEntities, metadataInt(evidence.Metadata["shared_counterparties"]))
+		}
+		bidirectionalPeers = maxInt(bidirectionalPeers, metadataInt(evidence.Metadata["bidirectional_flow_peers"]))
+		if bidirectionalPeers == 0 {
+			bidirectionalPeers = maxInt(bidirectionalPeers, metadataInt(evidence.Metadata["mutual_transfer_count"]))
+		}
+	}
+	return peerOverlap, sharedEntities, bidirectionalPeers
 }
 
 func convertWalletEntryFeatureCounterparties(
