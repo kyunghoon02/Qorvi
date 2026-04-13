@@ -11,6 +11,19 @@ import (
 
 const defaultProviderHTTPTimeout = 15 * time.Second
 
+type HTTPStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	if e == nil {
+		return "unexpected http status"
+	}
+
+	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)
+}
+
 type jsonHTTPClient struct {
 	client *http.Client
 }
@@ -41,7 +54,10 @@ func (c jsonHTTPClient) doJSONRequestWithRaw(req *http.Request, target any) ([]b
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(raw))
+		return nil, &HTTPStatusError{
+			StatusCode: resp.StatusCode,
+			Body:       string(raw),
+		}
 	}
 
 	if target == nil {

@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -84,6 +87,9 @@ type QueuedWalletBackfillReport struct {
 	TransactionsWritten int
 	TransactionsDeduped int
 	ExpansionEnqueued   int
+	RetryScheduled      bool
+	RetryCount          int
+	RetryDelaySeconds   int
 }
 
 type QueuedWalletBackfillBatchReport struct {
@@ -94,6 +100,7 @@ type QueuedWalletBackfillBatchReport struct {
 	TransactionsDeduped int
 	ExpansionEnqueued   int
 	ProvidersSeen       []string
+	RetriesScheduled    int
 }
 
 const (
@@ -281,6 +288,18 @@ func buildQueuedWalletBackfillSummary(report QueuedWalletBackfillReport) string 
 		return "Wallet backfill queue empty (jobs=0)"
 	}
 
+	if report.RetryScheduled {
+		return fmt.Sprintf(
+			"Wallet backfill retry scheduled (provider=%s, chain=%s, address=%s, source=%s, retry_count=%d, retry_delay_seconds=%d)",
+			report.Provider,
+			report.Chain,
+			report.Address,
+			report.Source,
+			report.RetryCount,
+			report.RetryDelaySeconds,
+		)
+	}
+
 	return fmt.Sprintf(
 		"Wallet backfill queue processed (provider=%s, chain=%s, address=%s, source=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d)",
 		report.Provider,
@@ -297,7 +316,7 @@ func buildQueuedWalletBackfillSummary(report QueuedWalletBackfillReport) string 
 
 func buildQueuedWalletBackfillBatchSummary(report QueuedWalletBackfillBatchReport) string {
 	return fmt.Sprintf(
-		"Wallet backfill queue batch processed (jobs=%d, providers=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d)",
+		"Wallet backfill queue batch processed (jobs=%d, providers=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d, retries=%d)",
 		report.JobsProcessed,
 		strings.Join(report.ProvidersSeen, ","),
 		report.ActivitiesFetched,
@@ -305,6 +324,7 @@ func buildQueuedWalletBackfillBatchSummary(report QueuedWalletBackfillBatchRepor
 		report.TransactionsWritten,
 		report.TransactionsDeduped,
 		report.ExpansionEnqueued,
+		report.RetriesScheduled,
 	)
 }
 
@@ -457,11 +477,11 @@ func buildWorkerOutput(
 	}
 	if mode == workerModeAdminCuratedWalletImport {
 		report, err := AdminCuratedWalletImportService{
-			Watchlists: seedDiscovery.Watchlists,
+			Watchlists:  seedDiscovery.Watchlists,
 			EntityIndex: seedDiscovery.EntityIndex,
-			JobRuns:  seedDiscovery.JobRuns,
-			SeedPath: config.CuratedWalletSeedsPathFromEnv(),
-			Now:      seedDiscovery.Now,
+			JobRuns:     seedDiscovery.JobRuns,
+			SeedPath:    config.CuratedWalletSeedsPathFromEnv(),
+			Now:         seedDiscovery.Now,
 		}.RunImport(ctx)
 		if err != nil {
 			return "", err
@@ -586,19 +606,56 @@ func (s HistoricalBackfillIngestService) RunQueuedBackfillOnceFromQueue(
 
 	batchReport, err := s.runBatchIngest(ctx, batch, "queued_wallet_backfill", &job, policy)
 	if err != nil {
+		failureErr := err
+		statusCode := providerStatusCodeFromError(failureErr)
+		retryCount, retryDelay, retryScheduled := 0, time.Duration(0), false
+		if isRetryableWalletBackfillError(failureErr) {
+			retryCount, retryDelay, err = s.requeueWalletBackfillRetry(ctx, job, failureErr)
+			if err != nil {
+				return QueuedWalletBackfillReport{}, err
+			}
+			retryScheduled = true
+			log.Printf(
+				"wallet backfill retry scheduled (provider=%s, chain=%s, address=%s, source=%s, retry_count=%d, retry_delay=%s)",
+				batch.Provider,
+				job.Chain,
+				job.Address,
+				job.Source,
+				retryCount,
+				retryDelay,
+			)
+		}
+
 		_ = s.recordJobRun(ctx, db.JobRunEntry{
 			JobName:    "wallet-backfill-drain",
 			Status:     db.JobRunStatusFailed,
 			StartedAt:  startedAt,
 			FinishedAt: pointerToTime(s.now().UTC()),
 			Details: map[string]any{
-				"chain":   string(job.Chain),
-				"address": job.Address,
-				"source":  job.Source,
-				"error":   err.Error(),
+				"chain":               string(job.Chain),
+				"address":             job.Address,
+				"source":              job.Source,
+				"provider":            string(batch.Provider),
+				"error":               failureErr.Error(),
+				"status_code":         statusCode,
+				"retry_scheduled":     retryScheduled,
+				"retry_count":         retryCount,
+				"retry_delay_seconds": int(retryDelay / time.Second),
 			},
 		})
-		return QueuedWalletBackfillReport{}, err
+		if retryScheduled {
+			return QueuedWalletBackfillReport{
+				Dequeued:          true,
+				Provider:          string(batch.Provider),
+				Chain:             string(job.Chain),
+				Address:           job.Address,
+				Source:            job.Source,
+				RetryScheduled:    true,
+				RetryCount:        retryCount,
+				RetryDelaySeconds: int(retryDelay / time.Second),
+			}, nil
+		}
+		return QueuedWalletBackfillReport{}, failureErr
 	}
 
 	if err := s.recordJobRun(ctx, db.JobRunEntry{
@@ -662,9 +719,164 @@ func (s HistoricalBackfillIngestService) RunQueuedBackfillBatch(
 		report.TransactionsDeduped += item.TransactionsDeduped
 		report.ExpansionEnqueued += item.ExpansionEnqueued
 		report.ProvidersSeen = append(report.ProvidersSeen, item.Provider)
+		if item.RetryScheduled {
+			report.RetriesScheduled++
+		}
+		if delay := walletBackfillItemDelay(); delay > 0 && i < limit-1 {
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return report, nil
+			}
+		}
 	}
 
 	return report, nil
+}
+
+func isRetryableWalletBackfillError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var statusErr *providers.HTTPStatusError
+	if errors.As(err, &statusErr) {
+		if statusErr.StatusCode == http.StatusTooManyRequests ||
+			statusErr.StatusCode == http.StatusRequestTimeout ||
+			statusErr.StatusCode >= http.StatusInternalServerError {
+			return true
+		}
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "rate limit") ||
+		strings.Contains(message, "too many requests") ||
+		strings.Contains(message, "exceeded its compute units per second capacity") ||
+		strings.Contains(message, "timeout") ||
+		strings.Contains(message, "temporarily unavailable")
+}
+
+func providerStatusCodeFromError(err error) int {
+	var statusErr *providers.HTTPStatusError
+	if errors.As(err, &statusErr) && statusErr != nil && statusErr.StatusCode > 0 {
+		return statusErr.StatusCode
+	}
+
+	return http.StatusInternalServerError
+}
+
+func (s HistoricalBackfillIngestService) requeueWalletBackfillRetry(
+	ctx context.Context,
+	job db.WalletBackfillJob,
+	cause error,
+) (int, time.Duration, error) {
+	if s.Queue == nil {
+		return 0, 0, cause
+	}
+
+	now := s.now().UTC()
+	nextRetryCount := walletBackfillRetryCount(job.Metadata) + 1
+	retryDelay := walletBackfillRetryDelay(nextRetryCount)
+	metadata := cloneWalletBackfillMetadata(job.Metadata)
+	metadata["retry_count"] = nextRetryCount
+	metadata["last_error"] = cause.Error()
+	metadata["last_error_at"] = now.Format(time.RFC3339)
+	metadata["retryable"] = true
+	metadata["retry_delay_seconds"] = int(retryDelay / time.Second)
+
+	retryJob := db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+		Chain:       job.Chain,
+		Address:     job.Address,
+		Source:      job.Source,
+		RequestedAt: now.Add(retryDelay),
+		Metadata:    metadata,
+	})
+	if err := s.Queue.EnqueueWalletBackfill(ctx, retryJob); err != nil {
+		return 0, 0, fmt.Errorf("enqueue wallet backfill retry: %w", err)
+	}
+
+	return nextRetryCount, retryDelay, nil
+}
+
+func walletBackfillRetryCount(metadata map[string]any) int {
+	return intMetadataValue(metadata, "retry_count", 0)
+}
+
+func walletBackfillRetryDelay(retryCount int) time.Duration {
+	base := walletBackfillRetryBaseDelay()
+	maxDelay := walletBackfillRetryMaxDelay()
+	if retryCount <= 1 {
+		return base
+	}
+
+	delay := base
+	for step := 1; step < retryCount; step++ {
+		delay *= 2
+		if delay >= maxDelay {
+			return maxDelay
+		}
+	}
+
+	if delay > maxDelay {
+		return maxDelay
+	}
+	return delay
+}
+
+func walletBackfillRetryBaseDelay() time.Duration {
+	return durationFromEnv(
+		[]string{"QORVI_WALLET_BACKFILL_RETRY_BASE_SECONDS", "FLOWINTEL_WALLET_BACKFILL_RETRY_BASE_SECONDS"},
+		30*time.Second,
+	)
+}
+
+func walletBackfillRetryMaxDelay() time.Duration {
+	return durationFromEnv(
+		[]string{"QORVI_WALLET_BACKFILL_RETRY_MAX_SECONDS", "FLOWINTEL_WALLET_BACKFILL_RETRY_MAX_SECONDS"},
+		15*time.Minute,
+	)
+}
+
+func walletBackfillItemDelay() time.Duration {
+	return durationFromEnv(
+		[]string{"QORVI_WALLET_BACKFILL_ITEM_DELAY_SECONDS", "FLOWINTEL_WALLET_BACKFILL_ITEM_DELAY_SECONDS"},
+		5*time.Second,
+	)
+}
+
+func durationFromEnv(keys []string, fallback time.Duration) time.Duration {
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			continue
+		}
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			continue
+		}
+		return time.Duration(parsed) * time.Second
+	}
+
+	return fallback
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func buildQueuedHistoricalBackfillBatch(job db.WalletBackfillJob, now time.Time) (providers.HistoricalBackfillBatch, queuedBackfillPolicy, error) {
@@ -912,7 +1124,7 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 	}
 	result, err := s.Runner.Runner.Run(batch)
 	if err != nil {
-		if logErr := s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt)); logErr != nil {
+		if logErr := s.recordProviderUsage(ctx, batch.Provider, operation, providerStatusCodeFromError(err), s.now().Sub(batchStartedAt)); logErr != nil {
 			return historicalBackfillBatchReport{}, logErr
 		}
 		return historicalBackfillBatchReport{}, err

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/redis/go-redis/v9"
 )
 
 const DefaultWalletBackfillQueueName = "default"
@@ -18,6 +18,7 @@ const PriorityWalletBackfillQueueName = "priority"
 type redisWalletBackfillQueueClient interface {
 	RPush(context.Context, string, ...interface{}) *redis.IntCmd
 	LPop(context.Context, string) *redis.StringCmd
+	LLen(context.Context, string) *redis.IntCmd
 }
 
 type WalletBackfillJob struct {
@@ -110,38 +111,44 @@ func (s *RedisWalletBackfillQueueStore) DequeueWalletBackfill(
 	}
 
 	queueNames := walletBackfillQueueReadOrder(queueName)
-	var (
-		raw []byte
-		err error
-	)
+	now := time.Now().UTC()
+
 	for _, candidateQueueName := range queueNames {
 		key := BuildWalletBackfillQueueKey(candidateQueueName)
-		raw, err = s.Client.LPop(ctx, key).Bytes()
-		if err == nil {
-			break
+		depth, err := s.Client.LLen(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return WalletBackfillJob{}, false, fmt.Errorf("read wallet backfill queue depth: %w", err)
 		}
-		if errors.Is(err, redis.Nil) {
-			continue
-		}
-		return WalletBackfillJob{}, false, fmt.Errorf("dequeue wallet backfill job: %w", err)
-	}
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return WalletBackfillJob{}, false, nil
+		for i := int64(0); i < depth; i++ {
+			raw, popErr := s.Client.LPop(ctx, key).Bytes()
+			if popErr != nil {
+				if errors.Is(popErr, redis.Nil) {
+					break
+				}
+				return WalletBackfillJob{}, false, fmt.Errorf("dequeue wallet backfill job: %w", popErr)
+			}
+
+			var job WalletBackfillJob
+			if err := json.Unmarshal(raw, &job); err != nil {
+				return WalletBackfillJob{}, false, fmt.Errorf("decode wallet backfill job: %w", err)
+			}
+
+			job = NormalizeWalletBackfillJob(job)
+			if err := job.Validate(); err != nil {
+				return WalletBackfillJob{}, false, err
+			}
+			if job.RequestedAt.After(now) {
+				if pushErr := s.Client.RPush(ctx, key, raw).Err(); pushErr != nil {
+					return WalletBackfillJob{}, false, fmt.Errorf("requeue delayed wallet backfill job: %w", pushErr)
+				}
+				continue
+			}
+
+			return job, true, nil
 		}
 	}
 
-	var job WalletBackfillJob
-	if err := json.Unmarshal(raw, &job); err != nil {
-		return WalletBackfillJob{}, false, fmt.Errorf("decode wallet backfill job: %w", err)
-	}
-
-	job = NormalizeWalletBackfillJob(job)
-	if err := job.Validate(); err != nil {
-		return WalletBackfillJob{}, false, err
-	}
-
-	return job, true, nil
+	return WalletBackfillJob{}, false, nil
 }
 
 func BuildWalletBackfillQueueKey(queueName string) string {

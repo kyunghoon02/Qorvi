@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/redis/go-redis/v9"
 )
 
 type fakeRedisWalletBackfillQueueClient struct {
@@ -47,6 +47,13 @@ func (c *fakeRedisWalletBackfillQueueClient) LPop(_ context.Context, key string)
 	next := string(queue[0])
 	c.queues[key] = queue[1:]
 	return redis.NewStringResult(next, nil)
+}
+
+func (c *fakeRedisWalletBackfillQueueClient) LLen(_ context.Context, key string) *redis.IntCmd {
+	if c.err != nil {
+		return redis.NewIntResult(0, c.err)
+	}
+	return redis.NewIntResult(int64(len(c.queues[key])), nil)
 }
 
 func TestRedisWalletBackfillQueueStoreRoundTrip(t *testing.T) {
@@ -175,6 +182,48 @@ func TestRedisWalletBackfillQueueStoreReturnsEmptyOnMissingQueueItem(t *testing.
 	}
 	if ok {
 		t.Fatal("expected empty queue pop to report missing item")
+	}
+}
+
+func TestRedisWalletBackfillQueueStoreSkipsDelayedJobs(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRedisWalletBackfillQueueClient{}
+	store := NewRedisWalletBackfillQueueStore(client)
+	readyJob := WalletBackfillJob{
+		Chain:       domain.ChainEVM,
+		Address:     "0x1234567890abcdef1234567890abcdef12345678",
+		Source:      "search_lookup_miss",
+		RequestedAt: time.Now().UTC().Add(-time.Minute),
+	}
+	delayedJob := WalletBackfillJob{
+		Chain:       domain.ChainEVM,
+		Address:     "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		Source:      "search_lookup_miss",
+		RequestedAt: time.Now().UTC().Add(time.Hour),
+	}
+
+	if err := store.EnqueueWalletBackfill(context.Background(), delayedJob); err != nil {
+		t.Fatalf("enqueue delayed job: %v", err)
+	}
+	if err := store.EnqueueWalletBackfill(context.Background(), readyJob); err != nil {
+		t.Fatalf("enqueue ready job: %v", err)
+	}
+
+	dequeued, ok, err := store.DequeueWalletBackfill(context.Background(), DefaultWalletBackfillQueueName)
+	if err != nil {
+		t.Fatalf("DequeueWalletBackfill returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ready wallet backfill job")
+	}
+	if dequeued.Address != readyJob.Address {
+		t.Fatalf("expected ready job %q, got %q", readyJob.Address, dequeued.Address)
+	}
+
+	remainingKey := BuildWalletBackfillQueueKey(PriorityWalletBackfillQueueName)
+	if len(client.queues[remainingKey]) != 1 {
+		t.Fatalf("expected delayed job to remain queued, got %d items", len(client.queues[remainingKey]))
 	}
 }
 

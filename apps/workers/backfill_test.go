@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -281,6 +282,7 @@ func (s *fakeWalletBackfillQueueStore) DequeueWalletBackfill(_ context.Context, 
 type fakeHistoricalBackfillAdapter struct {
 	provider   providers.ProviderName
 	activities []providers.ProviderWalletActivity
+	err        error
 }
 
 func (a fakeHistoricalBackfillAdapter) Name() providers.ProviderName { return a.provider }
@@ -294,6 +296,9 @@ func (a fakeHistoricalBackfillAdapter) FetchWalletActivity(ctx providers.Provide
 }
 
 func (a fakeHistoricalBackfillAdapter) FetchHistoricalWalletActivity(_ providers.HistoricalBackfillBatch) ([]providers.ProviderWalletActivity, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
 	return append([]providers.ProviderWalletActivity(nil), a.activities...), nil
 }
 
@@ -1130,6 +1135,65 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnceReturnsEmptyWhenQue
 	}
 	if report.Dequeued {
 		t.Fatalf("expected empty queue report, got %#v", report)
+	}
+}
+
+func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnceRequeuesRetryableFailures(t *testing.T) {
+	t.Parallel()
+
+	queue := &fakeWalletBackfillQueueStore{
+		jobs: []db.WalletBackfillJob{
+			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				Source:      "search_lookup_miss",
+				RequestedAt: time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
+			}),
+		},
+	}
+	jobRuns := &fakeJobRunStore{}
+	providerUsage := &fakeProviderUsageLogStore{}
+	registry := providers.Registry{
+		providers.ProviderAlchemy: fakeHistoricalBackfillAdapter{
+			provider: providers.ProviderAlchemy,
+			err: &providers.HTTPStatusError{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       `{"error":"rate limited"}`,
+			},
+		},
+	}
+	service := NewHistoricalBackfillIngestService(registry, &fakeWalletStore{}, &fakeTransactionStore{})
+	service.Queue = queue
+	service.JobRuns = jobRuns
+	service.ProviderUsage = providerUsage
+	service.Now = func() time.Time {
+		return time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC)
+	}
+
+	report, err := service.RunQueuedBackfillOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunQueuedBackfillOnce returned error: %v", err)
+	}
+	if !report.RetryScheduled {
+		t.Fatalf("expected retry to be scheduled, got %#v", report)
+	}
+	if report.RetryCount != 1 {
+		t.Fatalf("expected first retry count, got %#v", report)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected one requeued job, got %#v", queue.jobs)
+	}
+	if !queue.jobs[0].RequestedAt.After(service.Now()) {
+		t.Fatalf("expected delayed retry job, got %#v", queue.jobs[0])
+	}
+	if got := intMetadataValue(queue.jobs[0].Metadata, "retry_count", 0); got != 1 {
+		t.Fatalf("expected retry_count metadata to be 1, got %#v", queue.jobs[0].Metadata)
+	}
+	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusFailed {
+		t.Fatalf("expected failed job run entry, got %#v", jobRuns.entries)
+	}
+	if len(providerUsage.entries) != 1 || providerUsage.entries[0].StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 provider usage entry, got %#v", providerUsage.entries)
 	}
 }
 
