@@ -1876,18 +1876,22 @@ const clusterDetailRequest: ClusterDetailRequest = {
   clusterId: "cluster_seed_whales",
 };
 
+function normalizeApiBaseUrl(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
 function getApiBaseUrl(apiBaseUrl?: string): string | undefined {
   const trimmed = apiBaseUrl?.trim();
   if (trimmed) {
     return trimmed;
   }
 
-  if (typeof window !== "undefined") {
-    return undefined;
-  }
-
-  const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  return envBaseUrl ? envBaseUrl : undefined;
+  return normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
 }
 
 export function buildWalletDetailHref(request: WalletDetailRequest): string {

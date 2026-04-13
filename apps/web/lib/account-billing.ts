@@ -387,10 +387,6 @@ function getApiBaseUrl(apiBaseUrl?: string): string | undefined {
     return trimmed;
   }
 
-  if (typeof window !== "undefined") {
-    return undefined;
-  }
-
   const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   return envBaseUrl ? envBaseUrl : undefined;
 }
