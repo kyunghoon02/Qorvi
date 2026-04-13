@@ -9,7 +9,7 @@ test("buildAdminConsoleViewModel carries labels suppressions and quota state", (
     preview: getAdminConsolePreview(),
   });
 
-  assert.equal(viewModel.title, "Admin console");
+  assert.equal(viewModel.title, "운영 대시보드");
   assert.equal(viewModel.labels.length, 0);
   assert.equal(viewModel.suppressions.length, 0);
   assert.equal(viewModel.quotas.length, 0);
@@ -39,7 +39,7 @@ test("buildAdminConsoleViewModel derives quota pressure labels", () => {
 
   assert.equal(viewModel.quotas[0]?.usagePercent, 64);
   assert.equal(viewModel.quotas[0]?.reservedPercent, 8);
-  assert.equal(viewModel.quotas[0]?.headroomLabel, "1800 remaining");
+  assert.equal(viewModel.quotas[0]?.headroomLabel, "1800 남음");
 });
 
 test("buildAdminConsoleViewModel derives observability labels", () => {
@@ -126,33 +126,36 @@ test("buildAdminConsoleViewModel derives observability labels", () => {
 
   assert.equal(
     viewModel.observability.providerUsage[0]?.errorRateLabel,
-    "1% error rate",
+    "에러율 1%",
   );
-  assert.equal(viewModel.observability.ingest.freshnessLabel, "120s freshness");
+  assert.equal(viewModel.observability.ingest.freshnessLabel, "신선도 120초");
   assert.equal(
     viewModel.observability.alertDelivery.deliveryRateLabel,
-    "92% delivered",
+    "92% 전달 성공",
   );
   assert.equal(
     viewModel.observability.walletTracking.trackedCoverageLabel,
-    "10/34 wallets are labeled or scored",
+    "10/34개 지갑이 라벨링 또는 점수화되었습니다",
   );
   assert.equal(
     viewModel.observability.trackingSubscriptions.activeRatioLabel,
-    "7/11 subscriptions are active",
+    "7/11개 구독이 활성 상태입니다",
   );
-  assert.equal(viewModel.observability.queueDepth.backlogLabel, "12 jobs in default queue");
+  assert.equal(
+    viewModel.observability.queueDepth.backlogLabel,
+    "기본 큐에 12건이 대기 중입니다",
+  );
   assert.equal(
     viewModel.observability.backfillHealth.throughputLabel,
-    "980 transactions and 2200 activities processed in the last 24 hours",
+    "지난 24시간 동안 트랜잭션 980건, 액티비티 2200건을 처리했습니다",
   );
   assert.equal(
     viewModel.observability.staleRefresh.hitRateLabel,
-    "3/5 stale refresh attempts were productive (60% hit rate)",
+    "5건 중 3건이 유효했습니다 (60% 적중률)",
   );
   assert.equal(
     viewModel.observability.recentRuns[0]?.successLabel,
-    "1m since success",
+    "1분 전 성공",
   );
   assert.equal(
     viewModel.observability.recentFailures[0]?.title,
