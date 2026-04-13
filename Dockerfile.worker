@@ -2,7 +2,7 @@ FROM golang:1.24.4-bookworm AS build
 
 WORKDIR /src
 
-COPY go.work go.work.sum ./
+COPY go.work ./
 COPY apps ./apps
 COPY packages ./packages
 

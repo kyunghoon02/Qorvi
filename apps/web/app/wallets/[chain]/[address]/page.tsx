@@ -67,8 +67,10 @@ export default async function WalletDetailPage({
       ...(requestHeaders ? { requestHeaders } : {}),
     }),
   ]);
+  const shouldDeriveGraphFromSummary =
+    loadedGraph.mode === "unavailable" && summary.mode === "live";
   const graph =
-    loadedGraph.mode === "unavailable" && summary.topCounterparties.length > 0
+    shouldDeriveGraphFromSummary
       ? deriveWalletGraphPreviewFromSummary({
           request: {
             ...request,
