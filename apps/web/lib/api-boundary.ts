@@ -928,6 +928,8 @@ type WalletGraphEnvelope = {
   } | null;
 };
 
+type WalletGraphApiNode = NonNullable<WalletGraphApiResponse["nodes"]>[number];
+
 type ClusterDetailApiResponse = {
   id: string;
   label: string;
@@ -3059,9 +3061,17 @@ function mapWalletGraphResponse(
   response: WalletGraphApiResponse,
   source: WalletGraphPreview["source"],
 ): WalletGraphPreview {
-  const nodes = response.nodes ?? [];
+  const rawNodes = response.nodes ?? [];
+  const nodeIdMap = new Map<string, string>();
+  const nodes = rawNodes.map((node) => {
+    const normalizedId = normalizeWalletGraphNodeId(node);
+    nodeIdMap.set(node.id, normalizedId);
+    return normalizedId === node.id ? node : { ...node, id: normalizedId };
+  });
   const edges = (response.edges ?? []).map((edge) => ({
     ...edge,
+    sourceId: nodeIdMap.get(edge.sourceId) ?? edge.sourceId,
+    targetId: nodeIdMap.get(edge.targetId) ?? edge.targetId,
     family: edge.family ?? walletGraphEdgeFamilyForKind(edge.kind),
     directionality:
       edge.directionality ?? walletGraphEdgeDirectionalityFor(edge),
@@ -3913,9 +3923,10 @@ export function deriveWalletGraphPreviewFromSummary({
   fallback?: WalletGraphPreview;
 }): WalletGraphPreview {
   const clusterNodeId = summary.clusterId ? `cluster:${summary.clusterId}` : "";
+  const rootNodeId = buildWalletGraphWalletNodeId(request.chain, request.address);
   const nodes: WalletGraphPreviewNode[] = [
     {
-      id: "wallet_root",
+      id: rootNodeId,
       kind: "wallet",
       label: summary.label,
       chain: request.chain,
@@ -3932,7 +3943,7 @@ export function deriveWalletGraphPreviewFromSummary({
       label: summary.clusterId ?? "cluster",
     });
     edges.push({
-      sourceId: "wallet_root",
+      sourceId: rootNodeId,
       targetId: clusterNodeId,
       kind: "member_of",
       family: "derived",
@@ -3941,7 +3952,10 @@ export function deriveWalletGraphPreviewFromSummary({
   }
 
   for (const counterparty of summary.topCounterparties) {
-    const nodeId = `wallet:${counterparty.chain}:${counterparty.address}`;
+    const nodeId = buildWalletGraphWalletNodeId(
+      counterparty.chain,
+      counterparty.address,
+    );
     nodes.push({
       id: nodeId,
       kind: "wallet",
@@ -3950,7 +3964,7 @@ export function deriveWalletGraphPreviewFromSummary({
       address: counterparty.address,
     });
     edges.push({
-      sourceId: "wallet_root",
+      sourceId: rootNodeId,
       targetId: nodeId,
       kind:
         counterparty.directionLabel === "inbound"
@@ -4057,6 +4071,23 @@ export function deriveWalletGraphPreviewFromSummary({
     nodes,
     edges,
   };
+}
+
+function buildWalletGraphWalletNodeId(
+  chain: string,
+  address: string,
+): string {
+  return `wallet:${chain.toLowerCase()}:${address.toLowerCase()}`;
+}
+
+function normalizeWalletGraphNodeId(
+  node: WalletGraphApiNode,
+): string {
+  if (node.kind !== "wallet" || !node.chain || !node.address) {
+    return node.id;
+  }
+
+  return buildWalletGraphWalletNodeId(node.chain, node.address);
 }
 
 export function getSearchPreview(query = ""): SearchPreview {
