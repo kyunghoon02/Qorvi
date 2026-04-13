@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var ErrBillingAccountNotFound = errors.New("billing account not found")

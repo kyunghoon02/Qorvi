@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeWalletSummaryLookup struct {
@@ -414,7 +414,7 @@ func TestSearchServiceExplainsUnknownQuery(t *testing.T) {
 	t.Parallel()
 
 	svc := NewSearchService(nil)
-	result := svc.Search(context.Background(), "flowintel")
+	result := svc.Search(context.Background(), "qorvi")
 
 	if result.InputKind != searchKindUnknown {
 		t.Fatalf("expected unknown input kind, got %s", result.InputKind)

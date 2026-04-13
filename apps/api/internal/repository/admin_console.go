@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/ops"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/ops"
 )
 
 var (
@@ -93,6 +93,26 @@ type AdminWalletTrackingSubscriptionSnapshot struct {
 	LastEventAt  *time.Time
 }
 
+type AdminQueueDepthSnapshot struct {
+	DefaultDepth  int
+	PriorityDepth int
+}
+
+type AdminBackfillHealthSnapshot struct {
+	Jobs24h         int
+	Activities24h   int
+	Transactions24h int
+	Expansions24h   int
+	LastSuccessAt   *time.Time
+}
+
+type AdminStaleRefreshSnapshot struct {
+	Attempts24h   int
+	Succeeded24h  int
+	Productive24h int
+	LastHitAt     *time.Time
+}
+
 type AdminJobHealthSnapshot struct {
 	JobName             string
 	LastStatus          string
@@ -117,6 +137,9 @@ type AdminObservabilitySnapshot struct {
 	AlertDelivery         AdminAlertDeliverySnapshot
 	WalletTracking        AdminWalletTrackingSnapshot
 	TrackingSubscriptions AdminWalletTrackingSubscriptionSnapshot
+	QueueDepth            AdminQueueDepthSnapshot
+	BackfillHealth        AdminBackfillHealthSnapshot
+	StaleRefresh          AdminStaleRefreshSnapshot
 	RecentRuns            []AdminJobHealthSnapshot
 	RecentFailures        []AdminFailureSnapshot
 }
@@ -371,21 +394,22 @@ func (r *InMemoryAdminConsoleRepository) GetObservabilitySnapshot(_ context.Cont
 
 type PostgresAdminConsoleRepository struct {
 	store          *db.PostgresAdminConsoleStore
+	queueStats     *db.RedisAdminQueueStatsStore
 	watchlistStore *db.PostgresWatchlistStore
 	auditStore     *db.PostgresAuditLogStore
 	entityIndex    *db.PostgresCuratedEntityIndexStore
 }
 
-const adminCuratedOwnerUserID = "__admin_curated__"
-
 func NewPostgresAdminConsoleRepository(
 	store *db.PostgresAdminConsoleStore,
+	queueStats *db.RedisAdminQueueStatsStore,
 	watchlistStore *db.PostgresWatchlistStore,
 	auditStore *db.PostgresAuditLogStore,
 	entityIndex ...*db.PostgresCuratedEntityIndexStore,
 ) *PostgresAdminConsoleRepository {
 	repo := &PostgresAdminConsoleRepository{
 		store:          store,
+		queueStats:     queueStats,
 		watchlistStore: watchlistStore,
 		auditStore:     auditStore,
 	}
@@ -529,7 +553,7 @@ func (r *PostgresAdminConsoleRepository) ListCuratedLists(ctx context.Context) (
 	if r == nil || r.watchlistStore == nil {
 		return []AdminCuratedList{}, nil
 	}
-	items, err := r.watchlistStore.ListWatchlists(ctx, adminCuratedOwnerUserID)
+	items, err := r.watchlistStore.ListWatchlists(ctx, db.AdminCuratedOwnerUserID)
 	if err != nil {
 		return nil, translateAdminConsoleError(err)
 	}
@@ -544,7 +568,7 @@ func (r *PostgresAdminConsoleRepository) CreateCuratedList(ctx context.Context, 
 	if r == nil || r.watchlistStore == nil {
 		return AdminCuratedList{}, nil
 	}
-	created, err := r.watchlistStore.CreateWatchlist(ctx, adminCuratedOwnerUserID, item.Name, item.Notes, item.Tags)
+	created, err := r.watchlistStore.CreateWatchlist(ctx, db.AdminCuratedOwnerUserID, item.Name, item.Notes, item.Tags)
 	if err != nil {
 		return AdminCuratedList{}, translateAdminConsoleError(err)
 	}
@@ -558,7 +582,7 @@ func (r *PostgresAdminConsoleRepository) DeleteCuratedList(ctx context.Context, 
 	if r == nil || r.watchlistStore == nil {
 		return nil
 	}
-	if err := r.watchlistStore.DeleteWatchlist(ctx, adminCuratedOwnerUserID, id); err != nil {
+	if err := r.watchlistStore.DeleteWatchlist(ctx, db.AdminCuratedOwnerUserID, id); err != nil {
 		return translateAdminConsoleError(err)
 	}
 	return r.syncEntityIndex(ctx)
@@ -570,7 +594,7 @@ func (r *PostgresAdminConsoleRepository) AddCuratedListItem(ctx context.Context,
 	}
 	if _, err := r.watchlistStore.AddWatchlistItem(
 		ctx,
-		adminCuratedOwnerUserID,
+		db.AdminCuratedOwnerUserID,
 		listID,
 		domain.WatchlistItemType(item.ItemType),
 		item.ItemKey,
@@ -589,7 +613,7 @@ func (r *PostgresAdminConsoleRepository) DeleteCuratedListItem(ctx context.Conte
 	if r == nil || r.watchlistStore == nil {
 		return AdminCuratedList{}, nil
 	}
-	if err := r.watchlistStore.DeleteWatchlistItem(ctx, adminCuratedOwnerUserID, listID, itemID); err != nil {
+	if err := r.watchlistStore.DeleteWatchlistItem(ctx, db.AdminCuratedOwnerUserID, listID, itemID); err != nil {
 		return AdminCuratedList{}, translateAdminConsoleError(err)
 	}
 	if err := r.syncEntityIndex(ctx); err != nil {
@@ -602,7 +626,7 @@ func (r *PostgresAdminConsoleRepository) syncEntityIndex(ctx context.Context) er
 	if r == nil || r.entityIndex == nil {
 		return nil
 	}
-	return r.entityIndex.SyncAdminCuratedEntityIndex(ctx, adminCuratedOwnerUserID)
+	return r.entityIndex.SyncAdminCuratedEntityIndex(ctx, db.AdminCuratedOwnerUserID)
 }
 
 func (r *PostgresAdminConsoleRepository) ListAuditEntries(ctx context.Context, limit int) ([]AdminAuditEntry, error) {
@@ -725,6 +749,42 @@ func (r *PostgresAdminConsoleRepository) GetObservabilitySnapshot(ctx context.Co
 		LastEventAt:  copyTimePtr(subscriptionRecord.LastEventAt),
 	}
 
+	queueDepth := AdminQueueDepthSnapshot{
+		DefaultDepth:  0,
+		PriorityDepth: 0,
+	}
+	if r.queueStats != nil {
+		queueRecord, err := r.queueStats.ReadWalletBackfillQueueDepth(ctx)
+		if err != nil {
+			return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
+		}
+		queueDepth.DefaultDepth = queueRecord.DefaultDepth
+		queueDepth.PriorityDepth = queueRecord.PriorityDepth
+	}
+
+	backfillRecord, err := r.store.ReadBackfillHealth(ctx, 24*time.Hour)
+	if err != nil {
+		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
+	}
+	backfillHealth := AdminBackfillHealthSnapshot{
+		Jobs24h:         backfillRecord.Jobs24h,
+		Activities24h:   backfillRecord.Activities24h,
+		Transactions24h: backfillRecord.Transactions24h,
+		Expansions24h:   backfillRecord.Expansions24h,
+		LastSuccessAt:   copyTimePtr(backfillRecord.LastSuccessAt),
+	}
+
+	staleRefreshRecord, err := r.store.ReadStaleRefreshHealth(ctx, 24*time.Hour)
+	if err != nil {
+		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
+	}
+	staleRefresh := AdminStaleRefreshSnapshot{
+		Attempts24h:   staleRefreshRecord.Attempts24h,
+		Succeeded24h:  staleRefreshRecord.Succeeded24h,
+		Productive24h: staleRefreshRecord.Productive24h,
+		LastHitAt:     copyTimePtr(staleRefreshRecord.LastHitAt),
+	}
+
 	runRows, err := r.store.ListRecentJobHealth(ctx, 5)
 	if err != nil {
 		return AdminObservabilitySnapshot{}, translateAdminConsoleError(err)
@@ -763,6 +823,9 @@ func (r *PostgresAdminConsoleRepository) GetObservabilitySnapshot(ctx context.Co
 		AlertDelivery:         alertDelivery,
 		WalletTracking:        tracking,
 		TrackingSubscriptions: subscriptions,
+		QueueDepth:            queueDepth,
+		BackfillHealth:        backfillHealth,
+		StaleRefresh:          staleRefresh,
 		RecentRuns:            recentRuns,
 		RecentFailures:        recentFailures,
 	}, nil

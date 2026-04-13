@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeWalletGraphRepository struct {
@@ -62,22 +62,7 @@ func TestWalletGraphServiceDefaultsDepthToOne(t *testing.T) {
 	}
 }
 
-func TestWalletGraphServiceBlocksFreeTierTwoHop(t *testing.T) {
-	t.Parallel()
-
-	repo := &fakeWalletGraphRepository{}
-	svc := NewWalletGraphService(repo)
-
-	_, err := svc.GetWalletGraph(context.Background(), "evm", "0x1234567890abcdef1234567890abcdef12345678", 2, "free")
-	if !errors.Is(err, ErrWalletGraphDepthNotAllowed) {
-		t.Fatalf("expected depth gate error, got %v", err)
-	}
-	if repo.called {
-		t.Fatal("expected repository not to be called for gated depth")
-	}
-}
-
-func TestWalletGraphServiceAllowsProTwoHopRequest(t *testing.T) {
+func TestWalletGraphServiceAllowsTwoHopRequestsWithoutPlanGating(t *testing.T) {
 	t.Parallel()
 
 	repo := &fakeWalletGraphRepository{
@@ -85,18 +70,17 @@ func TestWalletGraphServiceAllowsProTwoHopRequest(t *testing.T) {
 			Chain:          domain.ChainEVM,
 			Address:        "0x1234567890abcdef1234567890abcdef12345678",
 			DepthRequested: 2,
-			DepthResolved:  1,
+			DepthResolved:  2,
 			DensityCapped:  true,
 			Nodes:          []domain.WalletGraphNode{{ID: "wallet:evm:0x123", Kind: domain.WalletGraphNodeWallet, Label: "Seed"}},
 		},
 	}
-
 	svc := NewWalletGraphService(repo)
-	graph, err := svc.GetWalletGraph(context.Background(), "evm", "0x1234567890abcdef1234567890abcdef12345678", 2, "pro")
-	if err != nil {
-		t.Fatalf("expected graph, got %v", err)
-	}
 
+	graph, err := svc.GetWalletGraph(context.Background(), "evm", "0x1234567890abcdef1234567890abcdef12345678", 2, "free")
+	if err != nil {
+		t.Fatalf("expected two-hop graph, got %v", err)
+	}
 	if !repo.called {
 		t.Fatal("expected repository to be called")
 	}

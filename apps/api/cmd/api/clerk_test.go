@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/config"
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	"github.com/qorvi/qorvi/apps/api/internal/config"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
 )
 
 func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
@@ -32,11 +32,11 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 
 	verifier, err := buildClerkVerifier(config.Config{
 		API: sharedconfig.APIEnv{
-			AppBaseURL: "https://app.flowintel.com",
+			AppBaseURL: "https://app.qorvi.com",
 			ClerkVerification: sharedconfig.ClerkVerificationConfig{
-				IssuerURL:        "https://clerk.flowintel.com",
+				IssuerURL:        "https://clerk.qorvi.com",
 				JWKSURL:          jwksServer.URL,
-				Audience:         "flowintel",
+				Audience:         "qorvi",
 				ClockSkewSeconds: 60,
 			},
 		},
@@ -46,13 +46,13 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 	}
 
 	token := mustSignedJWT(t, privateKey, "test-key", map[string]any{
-		"iss":   "https://clerk.flowintel.com",
+		"iss":   "https://clerk.qorvi.com",
 		"sub":   "user_123",
 		"sid":   "sess_123",
 		"rol":   "org:admin",
-		"email": "admin@flowintel.com",
-		"azp":   "https://app.flowintel.com",
-		"aud":   "flowintel",
+		"email": "admin@qorvi.com",
+		"azp":   "https://app.qorvi.com",
+		"aud":   "qorvi",
 		"exp":   time.Now().Add(10 * time.Minute).Unix(),
 		"nbf":   time.Now().Add(-1 * time.Minute).Unix(),
 	})
@@ -74,7 +74,7 @@ func TestBuildClerkVerifierVerifiesSignedSessionToken(t *testing.T) {
 	if principal.Role != "admin" {
 		t.Fatalf("unexpected role %q", principal.Role)
 	}
-	if principal.Email != "admin@flowintel.com" {
+	if principal.Email != "admin@qorvi.com" {
 		t.Fatalf("unexpected email %q", principal.Email)
 	}
 }
@@ -94,9 +94,9 @@ func TestBuildClerkVerifierRejectsWrongAuthorizedParty(t *testing.T) {
 
 	verifier, err := buildClerkVerifier(config.Config{
 		API: sharedconfig.APIEnv{
-			AppBaseURL: "https://app.flowintel.com",
+			AppBaseURL: "https://app.qorvi.com",
 			ClerkVerification: sharedconfig.ClerkVerificationConfig{
-				IssuerURL: "https://clerk.flowintel.com",
+				IssuerURL: "https://clerk.qorvi.com",
 				JWKSURL:   jwksServer.URL,
 			},
 		},
@@ -106,7 +106,7 @@ func TestBuildClerkVerifierRejectsWrongAuthorizedParty(t *testing.T) {
 	}
 
 	token := mustSignedJWT(t, privateKey, "test-key", map[string]any{
-		"iss": "https://clerk.flowintel.com",
+		"iss": "https://clerk.qorvi.com",
 		"sub": "user_123",
 		"sid": "sess_123",
 		"rol": "admin",
@@ -171,9 +171,9 @@ func TestBuildClerkVerifierAllowsLegacyHeadersInDevelopmentWithoutBearer(t *test
 			NodeEnv:    "development",
 			AppBaseURL: "http://localhost:3000",
 			ClerkVerification: sharedconfig.ClerkVerificationConfig{
-				IssuerURL:        "https://clerk.flowintel.com",
+				IssuerURL:        "https://clerk.qorvi.com",
 				JWKSURL:          jwksServer.URL,
-				Audience:         "flowintel",
+				Audience:         "qorvi",
 				ClockSkewSeconds: 60,
 			},
 		},

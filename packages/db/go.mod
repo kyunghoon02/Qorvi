@@ -1,4 +1,4 @@
-module github.com/flowintel/flowintel/packages/db
+module github.com/qorvi/qorvi/packages/db
 
 go 1.24.4
 
@@ -6,7 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/neo4j/neo4j-go-driver/v5 v5.28.2
 	github.com/redis/go-redis/v9 v9.12.1
-	github.com/flowintel/flowintel/packages/domain v0.0.0
+	github.com/qorvi/qorvi/packages/domain v0.0.0
 )
 
 require (
@@ -20,4 +20,4 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 )
 
-replace github.com/flowintel/flowintel/packages/domain => ../domain
+replace github.com/qorvi/qorvi/packages/domain => ../domain

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
 )
 
 const (
@@ -15,23 +15,28 @@ const (
 	defaultAlchemySolanaBaseURL = "https://solana-mainnet.g.alchemy.com"
 	defaultHeliusBaseURL        = "https://mainnet.helius-rpc.com"
 	defaultHeliusDataAPIBaseURL = "https://api-mainnet.helius-rpc.com/v0"
+	defaultMobulaBaseURL        = "https://api.mobula.io"
 	defaultMoralisBaseURL       = "https://deep-index.moralis.io/api/v2.2"
 )
 
 type ProviderEnv struct {
-	Worker               sharedconfig.WorkerEnv
-	DuneAPIKey           string
-	DuneSeedExportJSON   string
-	DuneSeedExportPath   string
-	DuneSeedExportRows   []DuneSeedExportRow
-	AlchemyAPIKey        string
-	AlchemyBaseURL       string
-	AlchemySolanaBaseURL string
-	HeliusAPIKey         string
-	HeliusBaseURL        string
-	HeliusDataAPIBaseURL string
-	MoralisAPIKey        string
-	MoralisBaseURL       string
+	Worker                    sharedconfig.WorkerEnv
+	DuneAPIKey                string
+	DuneSeedExportJSON        string
+	DuneSeedExportPath        string
+	DuneSeedExportRows        []DuneSeedExportRow
+	AlchemyAPIKey             string
+	AlchemyBaseURL            string
+	AlchemySolanaBaseURL      string
+	HeliusAPIKey              string
+	HeliusBaseURL             string
+	HeliusDataAPIBaseURL      string
+	MobulaAPIKey              string
+	MobulaBaseURL             string
+	MobulaSmartMoneySeedsJSON string
+	MobulaSmartMoneySeeds     []MobulaSmartMoneySeed
+	MoralisAPIKey             string
+	MoralisBaseURL            string
 }
 
 func ParseProviderEnvFromOS() (ProviderEnv, error) {
@@ -66,6 +71,16 @@ func ParseProviderEnv(source map[string]string) (ProviderEnv, error) {
 	}
 	heliusBaseURL := normalizeHeliusBaseURL(optional(source, "HELIUS_BASE_URL", defaultHeliusBaseURL))
 	heliusDataAPIBaseURL := normalizeHeliusDataAPIBaseURL(optional(source, "HELIUS_DATA_API_BASE_URL", defaultHeliusDataAPIBaseURL))
+	mobulaAPIKey := strings.TrimSpace(source["MOBULA_API_KEY"])
+	mobulaBaseURL := optional(source, "MOBULA_BASE_URL", defaultMobulaBaseURL)
+	mobulaSmartMoneySeedsJSON := strings.TrimSpace(source["QORVI_MOBULA_SMART_MONEY_SEEDS_JSON"])
+	if mobulaSmartMoneySeedsJSON == "" {
+		mobulaSmartMoneySeedsJSON = strings.TrimSpace(source["MOBULA_SMART_MONEY_SEEDS_JSON"])
+	}
+	mobulaSmartMoneySeeds, err := parseMobulaSmartMoneySeeds(mobulaSmartMoneySeedsJSON)
+	if err != nil {
+		return ProviderEnv{}, err
+	}
 	moralisAPIKey, err := required(source, "MORALIS_API_KEY")
 	if err != nil {
 		return ProviderEnv{}, err
@@ -73,19 +88,23 @@ func ParseProviderEnv(source map[string]string) (ProviderEnv, error) {
 	moralisBaseURL := optional(source, "MORALIS_BASE_URL", defaultMoralisBaseURL)
 
 	env := ProviderEnv{
-		Worker:               worker,
-		DuneAPIKey:           duneAPIKey,
-		DuneSeedExportJSON:   duneSeedExportJSON,
-		DuneSeedExportPath:   duneSeedExportPath,
-		DuneSeedExportRows:   duneSeedExportRows,
-		AlchemyAPIKey:        alchemyAPIKey,
-		AlchemyBaseURL:       alchemyBaseURL,
-		AlchemySolanaBaseURL: alchemySolanaBaseURL,
-		HeliusAPIKey:         heliusAPIKey,
-		HeliusBaseURL:        heliusBaseURL,
-		HeliusDataAPIBaseURL: heliusDataAPIBaseURL,
-		MoralisAPIKey:        moralisAPIKey,
-		MoralisBaseURL:       moralisBaseURL,
+		Worker:                    worker,
+		DuneAPIKey:                duneAPIKey,
+		DuneSeedExportJSON:        duneSeedExportJSON,
+		DuneSeedExportPath:        duneSeedExportPath,
+		DuneSeedExportRows:        duneSeedExportRows,
+		AlchemyAPIKey:             alchemyAPIKey,
+		AlchemyBaseURL:            alchemyBaseURL,
+		AlchemySolanaBaseURL:      alchemySolanaBaseURL,
+		HeliusAPIKey:              heliusAPIKey,
+		HeliusBaseURL:             heliusBaseURL,
+		HeliusDataAPIBaseURL:      heliusDataAPIBaseURL,
+		MobulaAPIKey:              mobulaAPIKey,
+		MobulaBaseURL:             mobulaBaseURL,
+		MobulaSmartMoneySeedsJSON: mobulaSmartMoneySeedsJSON,
+		MobulaSmartMoneySeeds:     mobulaSmartMoneySeeds,
+		MoralisAPIKey:             moralisAPIKey,
+		MoralisBaseURL:            moralisBaseURL,
 	}
 
 	for _, field := range []struct {
@@ -100,6 +119,12 @@ func ParseProviderEnv(source map[string]string) (ProviderEnv, error) {
 		if len(field.value) < 8 {
 			return ProviderEnv{}, fmt.Errorf("%s must be at least 8 characters", field.name)
 		}
+	}
+	if env.MobulaAPIKey != "" && len(env.MobulaAPIKey) < 8 {
+		return ProviderEnv{}, fmt.Errorf("MOBULA_API_KEY must be at least 8 characters")
+	}
+	if len(env.MobulaSmartMoneySeeds) > 0 && len(env.MobulaAPIKey) < 8 {
+		return ProviderEnv{}, fmt.Errorf("MOBULA_API_KEY is required when QORVI_MOBULA_SMART_MONEY_SEEDS_JSON is set")
 	}
 
 	return env, nil
@@ -153,6 +178,29 @@ func parseDuneSeedExportRows(rawJSON string, filePath string) ([]DuneSeedExportR
 	}
 
 	return append([]DuneSeedExportRow(nil), rows...), nil
+}
+
+func parseMobulaSmartMoneySeeds(rawJSON string) ([]MobulaSmartMoneySeed, error) {
+	source := strings.TrimSpace(rawJSON)
+	if source == "" {
+		return nil, nil
+	}
+
+	var seeds []MobulaSmartMoneySeed
+	if err := json.Unmarshal([]byte(source), &seeds); err != nil {
+		return nil, fmt.Errorf("parse Mobula smart money seeds: %w", err)
+	}
+
+	normalized := make([]MobulaSmartMoneySeed, 0, len(seeds))
+	for index, seed := range seeds {
+		cleaned, err := seed.Normalize()
+		if err != nil {
+			return nil, fmt.Errorf("normalize Mobula smart money seed %d: %w", index, err)
+		}
+		normalized = append(normalized, cleaned)
+	}
+
+	return normalized, nil
 }
 
 func normalizeHeliusBaseURL(raw string) string {

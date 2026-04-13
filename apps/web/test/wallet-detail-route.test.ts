@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveWalletDetailRequestFromParams } from "../app/wallets/[chain]/[address]/wallet-detail-route";
+import {
+  resolveFlowLensContextFromSearchParams,
+  resolveWalletDetailRequestFromParams,
+} from "../app/wallets/[chain]/[address]/wallet-detail-route";
 import {
   buildGraphEntityAssignmentIndex,
   buildWalletDetailViewModel,
@@ -175,6 +178,21 @@ function createSummaryFixture(request: {
         value: 82,
         rating: "high" as const,
         tone: "emerald" as const,
+        clusterBreakdown: {
+          peerWalletOverlap: 6,
+          sharedEntityLinks: 4,
+          bidirectionalPeerFlows: 2,
+          contradictionPenalty: 12,
+          suppressionDiscount: 0,
+          samplingApplied: true,
+          sourceDensityCapped: true,
+          sourceNodeCount: 82,
+          sourceEdgeCount: 144,
+          analysisNodeCount: 30,
+          analysisEdgeCount: 49,
+          contradictionReasons: ["aggregator_routing_hub_neighbors"],
+          suppressionReasons: [],
+        },
       },
       {
         name: "shadow_exit_risk",
@@ -386,6 +404,64 @@ test("resolveWalletDetailRequestFromParams validates wallet route params", () =>
   assert.equal(resolveWalletDetailRequestFromParams("evm", ""), null);
 });
 
+test("resolveFlowLensContextFromSearchParams parses FlowLens handoff params", () => {
+  assert.deepEqual(
+    resolveFlowLensContextFromSearchParams({
+      source: "flowlens",
+      exchange: "binance",
+      symbol: "FLOKI",
+      token_address: "0xabc",
+      flow_minute: "2026-04-12T05:11:00Z",
+      direction: "ex_in",
+      amount: "138929968.41",
+      approx_usd: "138900000",
+      signal_score: "0.82",
+      back_url: "https://flow.qorvi.app/dashboard",
+    }),
+    {
+      source: "flowlens",
+      exchange: "binance",
+      symbol: "FLOKI",
+      tokenAddress: "0xabc",
+      flowMinute: "2026-04-12T05:11:00Z",
+      direction: "ex_in",
+      amount: "138929968.41",
+      approxUsd: "138900000",
+      signalScore: "0.82",
+      backUrl: "https://flow.qorvi.app/dashboard",
+    },
+  );
+});
+
+test("resolveFlowLensContextFromSearchParams sanitizes unsafe links", () => {
+  assert.equal(
+    resolveFlowLensContextFromSearchParams({
+      source: "other",
+      exchange: "binance",
+    }),
+    null,
+  );
+
+  assert.deepEqual(
+    resolveFlowLensContextFromSearchParams({
+      source: "flowlens",
+      back_url: "javascript:alert(1)",
+    }),
+    {
+      source: "flowlens",
+      exchange: "",
+      symbol: "",
+      tokenAddress: "",
+      flowMinute: "",
+      direction: "",
+      amount: "",
+      approxUsd: "",
+      signalScore: "",
+      backUrl: "",
+    },
+  );
+});
+
 test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   const request = {
     chain: "evm" as const,
@@ -396,6 +472,7 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.title, "Seed Whale");
@@ -409,6 +486,10 @@ test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {
   assert.equal(viewModel.clusterDetailHref, "/clusters/cluster_seed_whales");
   assert.equal(viewModel.summaryScores[0]?.name, "cluster_score");
   assert.equal(viewModel.summaryScores[0]?.tone, "emerald");
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.peerWalletOverlap, 6);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.sharedEntityLinks, 4);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.bidirectionalPeerFlows, 2);
+  assert.equal(viewModel.summaryScores[0]?.clusterBreakdown?.samplingApplied, true);
   assert.equal(viewModel.relatedAddresses.length, 3);
   assert.equal(viewModel.relatedAddressCountAvailable, 74);
   assert.equal(viewModel.relatedAddressCountShown, 3);
@@ -462,6 +543,7 @@ test("buildWalletDetailViewModel prefers live brief bundles when available", () 
     summary: createSummaryFixture(request),
     brief: createBriefFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.aiBrief.headline, "Seed Whale AI brief");
@@ -495,6 +577,7 @@ test("filterAndSortRelatedAddresses applies direction filter and stable sort key
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const outboundOnly = filterAndSortRelatedAddresses(
@@ -582,6 +665,7 @@ test("buildWalletDetailViewModel labels ready coverage expansion clearly", () =>
     request,
     summary,
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   assert.equal(viewModel.indexing.coverageWindowLabel, "180 days");
@@ -645,6 +729,7 @@ test("resolveGraphExpansionState enforces stop rules and hop budgets", () => {
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const walletState = resolveGraphExpansionState({
@@ -677,8 +762,8 @@ test("resolveGraphExpansionState enforces stop rules and hop budgets", () => {
     graphNodes: viewModel.graphNodes,
     relatedAddresses: viewModel.relatedAddresses,
   });
-  assert.equal(budgetState.canExpand, false);
-  assert.match(budgetState.reason, /Global hop budget reached/i);
+  assert.equal(budgetState.canExpand, true);
+  assert.match(budgetState.reason, /Expand this wallet neighborhood/i);
   assert.equal(budgetState.hopBudget, 20);
 });
 
@@ -691,6 +776,7 @@ test("resolveExpandableGraphNodeIds returns wallet and cluster nodes that can st
     request,
     summary: createSummaryFixture(request),
     graph: createGraphFixture(request),
+    t: (key: string) => key,
   });
 
   const expandableNodeIds = resolveExpandableGraphNodeIds({

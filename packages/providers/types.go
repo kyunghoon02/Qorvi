@@ -3,7 +3,7 @@ package providers
 import (
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type ProviderName string
@@ -12,6 +12,7 @@ const (
 	ProviderDune    ProviderName = "dune"
 	ProviderAlchemy ProviderName = "alchemy"
 	ProviderHelius  ProviderName = "helius"
+	ProviderMobula  ProviderName = "mobula"
 	ProviderMoralis ProviderName = "moralis"
 )
 

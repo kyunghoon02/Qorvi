@@ -2,12 +2,13 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const listAdminCuratedEntityItemsSQL = `
@@ -17,7 +18,7 @@ SELECT
   wi.id,
   wi.item_type,
   wi.item_key,
-  COALESCE(wi.tags, ARRAY[]::text[]),
+  COALESCE(wi.tags, '[]'::jsonb),
   COALESCE(wi.notes, '')
 FROM watchlists wl
 JOIN watchlist_items wi
@@ -217,17 +218,28 @@ func (s *PostgresCuratedEntityIndexStore) listCuratedEntityItems(
 
 	items := make([]curatedEntityItemRecord, 0)
 	for rows.Next() {
-		var record curatedEntityItemRecord
+		var (
+			record  curatedEntityItemRecord
+			tagsRaw []byte
+		)
 		if err := rows.Scan(
 			&record.ListID,
 			&record.ListName,
 			&record.ItemID,
 			&record.ItemType,
 			&record.ItemKey,
-			&record.Tags,
+			&tagsRaw,
 			&record.Notes,
 		); err != nil {
 			return nil, fmt.Errorf("scan curated entity item: %w", err)
+		}
+		if len(tagsRaw) > 0 {
+			if err := json.Unmarshal(tagsRaw, &record.Tags); err != nil {
+				return nil, fmt.Errorf("decode curated entity item tags: %w", err)
+			}
+		}
+		if len(record.Tags) == 0 {
+			record.Tags = []string{}
 		}
 		items = append(items, record)
 	}

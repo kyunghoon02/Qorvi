@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const workerModeWatchlistBootstrapEnqueue = "watchlist-bootstrap-enqueue"
@@ -149,7 +149,7 @@ func (s WatchlistBootstrapService) recordJobRun(ctx context.Context, entry db.Jo
 }
 
 func walletBackfillDrainLimit() int {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_WALLET_BACKFILL_DRAIN_LIMIT"))
+	value := strings.TrimSpace(os.Getenv("QORVI_WALLET_BACKFILL_DRAIN_LIMIT"))
 	if value == "" {
 		return 25
 	}

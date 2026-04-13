@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 func main() {
-	mode := os.Getenv("FLOWINTEL_WORKER_MODE")
+	mode := os.Getenv("QORVI_WORKER_MODE")
 	env := workerEnvFromOS()
 	appCtx := context.Background()
 	registry := providers.DefaultRegistry()
@@ -87,6 +87,8 @@ func main() {
 		}
 		seedDiscovery.Queue = db.NewWalletBackfillQueueStoreFromClients(clients)
 		seedDiscovery.Tracking = db.NewWalletTrackingStateStoreFromClients(clients)
+		seedDiscovery.CuratedSeeds = db.NewPostgresWatchlistWalletSeedReaderFromPool(clients.Postgres)
+		seedDiscovery.EntityIndex = db.NewPostgresCuratedEntityIndexStoreFromPool(clients.Postgres)
 		seedDiscovery.Dedup = db.NewIngestDedupStoreFromClients(clients)
 		seedDiscovery.JobRuns = db.NewJobRunStoreFromClients(clients)
 		seedDiscovery.Watchlists = db.NewPostgresWatchlistStoreFromPool(clients.Postgres)
@@ -105,6 +107,7 @@ func main() {
 			Wallets:  db.NewWalletStoreFromClients(clients),
 			Graphs:   db.NewWalletGraphRepositoryFromClients(clients, 2*time.Minute),
 			Signals:  db.NewSignalEventStoreFromClients(clients),
+			Tracking: db.NewWalletTrackingStateStoreFromClients(clients),
 			Labels:   db.NewWalletLabelingStoreFromClients(clients),
 			Findings: db.NewFindingStoreFromClients(clients),
 			Cache:    db.NewRedisWalletSummaryCache(clients.Redis),
@@ -117,6 +120,7 @@ func main() {
 			BridgeExchange: db.NewWalletBridgeExchangeEvidenceStoreFromClients(clients),
 			TreasuryMM:     db.NewWalletTreasuryMMEvidenceStoreFromClients(clients),
 			Signals:        db.NewSignalEventStoreFromClients(clients),
+			Tracking:       db.NewWalletTrackingStateStoreFromClients(clients),
 			Labels:         db.NewWalletLabelingStoreFromClients(clients),
 			Findings:       db.NewFindingStoreFromClients(clients),
 			Cache:          db.NewRedisWalletSummaryCache(clients.Redis),
@@ -128,6 +132,7 @@ func main() {
 			Candidates:    db.NewFirstConnectionCandidateReaderFromClients(clients),
 			EntryFeatures: db.NewWalletEntryFeaturesStoreFromClients(clients),
 			Signals:       db.NewSignalEventStoreFromClients(clients),
+			Tracking:      db.NewWalletTrackingStateStoreFromClients(clients),
 			Labels:        db.NewWalletLabelingStoreFromClients(clients),
 			Findings:      db.NewFindingStoreFromClients(clients),
 			Cache:         db.NewRedisWalletSummaryCache(clients.Redis),
@@ -140,6 +145,7 @@ func main() {
 			JobRuns:           db.NewJobRunStoreFromClients(clients),
 			AlchemyReconciler: buildAlchemyWebhookReconcilerFromOS(),
 			HeliusReconciler:  buildHeliusWebhookReconcilerFromOS(),
+			WebhookBaseURL:    env.AppBaseURL,
 		}
 		billingSubscriptionSync = BillingSubscriptionSyncService{
 			Accounts:        db.NewBillingStoreFromClients(clients),
@@ -207,9 +213,9 @@ func buildAlertDeliveryDispatcher(clients *db.StorageClients) *WalletSignalDeliv
 }
 
 func buildSMTPAlertEmailSenderFromOS() AlertEmailSender {
-	host := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_HOST"))
-	port := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_PORT"))
-	from := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_FROM"))
+	host := strings.TrimSpace(os.Getenv("QORVI_ALERT_SMTP_HOST"))
+	port := strings.TrimSpace(os.Getenv("QORVI_ALERT_SMTP_PORT"))
+	from := strings.TrimSpace(os.Getenv("QORVI_ALERT_SMTP_FROM"))
 	if host == "" || port == "" || from == "" {
 		return nil
 	}
@@ -217,15 +223,15 @@ func buildSMTPAlertEmailSenderFromOS() AlertEmailSender {
 	return SMTPAlertEmailSender{
 		Addr:     net.JoinHostPort(host, port),
 		Host:     host,
-		Username: strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_USERNAME")),
-		Password: strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_SMTP_PASSWORD")),
+		Username: strings.TrimSpace(os.Getenv("QORVI_ALERT_SMTP_USERNAME")),
+		Password: strings.TrimSpace(os.Getenv("QORVI_ALERT_SMTP_PASSWORD")),
 		From:     from,
 	}
 }
 
 func buildStartupMessage(env config.WorkerEnv) string {
 	return fmt.Sprintf(
-		"FlowIntel workers ready (env=%s, postgres=%s, redis=%s)",
+		"Qorvi workers ready (env=%s, postgres=%s, redis=%s)",
 		env.NodeEnv,
 		env.PostgresURL,
 		env.RedisURL,
@@ -233,12 +239,12 @@ func buildStartupMessage(env config.WorkerEnv) string {
 }
 
 func rawPayloadRoot() string {
-	root := strings.TrimSpace(os.Getenv("FLOWINTEL_RAW_PAYLOAD_ROOT"))
+	root := strings.TrimSpace(os.Getenv("QORVI_RAW_PAYLOAD_ROOT"))
 	if root != "" {
 		return root
 	}
 
-	return ".flowintel/raw-payloads"
+	return ".qorvi/raw-payloads"
 }
 
 func buildMoralisWalletSummaryEnricher(clients *db.StorageClients) WalletSummaryEnrichmentRefresher {
@@ -278,7 +284,8 @@ func buildAlchemyWebhookReconcilerFromOS() providerAddressReconciler {
 	if baseURL == "" {
 		baseURL = "https://dashboard.alchemy.com"
 	}
-	return providers.NewAlchemyWebhookClient(baseURL, authToken, &http.Client{Timeout: 15 * time.Second})
+	network := strings.TrimSpace(os.Getenv("ALCHEMY_ADDRESS_ACTIVITY_NETWORK"))
+	return providers.NewAlchemyWebhookClient(baseURL, authToken, network, &http.Client{Timeout: 15 * time.Second})
 }
 
 func buildHeliusWebhookReconcilerFromOS() providerAddressReconciler {
@@ -290,7 +297,8 @@ func buildHeliusWebhookReconcilerFromOS() providerAddressReconciler {
 	if baseURL == "" {
 		baseURL = "https://api-mainnet.helius-rpc.com/v0"
 	}
-	return providers.NewHeliusWebhookClient(baseURL, apiKey, &http.Client{Timeout: 15 * time.Second})
+	authHeader := strings.TrimSpace(os.Getenv("QORVI_PROVIDER_WEBHOOK_AUTH_HEADER"))
+	return providers.NewHeliusWebhookClient(baseURL, apiKey, authHeader, &http.Client{Timeout: 15 * time.Second})
 }
 
 func workerEnvFromOS() config.WorkerEnv {
@@ -307,8 +315,10 @@ func workerEnvFromOS() config.WorkerEnv {
 func requiresProviderRegistry(mode string) bool {
 	return mode == workerModeHistoricalBackfillIngest ||
 		mode == workerModeWalletBackfillDrain ||
+		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
 		mode == workerModeMoralisEnrichmentRefresh ||
+		mode == workerModeMobulaSmartMoneyEnqueue ||
 		mode == workerModeSeedDiscoveryEnqueue ||
 		mode == workerModeSeedDiscoverySeedWatchlist
 }
@@ -316,8 +326,12 @@ func requiresProviderRegistry(mode string) bool {
 func requiresWorkerStorage(mode string) bool {
 	return mode == workerModeHistoricalBackfillIngest ||
 		mode == workerModeWalletBackfillDrain ||
+		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
 		mode == workerModeMoralisEnrichmentRefresh ||
+		mode == workerModeMobulaSmartMoneyEnqueue ||
+		mode == workerModeAdminCuratedWalletImport ||
+		mode == workerModeCuratedWalletSeedEnqueue ||
 		mode == workerModeSeedDiscoveryEnqueue ||
 		mode == workerModeSeedDiscoverySeedWatchlist ||
 		mode == workerModeWatchlistBootstrapEnqueue ||

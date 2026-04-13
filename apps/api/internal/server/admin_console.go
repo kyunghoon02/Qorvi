@@ -4,14 +4,17 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
 )
 
 func (s *Server) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
 		return
 	}
 	switch r.Method {
@@ -53,6 +56,9 @@ func (s *Server) handleAdminLabelRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
 		return
 	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
 	name, ok := parseAdminResourcePath(r.URL.Path, "/v1/admin/labels/")
 	if !ok {
 		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "admin label route not found", "", "admin"))
@@ -77,6 +83,9 @@ func (s *Server) handleAdminSuppressions(w http.ResponseWriter, r *http.Request)
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
 		return
 	}
 	switch r.Method {
@@ -118,6 +127,9 @@ func (s *Server) handleAdminSuppressionRoute(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
 		return
 	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
 	id, ok := parseAdminResourcePath(r.URL.Path, "/v1/admin/suppressions/")
 	if !ok {
 		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "suppression route not found", "", "admin"))
@@ -144,6 +156,9 @@ func (s *Server) handleAdminProviderQuotas(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
 		return
 	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", "", "admin"))
 		return
@@ -166,6 +181,9 @@ func (s *Server) handleAdminObservability(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
 		return
 	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", "", "admin"))
 		return
@@ -186,6 +204,9 @@ func (s *Server) handleAdminCuratedLists(w http.ResponseWriter, r *http.Request)
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
 		return
 	}
 	switch r.Method {
@@ -225,6 +246,9 @@ func (s *Server) handleAdminCuratedListRoute(w http.ResponseWriter, r *http.Requ
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
 		return
 	}
 	listID, resource, itemID, ok := parseNestedAdminResourcePath(r.URL.Path, "/v1/admin/curated-lists/")
@@ -292,6 +316,9 @@ func (s *Server) handleAdminAuditLogs(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {
 		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
 		return
 	}
 	if r.Method != http.MethodGet {

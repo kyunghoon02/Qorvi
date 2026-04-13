@@ -1,4 +1,4 @@
-import type { Tone } from "@flowintel/ui";
+import type { Tone } from "@qorvi/ui";
 
 import type {
   WalletGraphNeighborhoodSummaryPreview,

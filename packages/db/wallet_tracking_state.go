@@ -8,25 +8,26 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const (
-	WalletTrackingStatusCandidate = "candidate"
-	WalletTrackingStatusTracked   = "tracked"
-	WalletTrackingStatusLabeled   = "labeled"
-	WalletTrackingStatusScored    = "scored"
-	WalletTrackingStatusStale     = "stale"
+	WalletTrackingStatusCandidate  = "candidate"
+	WalletTrackingStatusTracked    = "tracked"
+	WalletTrackingStatusLabeled    = "labeled"
+	WalletTrackingStatusScored     = "scored"
+	WalletTrackingStatusStale      = "stale"
 	WalletTrackingStatusSuppressed = "suppressed"
 )
 
 const (
-	WalletTrackingSourceTypeSeedList      = "seed_list"
-	WalletTrackingSourceTypeDuneCandidate = "dune_candidate"
-	WalletTrackingSourceTypeUserSearch    = "user_search"
-	WalletTrackingSourceTypeHopExpansion  = "hop_expansion"
-	WalletTrackingSourceTypeWatchlist     = "watchlist"
-	WalletTrackingSourceTypeUnknown       = "unknown"
+	WalletTrackingSourceTypeSeedList        = "seed_list"
+	WalletTrackingSourceTypeDuneCandidate   = "dune_candidate"
+	WalletTrackingSourceTypeMobulaCandidate = "mobula_candidate"
+	WalletTrackingSourceTypeUserSearch      = "user_search"
+	WalletTrackingSourceTypeHopExpansion    = "hop_expansion"
+	WalletTrackingSourceTypeWatchlist       = "watchlist"
+	WalletTrackingSourceTypeUnknown         = "unknown"
 )
 
 type postgresWalletTrackingExecer interface {
@@ -168,8 +169,14 @@ ON CONFLICT (wallet_id) DO UPDATE SET
       THEN wallet_tracking_state.status
     ELSE EXCLUDED.status
   END,
-  source_type = EXCLUDED.source_type,
-  source_ref = EXCLUDED.source_ref,
+  source_type = CASE
+    WHEN EXCLUDED.source_type = '' THEN wallet_tracking_state.source_type
+    ELSE EXCLUDED.source_type
+  END,
+  source_ref = CASE
+    WHEN EXCLUDED.source_ref = '' THEN wallet_tracking_state.source_ref
+    ELSE EXCLUDED.source_ref
+  END,
   label_confidence = GREATEST(wallet_tracking_state.label_confidence, EXCLUDED.label_confidence),
   entity_confidence = GREATEST(wallet_tracking_state.entity_confidence, EXCLUDED.entity_confidence),
   smart_money_confidence = GREATEST(wallet_tracking_state.smart_money_confidence, EXCLUDED.smart_money_confidence),
@@ -313,7 +320,7 @@ func (s *PostgresWalletTrackingStateStore) MarkWalletTracked(
 	}
 
 	status := firstNonEmptyTrackingString(progress.Status, WalletTrackingStatusTracked)
-	sourceType := firstNonEmptyTrackingString(progress.SourceType, WalletTrackingSourceTypeUnknown)
+	sourceType := strings.TrimSpace(progress.SourceType)
 	sourceRef := strings.TrimSpace(progress.SourceRef)
 	firstSeen := identity.CreatedAt.UTC()
 	notesJSON, err := marshalTrackingJSON(progress.Notes)

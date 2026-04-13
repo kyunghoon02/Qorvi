@@ -1,8 +1,9 @@
 import React from "react";
 
-import { Badge, Pill, type Tone } from "@flowintel/ui";
+import { Badge, Pill, type Tone } from "@qorvi/ui";
 
 import type { ClusterDetailPreview } from "../../../lib/api-boundary";
+import { PageShell } from "../../components/page-shell";
 
 const classificationToneByName: Record<
   ClusterDetailPreview["classification"],
@@ -110,144 +111,149 @@ export function ClusterDetailScreen({
   const viewModel = buildClusterDetailViewModel({ cluster });
 
   return (
-    <main className="page-shell detail-shell">
-      <section className="detail-hero cluster-hero">
-        <div className="eyebrow-row">
-          <Pill tone="violet">Cluster detail</Pill>
-          <Pill tone={viewModel.classificationTone}>
-            {viewModel.classificationLabel}
-          </Pill>
-        </div>
-
-        <div className="detail-hero-copy">
-          <h1>{viewModel.title}</h1>
-          <p>{viewModel.explanation}</p>
-        </div>
-
-        <div className="detail-identity">
-          <div>
-            <span>Cluster id</span>
-            <strong>{viewModel.clusterId}</strong>
+    <PageShell>
+      <div className="detail-shell">
+        <section className="detail-hero cluster-hero">
+          <div className="eyebrow-row">
+            <Pill tone="violet">Cluster detail</Pill>
+            <Pill tone={viewModel.classificationTone}>
+              {viewModel.classificationLabel}
+            </Pill>
           </div>
-          <div>
-            <span>Type</span>
-            <strong>{viewModel.clusterTypeLabel}</strong>
-          </div>
-          <div>
-            <span>Score</span>
-            <strong>{viewModel.scoreLabel}</strong>
-          </div>
-        </div>
 
-        <div className="detail-actions">
-          <a className="search-cta" href={viewModel.backHref}>
-            Back to search
-          </a>
-          <span className="detail-route-copy">
-            {viewModel.memberCount} members under review
-          </span>
-        </div>
-      </section>
+          <div className="detail-hero-copy">
+            <h1>{viewModel.title}</h1>
+            <p>{viewModel.explanation}</p>
+          </div>
 
-      <section className="detail-grid">
-        <article className="preview-card detail-card boundary-card">
-          <div className="preview-header">
+          <div className="detail-identity">
             <div>
-              <span className="preview-kicker">Members</span>
-              <h2>{viewModel.clusterId}</h2>
+              <span>Cluster id</span>
+              <strong>{viewModel.clusterId}</strong>
             </div>
-            <div className="preview-state">
-              <Badge tone={viewModel.scoreTone}>
-                score {viewModel.scoreLabel}
-              </Badge>
-              <Pill tone="teal">{viewModel.clusterTypeLabel}</Pill>
+            <div>
+              <span>Type</span>
+              <strong>{viewModel.clusterTypeLabel}</strong>
+            </div>
+            <div>
+              <span>Score</span>
+              <strong>{viewModel.scoreLabel}</strong>
             </div>
           </div>
 
-          <div className="preview-status">
-            <span className="preview-kicker">Data status</span>
-            <p>{viewModel.statusMessage}</p>
+          <div className="detail-actions">
+            <a className="search-cta" href={viewModel.backHref}>
+              Back to home
+            </a>
+            <span className="detail-route-copy">
+              {viewModel.memberCount} members under review
+            </span>
           </div>
+        </section>
 
-          <div className="cluster-member-list" aria-label="Cluster members">
-            {viewModel.members.map((member) => (
-              <article
-                key={`${member.chain}-${member.address}`}
-                className="cluster-member-card"
-              >
-                <div className="cluster-member-card-head">
-                  <div>
-                    <strong>{member.label}</strong>
-                    <span>{member.address}</span>
+        <section className="detail-grid">
+          <article className="preview-card detail-card boundary-card">
+            <div className="preview-header">
+              <div>
+                <span className="preview-kicker">Members</span>
+                <h2>{viewModel.clusterId}</h2>
+              </div>
+              <div className="preview-state">
+                <Badge tone={viewModel.scoreTone}>
+                  score {viewModel.scoreLabel}
+                </Badge>
+                <Pill tone="teal">{viewModel.clusterTypeLabel}</Pill>
+              </div>
+            </div>
+
+            <div className="preview-status">
+              <span className="preview-kicker">Data status</span>
+              <p>{viewModel.statusMessage}</p>
+            </div>
+
+            <div className="cluster-member-list" aria-label="Cluster members">
+              {viewModel.members.map((member) => (
+                <article
+                  key={`${member.chain}-${member.address}`}
+                  className="cluster-member-card"
+                >
+                  <div className="cluster-member-card-head">
+                    <div>
+                      <strong>{member.label}</strong>
+                      <span>{member.address}</span>
+                    </div>
+                    <Badge tone={member.tone}>{member.chainLabel}</Badge>
                   </div>
-                  <Badge tone={member.tone}>{member.chainLabel}</Badge>
-                </div>
-                <div className="cluster-member-meta">
-                  <Pill tone={member.tone}>{member.role ?? "member"}</Pill>
-                  <span>{member.interactionCount} interactions</span>
-                  {member.latestActivityAt ? (
-                    <span>{member.latestActivityAt}</span>
+                  <div className="cluster-member-meta">
+                    <Pill tone={member.tone}>{member.role ?? "member"}</Pill>
+                    <span>{member.interactionCount} interactions</span>
+                    {member.latestActivityAt ? (
+                      <span>{member.latestActivityAt}</span>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <article className="preview-card detail-card">
+            <div className="preview-header">
+              <div>
+                <span className="preview-kicker">Common actions</span>
+                <h2>Operator next steps</h2>
+              </div>
+              <div className="preview-state">
+                <Badge tone="teal">{viewModel.memberCount} members</Badge>
+              </div>
+            </div>
+
+            <div className="cluster-action-list">
+              {viewModel.commonActions.map((action) => (
+                <article key={action.label} className="cluster-action-card">
+                  <div>
+                    <strong>{action.label}</strong>
+                    <p>{action.description}</p>
+                  </div>
+                  {action.href ? (
+                    <a className="search-cta" href={action.href}>
+                      Open
+                    </a>
                   ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
-
-        <article className="preview-card detail-card">
-          <div className="preview-header">
-            <div>
-              <span className="preview-kicker">Common actions</span>
-              <h2>Operator next steps</h2>
+                </article>
+              ))}
             </div>
-            <div className="preview-state">
-              <Badge tone="teal">{viewModel.memberCount} members</Badge>
+
+            <div className="preview-status cluster-evidence-header">
+              <span className="preview-kicker">Evidence</span>
+              <p>
+                {viewModel.evidence.length} evidence items underpin this
+                cluster.
+              </p>
             </div>
-          </div>
 
-          <div className="cluster-action-list">
-            {viewModel.commonActions.map((action) => (
-              <article key={action.label} className="cluster-action-card">
-                <div>
-                  <strong>{action.label}</strong>
-                  <p>{action.description}</p>
-                </div>
-                {action.href ? (
-                  <a className="search-cta" href={action.href}>
-                    Open
-                  </a>
-                ) : null}
-              </article>
-            ))}
-          </div>
-
-          <div className="preview-status cluster-evidence-header">
-            <span className="preview-kicker">Evidence</span>
-            <p>
-              {viewModel.evidence.length} evidence items underpin this cluster.
-            </p>
-          </div>
-
-          <div className="cluster-evidence-list">
-            {viewModel.evidence.map((item) => (
-              <article
-                key={`${item.kind}-${item.observedAt}`}
-                className="cluster-evidence-card"
-              >
-                <div className="cluster-evidence-head">
-                  <strong>{item.label}</strong>
-                  <Badge tone="violet">{item.kind.replaceAll("_", " ")}</Badge>
-                </div>
-                <p>{item.source}</p>
-                <div className="cluster-evidence-meta">
-                  <span>{item.observedAt}</span>
-                  <span>{Math.round(item.confidence * 100)}% confidence</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
-      </section>
-    </main>
+            <div className="cluster-evidence-list">
+              {viewModel.evidence.map((item) => (
+                <article
+                  key={`${item.kind}-${item.observedAt}`}
+                  className="cluster-evidence-card"
+                >
+                  <div className="cluster-evidence-head">
+                    <strong>{item.label}</strong>
+                    <Badge tone="violet">
+                      {item.kind.replaceAll("_", " ")}
+                    </Badge>
+                  </div>
+                  <p>{item.source}</p>
+                  <div className="cluster-evidence-meta">
+                    <span>{item.observedAt}</span>
+                    <span>{Math.round(item.confidence * 100)}% confidence</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+        </section>
+      </div>
+    </PageShell>
   );
 }

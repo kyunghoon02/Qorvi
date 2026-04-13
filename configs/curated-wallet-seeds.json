@@ -1,0 +1,112 @@
+[
+  {
+    "chain": "evm",
+    "address": "0x28C6c06298d514Db089934071355E5743bf21d60",
+    "displayName": "Binance Hot Wallet 14",
+    "description": "Public explorer-labeled Binance hot wallet kept warm for exchange flow and pressure monitoring.",
+    "category": "exchange",
+    "trackingPriority": 260,
+    "candidateScore": 0.97,
+    "confidence": 0.98,
+    "tags": ["featured", "exchange", "evm", "verified-public", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x0cb09be9631d5c42a52bcef521199cff6a4aac10",
+    "displayName": "Coinbase 10",
+    "description": "Public explorer-labeled Coinbase wallet kept warm for exchange flow monitoring.",
+    "category": "exchange",
+    "trackingPriority": 255,
+    "candidateScore": 0.96,
+    "confidence": 0.97,
+    "tags": ["featured", "exchange", "evm", "verified-public", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x4b4e14a3773ee558b6597070797fd51eb48606e5",
+    "displayName": "OKX Hot Wallet",
+    "description": "Public explorer-labeled OKX hot wallet kept warm for exchange flow monitoring.",
+    "category": "exchange",
+    "trackingPriority": 250,
+    "candidateScore": 0.95,
+    "confidence": 0.96,
+    "tags": ["featured", "exchange", "evm", "verified-public", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0xf89d7b9c864f589bbF53a82105107622B35EaA40",
+    "displayName": "Bybit Hot Wallet",
+    "description": "Public explorer-labeled Bybit hot wallet kept warm for exchange flow monitoring.",
+    "category": "exchange",
+    "trackingPriority": 248,
+    "candidateScore": 0.94,
+    "confidence": 0.95,
+    "tags": ["featured", "exchange", "evm", "verified-public", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5",
+    "displayName": "Across Ethereum SpokePool",
+    "description": "Official Across Ethereum SpokePool contract kept warm for bridge flow monitoring.",
+    "category": "bridge",
+    "trackingPriority": 252,
+    "candidateScore": 0.96,
+    "confidence": 0.98,
+    "tags": ["featured", "bridge", "evm", "verified-public", "official-docs"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x3ee18B2214AFF97000D974cf647E7C347E8fa585",
+    "displayName": "Wormhole Token Bridge",
+    "description": "Official Wormhole Ethereum token bridge contract kept warm for cross-chain bridge flow monitoring.",
+    "category": "bridge",
+    "trackingPriority": 250,
+    "candidateScore": 0.96,
+    "confidence": 0.99,
+    "tags": ["featured", "bridge", "evm", "verified-public", "official-docs"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x296F55F8Fb28E498B858d0BcDA06D955B2Cb3f97",
+    "displayName": "Stargate Bridge",
+    "description": "Official Stargate Ethereum bridge contract kept warm for bridge route monitoring.",
+    "category": "bridge",
+    "trackingPriority": 246,
+    "candidateScore": 0.94,
+    "confidence": 0.97,
+    "tags": ["featured", "bridge", "evm", "verified-public", "official-docs"]
+  },
+  {
+    "chain": "evm",
+    "address": "0xFe89cc7Abb2C4183683Ab71653C4cdc9B02D44b7",
+    "displayName": "ENS DAO Wallet",
+    "description": "Official ENS DAO treasury wallet kept warm for treasury movement monitoring.",
+    "category": "treasury",
+    "trackingPriority": 244,
+    "candidateScore": 0.93,
+    "confidence": 0.97,
+    "tags": ["featured", "treasury", "evm", "verified-public", "official-treasury"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x464c71f6c2F760DdA6093dCB91C24c39e5D6E18c",
+    "displayName": "Aave Collector V2",
+    "description": "Official Aave collector contract kept warm for treasury and reserve monitoring.",
+    "category": "treasury",
+    "trackingPriority": 242,
+    "candidateScore": 0.93,
+    "confidence": 0.96,
+    "tags": ["featured", "treasury", "evm", "verified-public", "official-treasury"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x65bb797c2B9830d891D87288F029ed8dACc19705",
+    "displayName": "Stargate Ethereum Multisig",
+    "description": "Official Stargate Ethereum multisig kept warm as a treasury-governance reference wallet.",
+    "category": "treasury",
+    "trackingPriority": 238,
+    "candidateScore": 0.91,
+    "confidence": 0.95,
+    "tags": ["featured", "treasury", "evm", "verified-public", "official-treasury", "multisig"]
+  }
+]

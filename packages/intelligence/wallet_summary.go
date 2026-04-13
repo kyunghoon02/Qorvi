@@ -1,6 +1,6 @@
 package intelligence
 
-import "github.com/flowintel/flowintel/packages/domain"
+import "github.com/qorvi/qorvi/packages/domain"
 
 type WalletSummarySignals struct {
 	Cluster         ClusterSignal

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type capturedExecCall struct {
@@ -42,7 +42,7 @@ func TestPostgresNormalizedTransactionStoreUpsertNormalizedTransaction(t *testin
 				Address: " 0x1234567890abcdef1234567890abcdef12345678 ",
 			},
 			ObservedAt:     observedAt,
-			RawPayloadPath: " s3://flowintel/raw/2026/03/19/tx.json ",
+			RawPayloadPath: " s3://qorvi/raw/2026/03/19/tx.json ",
 		},
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func TestPostgresNormalizedTransactionStoreUpsertNormalizedTransaction(t *testin
 	if got := call.args[10]; got != nil {
 		t.Fatalf("unexpected token decimals arg %#v", got)
 	}
-	if got := call.args[11]; got != "s3://flowintel/raw/2026/03/19/tx.json" {
+	if got := call.args[11]; got != "s3://qorvi/raw/2026/03/19/tx.json" {
 		t.Fatalf("unexpected raw payload path arg %#v", got)
 	}
 	if got := call.args[12]; got != 1 {
@@ -128,7 +128,7 @@ func TestPostgresNormalizedTransactionStoreUpsertNormalizedTransactions(t *testi
 				TxHash:         "9Q1z8F7a6B5c4D3e2F1g0h9j8k7l6m5n4o3p2q1r0s9t8u7v6w5x4y3z2a1b0c9d8",
 				Wallet:         domain.WalletRef{Chain: domain.ChainSolana, Address: "9z7Yx6Wv5Ut4Sr3Qq2Pp1Oo0Nn9Mm8Ll7Kk6Jj5Hh4Gg"},
 				ObservedAt:     time.Date(2026, time.March, 19, 1, 4, 5, 0, time.UTC),
-				RawPayloadPath: "s3://flowintel/raw/2026/03/19/tx-2.json",
+				RawPayloadPath: "s3://qorvi/raw/2026/03/19/tx-2.json",
 			}),
 		},
 	})
@@ -154,7 +154,7 @@ func TestPostgresNormalizedTransactionStoreSanitizesNilLikeAmount(t *testing.T) 
 			TxHash:         "0xdeadbeef",
 			Wallet:         domain.WalletRef{Chain: domain.ChainEVM, Address: "0x1234567890abcdef1234567890abcdef12345678"},
 			ObservedAt:     time.Date(2026, time.March, 19, 1, 2, 3, 0, time.UTC),
-			RawPayloadPath: "s3://flowintel/raw/2026/03/19/tx.json",
+			RawPayloadPath: "s3://qorvi/raw/2026/03/19/tx.json",
 			Amount:         "<nil>",
 		},
 	})

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var (
@@ -600,9 +600,9 @@ func buildSyntheticBillingEventID(req BillingWebhookRequest) string {
 		}
 	}
 	if len(filtered) == 0 {
-		return "evt_flowintel_unknown"
+		return "evt_qorvi_unknown"
 	}
-	return "evt_flowintel_" + strings.Join(filtered, "_")
+	return "evt_qorvi_" + strings.Join(filtered, "_")
 }
 
 func copyAnyMap(source map[string]any) map[string]any {

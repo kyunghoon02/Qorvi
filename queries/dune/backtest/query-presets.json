@@ -1,0 +1,66 @@
+{
+  "version": "2026-03-31",
+  "presets": [
+    {
+      "name": "bridge-return-default",
+      "queryId": 0,
+      "queryName": "qorvi_backtest_evm_known_negative_bridge_return_v1",
+      "sqlPath": "queries/dune/backtest/01_bridge_return_negative.sql",
+      "cohort": "known_negative",
+      "caseType": "bridge_return",
+      "chain": "evm",
+      "candidateOutput": "packages/intelligence/test/dune-backtest-candidates-evm-bridge-return-2026-03-31.json",
+      "parameters": {
+        "window_start": "2026-03-01T00:00:00Z",
+        "window_end": "2026-03-31T00:00:00Z",
+        "min_bridge_usd": 25000,
+        "max_return_hours": 48,
+        "post_return_hours": 24,
+        "max_post_return_recipients": 3,
+        "max_post_return_outbound_usd": 50000,
+        "limit": 100,
+        "source_url": "https://example.com/reviews/bridge-return"
+      }
+    },
+    {
+      "name": "aggregator-routing-default",
+      "queryId": 0,
+      "queryName": "qorvi_backtest_evm_known_negative_aggregator_routing_v1",
+      "sqlPath": "queries/dune/backtest/02_aggregator_routing_negative.sql",
+      "cohort": "known_negative",
+      "caseType": "aggregator_routing",
+      "chain": "evm",
+      "candidateOutput": "packages/intelligence/test/dune-backtest-candidates-evm-aggregator-routing-2026-03-31.json",
+      "parameters": {
+        "window_start": "2026-03-01T00:00:00Z",
+        "window_end": "2026-03-31T00:00:00Z",
+        "min_router_touch_count": 8,
+        "min_unique_router_count": 2,
+        "min_router_touch_ratio": 0.55,
+        "limit": 100,
+        "source_url": "https://example.com/reviews/aggregator-routing"
+      }
+    },
+    {
+      "name": "smart-money-early-entry-default",
+      "queryId": 0,
+      "queryName": "qorvi_backtest_evm_known_positive_smart_money_early_entry_v1",
+      "sqlPath": "queries/dune/backtest/03_smart_money_early_entry_positive.sql",
+      "cohort": "known_positive",
+      "caseType": "smart_money_early_entry",
+      "chain": "evm",
+      "candidateOutput": "packages/intelligence/test/dune-backtest-candidates-evm-smart-money-early-entry-2026-03-31.json",
+      "parameters": {
+        "window_start": "2026-01-01T00:00:00Z",
+        "window_end": "2026-03-31T00:00:00Z",
+        "min_entry_usd": 20000,
+        "min_broader_wallets": 25,
+        "min_lead_hours": 12,
+        "hold_window_hours": 72,
+        "min_subsequent_trades": 1,
+        "limit": 100,
+        "source_url": "https://example.com/reviews/smart-money"
+      }
+    }
+  ]
+}

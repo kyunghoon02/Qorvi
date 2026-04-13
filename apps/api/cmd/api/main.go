@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/config"
-	"github.com/flowintel/flowintel/apps/api/internal/server"
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/config"
+	"github.com/qorvi/qorvi/apps/api/internal/server"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
 )
 
 func main() {
@@ -38,12 +38,15 @@ func main() {
 
 	wallets := buildWalletSummaryService(clients, cfg.WalletSummaryCacheTTL)
 	findings := buildFindingsFeedService(clients)
+	discover := buildDiscoverService(clients)
 	search := buildSearchService(clients, wallets)
 	graphs := buildWalletGraphService(clients, cfg.WalletSummaryCacheTTL)
 	walletBriefs := buildWalletBriefService(clients, wallets)
 	entities := buildEntityInterpretationService(clients)
 	analystTools := buildAnalystToolsService(wallets, walletBriefs, graphs)
 	analystFindings := buildAnalystFindingDrilldownService(clients, wallets)
+	analystExplanations := buildAnalystFindingExplanationService(clients, walletBriefs)
+	interactiveAnalyst := buildInteractiveAnalystService(walletBriefs, analystTools, analystFindings, entities)
 	clusters := buildClusterDetailService(clients)
 	shadowExits := buildShadowExitFeedService(clients)
 	firstConnections := buildFirstConnectionFeedService(clients)
@@ -51,29 +54,34 @@ func main() {
 	alertDelivery := buildAlertDeliveryService(clients)
 	watchlists := buildWatchlistService(clients)
 	adminConsole := buildAdminConsoleService(clients)
+	adminBacktests := buildAdminBacktestOpsService()
 	billingService := buildBillingService(clients)
 	accountService := buildAccountService(billingService)
 
 	srv := server.NewWithDependencies(server.Dependencies{
-		Wallets:          wallets,
-		WalletBriefs:     walletBriefs,
-		Graphs:           graphs,
-		AnalystTools:     analystTools,
-		AnalystFindings:  analystFindings,
-		Findings:         findings,
-		Entities:         entities,
-		Clusters:         clusters,
-		ShadowExits:      shadowExits,
-		FirstConnections: firstConnections,
-		AlertRules:       alertRules,
-		AlertDelivery:    alertDelivery,
-		Watchlists:       watchlists,
-		AdminConsole:     adminConsole,
-		Account:          accountService,
-		Billing:          billingService,
-		Search:           search,
-		WebhookIngest:    buildWebhookIngestService(clients),
-		ClerkVerifier:    clerkVerifier,
+		Wallets:             wallets,
+		WalletBriefs:        walletBriefs,
+		Graphs:              graphs,
+		Discover:            discover,
+		AnalystTools:        analystTools,
+		AnalystFindings:     analystFindings,
+		AnalystExplanations: analystExplanations,
+		InteractiveAnalyst:  interactiveAnalyst,
+		Findings:            findings,
+		Entities:            entities,
+		Clusters:            clusters,
+		ShadowExits:         shadowExits,
+		FirstConnections:    firstConnections,
+		AlertRules:          alertRules,
+		AlertDelivery:       alertDelivery,
+		Watchlists:          watchlists,
+		AdminConsole:        adminConsole,
+		AdminBacktests:      adminBacktests,
+		Account:             accountService,
+		Billing:             billingService,
+		Search:              search,
+		WebhookIngest:       buildWebhookIngestService(clients),
+		ClerkVerifier:       clerkVerifier,
 	})
 
 	httpServer := &http.Server{

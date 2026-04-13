@@ -1,6 +1,6 @@
-# FlowIntel Task Backlog
+# Qorvi Task Backlog
 
-이 문서는 [plan.md](/Users/kh/Github/FlowIntel/plan.md)를 실제 실행 단위로 쪼갠 작업 백로그다.
+이 문서는 [plan.md](/Users/kh/Github/Qorvi/plan.md)를 실제 실행 단위로 쪼갠 작업 백로그다.
 각 task는 바로 이슈나 스프린트 티켓으로 옮길 수 있도록 우선순위, 담당 subagent, 선행 조건, 산출물, 완료 기준을 포함한다.
 
 ## 1. 사용 규칙
@@ -36,10 +36,10 @@
 
 ## Current Strategic Next
 
-아래 task를 기존 launch/billing 마감보다 우선한다. FlowIntel의 기본 제품 경험은 이제 `검색 -> 그래프`가 아니라 `findings -> brief -> evidence` 순서로 구현하며, 모든 active task는 production deployment 전제를 기준으로 마감한다.
+아래 task를 기존 launch/billing 마감보다 우선한다. Qorvi의 기본 제품 경험은 이제 `검색 -> 그래프`가 아니라 `findings -> brief -> evidence` 순서로 구현하며, 모든 active task는 production deployment 전제를 기준으로 마감한다.
 
 우선 참고 문서:
-- [/Users/kh/Github/FlowIntel/flowintel-ai/engine-hardening-roadmap.md](/Users/kh/Github/FlowIntel/flowintel-ai/engine-hardening-roadmap.md)
+- [/Users/kh/Github/Qorvi/qorvi-ai/engine-hardening-roadmap.md](/Users/kh/Github/Qorvi/qorvi-ai/engine-hardening-roadmap.md)
 
 ### WG-044 AI Findings Generation Baseline
 
@@ -55,7 +55,7 @@
 - Current State:
   - migration `0016_findings_baseline.sql` 추가
   - `cluster_score`, `shadow_exit`, `first_connection` snapshot worker가 baseline finding을 materialize
-  - `packages/domain/findings.go`와 `flowintel-ai/contracts/finding-object-schema.md` 기준 canonical finding object 고정
+  - `packages/domain/findings.go`와 `qorvi-ai/contracts/finding-object-schema.md` 기준 canonical finding object 고정
 - Definition of Done:
   - 최소 5개 finding type이 evidence bundle과 함께 생성됨
   - finding duplication/merge 규칙이 정의됨
@@ -158,6 +158,13 @@
   - `behavior-patterns`가 `keyFindings`, `entryFeatures`, `returnedCount`를 함께 반환해 label/finding/entry-outcome 맥락을 한 번에 소비 가능
   - `evidence-timeline`이 treasury/MM path-quality metadata와 early-entry outcome items를 top-level field로 lift하고, `next_watch`도 timeline item으로 노출
   - `historical-analogs`가 `similarityScore`, `matchedFeatures`, `similarAnalogCount`를 반환해 analyst surface에서 유사도 설명이 가능
+  - `POST /v1/analyst/findings/:findingId/explain` baseline이 추가되어 finding bundle 기준 on-demand AI explanation을 요청할 수 있음
+  - `ai_explanations` cache store가 same-input hash cache와 scope cooldown을 관리해 과도한 LLM 재호출을 억제함
+  - OpenAI client 미설정 시에도 deterministic fallback explanation을 반환해 product path를 유지함
+  - `POST /v1/analyst/wallets/:chain/:address/explain` 추가되어 wallet brief 기준 on-demand AI explanation을 요청할 수 있음
+  - explanation daily quota는 `audit_logs` 기준 append-only generation count를 사용해 shared cache row overwrite 문제를 피함
+  - exact cache hit는 quota를 차감하지 않고, `forceRefresh`는 scope cooldown만 우회하며, `async`는 queued regeneration을 `202`로 반환
+  - `POST /v1/analyst/wallets/:chain/:address/analyze` 추가되어 question -> brief/patterns/counterparties/graph/timeline/analogs orchestration을 bounded analyst answer로 반환할 수 있음
 - Definition of Done:
   - analyst-prefixed read routes가 실서빙 경로로 동작함
   - deterministic tool/drill-down 응답이 analyst surface에서 추가 재조합 없이 바로 소비 가능함
@@ -678,7 +685,7 @@
   - related addresses expanded row에서 `copy summary`와 `open in search` 액션을 제공하고, 홈 검색 surface가 `?q=` query param으로 같은 주소를 즉시 다시 여는 baseline 완료
   - graph API가 depth gate/empty neighborhood로 fallback될 때 summary counterparties에서 파생한 `summary-derived` graph로 관련 주소 시각화 유지
   - wallet detail hero/summary/graph 패널에서 `GET /v1/...` route 노출을 제거하고 compact graph variant 기준으로 정보 위계를 정리
-  - PRD 그래프 UX 방향을 FlowIntel 고유의 `분석형 hub-and-spoke + partial flow hints`와 signal-first investigation view로 고정
+  - PRD 그래프 UX 방향을 Qorvi 고유의 `분석형 hub-and-spoke + partial flow hints`와 signal-first investigation view로 고정
   - focal wallet 중심 `hub-and-spoke + partial flow hints` visual layout baseline 완료
   - home search surface를 result-first layout으로 단순화하고 compact wallet graph preview 연결 완료
   - home main page를 graph-first layout으로 재구성하고, summary는 compact side card로 축소
@@ -971,7 +978,7 @@
   - UX gate checklist
   - rollback/runbook package
 - Current State:
-  - `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`를 beta closeout source of truth로 확장해 `functional`, `reliability`, `UX`, `ops` gate와 `pass / warn / block` 상태를 현재 코드 기준으로 고정
+  - `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`를 beta closeout source of truth로 확장해 `functional`, `reliability`, `UX`, `ops` gate와 `pass / warn / block` 상태를 현재 코드 기준으로 고정
   - evidence bundle 명령을 문서에 직접 명시하고 현재 저장소 기준으로 재실행 가능한 형태로 정리
   - rollback/recovery package에 `search/wallet`, `billing`, `enrichment/provider pressure` 조치와 수동 worker mode 명령을 포함
 - Definition of Done:
@@ -1008,6 +1015,7 @@ production launch를 가장 늦추는 경로는 아래다.
 
 1. analyst tool layer / finding drill-down production hardening
    - evidence timeline, historical analogs, wallet/entity drill-down을 analyst surface에서 바로 소비 가능한 수준으로 보강
+   - `finding explain`, `wallet explain`, `wallet analyze` 이후 interactive analyst chat/tool orchestration을 실제 surface로 연결
 2. `production deployment readiness`
    - `corepack pnpm prod:*` 엔트리포인트, `/.env.production.example`, production runbook 세트를 기준으로 target environment preflight, replay, rollback, operator sign-off 최종 확인
 
@@ -1017,7 +1025,7 @@ production launch를 가장 늦추는 경로는 아래다.
 위 순서는 다음 세션에서도 기본 우선순위로 유지한다. 새로운 아이디어가 생겨도, 문서에 명시적으로 재정렬하기 전에는 이 순서를 깨지 않는다.
 ## AI Workspace
 
-- AI analyst workstream is now split into `/Users/kh/Github/FlowIntel/flowintel-ai`
+- AI analyst workstream is now split into `/Users/kh/Github/Qorvi/qorvi-ai`
 - Use it for dataset specs, agent payload contracts, and evaluation assets
 - Keep core ingestion, labeling, and scoring changes in the main product stack
 - Initial completed specs:

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 const listWalletRefsForRealtimeTrackingSQL = `

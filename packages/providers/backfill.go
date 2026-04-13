@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type ProviderActivityFixtureInput struct {
@@ -197,7 +197,7 @@ func NormalizeProviderActivity(activity ProviderWalletActivity) (domain.Normaliz
 		RawPayloadPath: metadataStringOrDefault(
 			activity.Metadata,
 			"raw_payload_path",
-			fmt.Sprintf("s3://flowintel/raw/%s/%s/%s.json", activity.Provider, activity.Chain, sanitizeSourceID(activity.SourceID)),
+			fmt.Sprintf("s3://qorvi/raw/%s/%s/%s.json", activity.Provider, activity.Chain, sanitizeSourceID(activity.SourceID)),
 		),
 		Provider: string(activity.Provider),
 	})

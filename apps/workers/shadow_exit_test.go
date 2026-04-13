@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type fakeShadowExitCandidateReader struct {
@@ -104,10 +104,12 @@ func TestShadowExitSnapshotServiceRunSnapshot(t *testing.T) {
 	signals := &fakeSignalEventStore{}
 	jobRuns := &fakeJobRunStore{}
 	summaryCache := &fakeWalletSummaryCache{}
+	tracking := &fakeWalletTrackingStateStore{}
 	service := ShadowExitSnapshotService{
-		Signals: signals,
-		Cache:   summaryCache,
-		JobRuns: jobRuns,
+		Signals:  signals,
+		Tracking: tracking,
+		Cache:    summaryCache,
+		JobRuns:  jobRuns,
 		Now: func() time.Time {
 			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
 		},
@@ -146,6 +148,9 @@ func TestShadowExitSnapshotServiceRunSnapshot(t *testing.T) {
 	}
 	if len(summaryCache.deleteKeys) != 1 || summaryCache.deleteKeys[0] != "wallet-summary:solana:So11111111111111111111111111111111111111112" {
 		t.Fatalf("expected summary cache invalidation, got %#v", summaryCache.deleteKeys)
+	}
+	if len(tracking.progresses) != 1 || tracking.progresses[0].Status != db.WalletTrackingStatusScored {
+		t.Fatalf("expected scored tracking progress, got %#v", tracking.progresses)
 	}
 	if jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("unexpected job run status %q", jobRuns.entries[0].Status)
@@ -372,26 +377,26 @@ func TestShadowExitSnapshotServiceRunSnapshotUsesDetectorInputs(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsShadowExitSnapshotFlow(t *testing.T) {
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "solana")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "So11111111111111111111111111111111111111112")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
+	t.Setenv("QORVI_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
+	t.Setenv("QORVI_SHADOW_EXIT_CHAIN", "solana")
+	t.Setenv("QORVI_SHADOW_EXIT_ADDRESS", "So11111111111111111111111111111111111111112")
+	t.Setenv("QORVI_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
+	t.Setenv("QORVI_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
+	t.Setenv("QORVI_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
+	t.Setenv("QORVI_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeShadowExitSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -421,26 +426,26 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsShadowExitSnapshotAutoDetectFlow(t *testing.T) {
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_WALLET_ID", "")
+	t.Setenv("QORVI_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("QORVI_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_SHADOW_EXIT_OBSERVED_AT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
+	t.Setenv("QORVI_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_COUNT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "")
+	t.Setenv("QORVI_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "")
+	t.Setenv("QORVI_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "")
+	t.Setenv("QORVI_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeShadowExitSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -484,19 +489,19 @@ func TestBuildWorkerOutputRunsShadowExitSnapshotAutoDetectFlow(t *testing.T) {
 }
 
 func TestShadowExitSignalFromEnvBuildsDetectorInputs(t *testing.T) {
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
+	t.Setenv("QORVI_SHADOW_EXIT_WALLET_ID", "wallet_fixture")
+	t.Setenv("QORVI_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("QORVI_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_SHADOW_EXIT_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_CEX_PROXIMITY_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_FAN_OUT_CANDIDATE_COUNT_24H", "2")
+	t.Setenv("QORVI_SHADOW_EXIT_OUTBOUND_TRANSFER_COUNT_24H", "4")
+	t.Setenv("QORVI_SHADOW_EXIT_INBOUND_TRANSFER_COUNT_24H", "6")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_ESCAPE_COUNT", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_TREASURY_WHITELIST_DISCOUNT", "true")
+	t.Setenv("QORVI_SHADOW_EXIT_INTERNAL_REBALANCE_DISCOUNT", "true")
 
 	signal := shadowExitSignalFromEnv()
 	if signal.FanOut24hCount != 2 {
@@ -514,20 +519,20 @@ func TestShadowExitSignalFromEnvBuildsDetectorInputs(t *testing.T) {
 }
 
 func TestShadowExitShouldAutoDetect(t *testing.T) {
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_WALLET_ID", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_SHADOW_EXIT_WALLET_ID", "")
+	t.Setenv("QORVI_SHADOW_EXIT_CHAIN", "evm")
+	t.Setenv("QORVI_SHADOW_EXIT_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
 	if !shadowExitShouldAutoDetect() {
 		t.Fatal("expected auto detect to be enabled when manual metrics are absent")
 	}
 
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", "1")
 	if shadowExitShouldAutoDetect() {
 		t.Fatal("expected manual metrics to disable auto detect")
 	}
 
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
-	t.Setenv("FLOWINTEL_SHADOW_EXIT_AUTO_DETECT", "false")
+	t.Setenv("QORVI_SHADOW_EXIT_BRIDGE_TRANSFERS", "")
+	t.Setenv("QORVI_SHADOW_EXIT_AUTO_DETECT", "false")
 	if shadowExitShouldAutoDetect() {
 		t.Fatal("expected explicit auto detect=false to disable auto detect")
 	}

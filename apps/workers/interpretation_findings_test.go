@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 type fakeFindingStore struct {
@@ -877,6 +877,455 @@ func TestFirstConnectionSnapshotServiceSkipsHighConvictionEntryWithoutConvergenc
 
 	if hasFindingType(findings.entries, domain.FindingTypeHighConvictionEntry) {
 		t.Fatalf("expected high_conviction_entry to be gated by convergence evidence, got %#v", findings.entries)
+	}
+}
+
+func TestShadowExitFindingEntriesSurfaceSuppressionSummary(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildShadowExitRiskScore(intelligence.ShadowExitSignal{
+		WalletID:                  "wallet_fixture",
+		Chain:                     domain.ChainEVM,
+		Address:                   "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:                "2026-03-20T09:10:11Z",
+		BridgeTransfers:           1,
+		CEXProximityCount:         1,
+		FanOutCount:               1,
+		FanOut24hCount:            2,
+		OutflowRatio:              0.4,
+		BridgeEscapeCount:         1,
+		TreasuryWhitelistDiscount: true,
+		InternalRebalanceDiscount: true,
+	})
+	entries := shadowExitFindingEntries(ShadowExitSnapshotReport{
+		WalletID:                  "wallet_fixture",
+		Chain:                     "evm",
+		Address:                   "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:                "2026-03-20T09:10:11Z",
+		BridgeEscapeCount:         1,
+		CEXProximityCount:         1,
+		FanOutCount:               1,
+		BridgeOutflowShare:        0.42,
+		ExchangeOutflowShare:      0.31,
+		DepositLikePathCount:      1,
+		TreasuryWhitelistDiscount: true,
+		InternalRebalanceDiscount: true,
+	}, score, nil)
+
+	entry := firstFindingByType(entries, domain.FindingTypeExitPreparation)
+	if entry == nil {
+		t.Fatalf("expected exit_preparation entry")
+	}
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "suppression_summary"), "treasury_whitelist_discount") {
+		t.Fatalf("expected suppression summary in bundle, got %#v", entry.Bundle)
+	}
+	if !strings.Contains(entry.Summary, "suppressors remain active") {
+		t.Fatalf("expected suppression-aware summary, got %#v", entry.Summary)
+	}
+}
+
+func TestShadowExitFindingEntriesIncludeRouteSummary(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildShadowExitRiskScore(intelligence.ShadowExitSignal{
+		WalletID:          "wallet_fixture",
+		Chain:             domain.ChainEVM,
+		Address:           "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:        "2026-03-20T09:10:11Z",
+		BridgeTransfers:   1,
+		CEXProximityCount: 1,
+		FanOutCount:       1,
+		FanOut24hCount:    2,
+		OutflowRatio:      0.7,
+		BridgeEscapeCount: 1,
+	})
+	entries := shadowExitFindingEntries(ShadowExitSnapshotReport{
+		WalletID:             "wallet_fixture",
+		Chain:                "evm",
+		Address:              "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:           "2026-03-20T09:10:11Z",
+		BridgeEscapeCount:    1,
+		CEXProximityCount:    1,
+		FanOutCount:          1,
+		BridgeOutflowShare:   0.52,
+		ExchangeOutflowShare: 0.33,
+		DepositLikePathCount: 2,
+	}, score, &db.WalletBridgeExchangeEvidenceReport{
+		BridgeLinks: []db.WalletBridgeLinkObservation{
+			{
+				BridgeChain:        domain.ChainEVM,
+				BridgeAddress:      "0xbridge",
+				DestinationChain:   domain.ChainSolana,
+				DestinationAddress: "So11111111111111111111111111111111111111112",
+			},
+		},
+		ExchangePaths: []db.WalletExchangePathObservation{
+			{
+				PathKind:           "intermediary_exchange_path",
+				IntermediaryLabel:  "Jupiter Router",
+				ExchangeLabel:      "Binance",
+				ExchangeEntityType: "exchange",
+			},
+		},
+		BridgeFeatures: db.WalletBridgeFeatures{
+			BridgeOutboundCount:          1,
+			ConfirmedDestinationCount:    1,
+			PostBridgeExchangeTouchCount: 1,
+		},
+		ExchangeFeatures: db.WalletExchangeFlowFeatures{
+			ExchangeOutboundCount: 1,
+			DepositLikePathCount:  2,
+			ExchangeOutflowShare:  0.52,
+		},
+	})
+
+	entry := firstFindingByType(entries, domain.FindingTypeExitPreparation)
+	if entry == nil {
+		t.Fatalf("expected exit_preparation entry")
+	}
+	routeSummary, ok := entry.Bundle["route_summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected route summary bundle, got %#v", entry.Bundle)
+	}
+	if routeSummary["primary_route"] != string(intelligence.RouteCEXDeposit) {
+		t.Fatalf("expected cex deposit primary route, got %#v", routeSummary)
+	}
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "observed_facts"), "Primary flow route classified as") {
+		t.Fatalf("expected route fact in observed facts, got %#v", entry.Bundle)
+	}
+}
+
+func TestClusterScoreFindingEntrySurfacesContradictionSummary(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildClusterScore(intelligence.ClusterSignal{
+		Chain:                          domain.ChainEVM,
+		ObservedAt:                     "2026-03-20T09:10:11Z",
+		OverlappingWallets:             2,
+		SharedCounterparties:           3,
+		SharedCounterpartiesStrength:   24,
+		InteractionPersistenceStrength: 8,
+	})
+	entry := clusterScoreFindingEntry(ClusterScoreSnapshotReport{
+		WalletID:   "wallet_fixture",
+		Chain:      "evm",
+		Address:    "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt: "2026-03-20T09:10:11Z",
+	}, score)
+
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "contradiction_summary"), "no_direct_transfer_corroboration") {
+		t.Fatalf("expected contradiction summary in bundle, got %#v", entry.Bundle)
+	}
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "observed_facts"), "Contradictory signals remain") {
+		t.Fatalf("expected contradiction caution in observed facts, got %#v", entry.Bundle)
+	}
+}
+
+func TestClusterScoreFindingEntrySurfacesSamplingSummary(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildClusterScore(intelligence.ClusterSignal{
+		Chain:                          domain.ChainEVM,
+		ObservedAt:                     "2026-03-20T09:10:11Z",
+		OverlappingWallets:             3,
+		SharedCounterparties:           2,
+		MutualTransferCount:            1,
+		SharedCounterpartiesStrength:   24,
+		InteractionPersistenceStrength: 24,
+	})
+	entry := clusterScoreFindingEntry(ClusterScoreSnapshotReport{
+		WalletID:            "wallet_fixture",
+		Chain:               "evm",
+		Address:             "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:          "2026-03-20T09:10:11Z",
+		GraphNodeCount:      68,
+		GraphEdgeCount:      71,
+		AnalysisNodeCount:   34,
+		AnalysisEdgeCount:   36,
+		SamplingApplied:     true,
+		DensityCappedSource: true,
+	}, score)
+
+	summary, ok := entry.Bundle["sampling_summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sampling summary bundle, got %#v", entry.Bundle)
+	}
+	if summary["sampling_applied"] != true {
+		t.Fatalf("expected sampling_applied=true, got %#v", summary)
+	}
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "observed_facts"), "resampled from a dense graph") {
+		t.Fatalf("expected sampling fact in observed facts, got %#v", entry.Bundle)
+	}
+}
+
+func TestClusterScoreFindingEntryUsesPeerEntityFlowLanguage(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildClusterScore(intelligence.ClusterSignal{
+		Chain:                          domain.ChainEVM,
+		ObservedAt:                     "2026-03-20T09:10:11Z",
+		OverlappingWallets:             4,
+		SharedCounterparties:           2,
+		MutualTransferCount:            1,
+		SharedCounterpartiesStrength:   24,
+		InteractionPersistenceStrength: 24,
+	})
+	entry := clusterScoreFindingEntry(ClusterScoreSnapshotReport{
+		WalletID:   "wallet_fixture",
+		Chain:      "evm",
+		Address:    "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt: "2026-03-20T09:10:11Z",
+	}, score)
+
+	if !strings.Contains(entry.Summary, "shared entity links") {
+		t.Fatalf("expected updated cluster summary language, got %#v", entry)
+	}
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "observed_facts"), "Peer overlap 4, shared entities 2, bidirectional peers 1.") {
+		t.Fatalf("expected peer/entity/flow semantics in observed facts, got %#v", entry.Bundle)
+	}
+}
+
+func TestFirstConnectionFindingEntrySurfacesContradictionSummary(t *testing.T) {
+	t.Parallel()
+
+	score := intelligence.BuildFirstConnectionScore(intelligence.FirstConnectionSignal{
+		WalletID:         "wallet_fixture",
+		Chain:            domain.ChainEVM,
+		Address:          "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:       "2026-03-20T09:10:11Z",
+		NewCommonEntries: 2,
+	})
+	entry := firstConnectionFindingEntry(FirstConnectionSnapshotReport{
+		WalletID:                  "wallet_fixture",
+		Chain:                     "evm",
+		Address:                   "0x1234567890abcdef1234567890abcdef12345678",
+		ObservedAt:                "2026-03-20T09:10:11Z",
+		NewCommonEntries:          2,
+		FirstSeenCounterparties:   0,
+		HotFeedMentions:           0,
+		QualityWalletOverlapCount: 1,
+	}, score)
+
+	if !containsSubstring(stringSliceFromBundle(entry.Bundle, "contradiction_summary"), "narrow_counterparty_surface") {
+		t.Fatalf("expected contradiction summary in bundle, got %#v", entry.Bundle)
+	}
+	if !strings.Contains(entry.Summary, "corroboration is still incomplete") {
+		t.Fatalf("expected contradiction-aware summary, got %#v", entry.Summary)
+	}
+}
+
+func TestShouldEmitTreasuryRedistributionRegressionMatrix(t *testing.T) {
+	t.Parallel()
+
+	baseReport := ShadowExitSnapshotReport{
+		OutflowRatio:             0.42,
+		FanOutCount:              2,
+		FanOutCandidateCount24h:  2,
+		TreasuryAnchorMatchCount: 1,
+	}
+
+	tests := []struct {
+		name     string
+		report   ShadowExitSnapshotReport
+		evidence *db.WalletTreasuryMMEvidenceReport
+		expected bool
+	}{
+		{
+			name:   "strong treasury redistribution path remains allowed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                1,
+					FanoutSignatureCount:            3,
+					OperationalDistributionCount:    1,
+					TreasuryToMarketPathCount:       2,
+					TreasuryToExchangePathCount:     1,
+					DistinctMarketCounterpartyCount: 1,
+				},
+			},
+			expected: true,
+		},
+		{
+			name:   "rebalance-heavy treasury flow is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:             1,
+					FanoutSignatureCount:         0,
+					OperationalDistributionCount: 1,
+					TreasuryToMarketPathCount:    1,
+					RebalanceDiscountCount:       2,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "operational-only distribution without market path is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                 1,
+					FanoutSignatureCount:             3,
+					OperationalDistributionCount:     1,
+					OperationalOnlyDistributionCount: 2,
+					TreasuryToMarketPathCount:        0,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "external non-market flows without exchange or mm path are suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:             1,
+					FanoutSignatureCount:         3,
+					OperationalDistributionCount: 1,
+					TreasuryToMarketPathCount:    1,
+					ExternalNonMarketCount:       2,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "bridge-only treasury path without stronger market confirmation is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasTreasuryLabel: true,
+				TreasuryFeatures: db.WalletTreasuryFeatures{
+					AnchorMatchCount:                1,
+					FanoutSignatureCount:            2,
+					OperationalDistributionCount:    1,
+					TreasuryToMarketPathCount:       1,
+					TreasuryToBridgePathCount:       1,
+					DistinctMarketCounterpartyCount: 1,
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := shouldEmitTreasuryRedistribution(tc.report, tc.evidence)
+			if got != tc.expected {
+				t.Fatalf("expected %t, got %t with report=%#v evidence=%#v", tc.expected, got, tc.report, tc.evidence)
+			}
+		})
+	}
+}
+
+func TestShouldEmitMMHandoffRegressionMatrix(t *testing.T) {
+	t.Parallel()
+
+	baseReport := ShadowExitSnapshotReport{
+		OutflowRatio:      0.38,
+		FanOutCount:       2,
+		CEXProximityCount: 1,
+	}
+
+	tests := []struct {
+		name     string
+		report   ShadowExitSnapshotReport
+		evidence *db.WalletTreasuryMMEvidenceReport
+		expected bool
+	}{
+		{
+			name:   "strong mm handoff path remains allowed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasFundLabel: true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:            1,
+					ProjectToMMPathCount:          1,
+					PostHandoffDistributionCount:  1,
+					PostHandoffExchangeTouchCount: 1,
+					InventoryRotationCount:        1,
+					RepeatMMCounterpartyCount:     2,
+				},
+			},
+			expected: true,
+		},
+		{
+			name:   "contact-only path is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasFundLabel: true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:            1,
+					ProjectToMMPathCount:          0,
+					ProjectToMMContactCount:       1,
+					PostHandoffDistributionCount:  1,
+					PostHandoffExchangeTouchCount: 1,
+					InventoryRotationCount:        1,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "adjacency-only routed candidate is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasFundLabel: true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:              1,
+					ProjectToMMPathCount:            0,
+					ProjectToMMRoutedCandidateCount: 1,
+					ProjectToMMAdjacencyCount:       1,
+					PostHandoffDistributionCount:    1,
+					PostHandoffExchangeTouchCount:   1,
+					InventoryRotationCount:          1,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "bridge-only post-handoff without distribution corroboration is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				HasFundLabel: true,
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:           1,
+					ProjectToMMPathCount:         1,
+					PostHandoffDistributionCount: 1,
+					PostHandoffBridgeTouchCount:  1,
+					InventoryRotationCount:       0,
+					RepeatMMCounterpartyCount:    1,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:   "missing root anchor is suppressed",
+			report: baseReport,
+			evidence: &db.WalletTreasuryMMEvidenceReport{
+				MMFeatures: db.WalletMMFeatures{
+					MMAnchorMatchCount:            1,
+					ProjectToMMPathCount:          1,
+					PostHandoffDistributionCount:  1,
+					PostHandoffExchangeTouchCount: 1,
+					InventoryRotationCount:        1,
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := shouldEmitMMHandoff(tc.report, tc.evidence)
+			if got != tc.expected {
+				t.Fatalf("expected %t, got %t with report=%#v evidence=%#v", tc.expected, got, tc.report, tc.evidence)
+			}
+		})
 	}
 }
 

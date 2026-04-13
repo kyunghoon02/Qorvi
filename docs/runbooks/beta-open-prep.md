@@ -1,11 +1,11 @@
 # Beta Open Prep
 
-이 문서는 FlowIntel beta open 직전 마지막 환경/운영 준비 체크리스트다. gate 판단은 `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`를 따르고, 세부 복구 절차는 `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`를 따른다.
+이 문서는 Qorvi beta open 직전 마지막 환경/운영 준비 체크리스트다. gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/beta-launch-review.md`를 따르고, 세부 복구 절차는 `/Users/kh/Github/Qorvi/docs/runbooks/beta-release-package.md`를 따른다.
 
 env 기준:
 
-- 로컬 개발 템플릿: [/.env.example](/Users/kh/Github/FlowIntel/.env.example)
-- beta 배포 템플릿: [/.env.beta.example](/Users/kh/Github/FlowIntel/.env.beta.example)
+- 로컬 개발 템플릿: [/.env.example](/Users/kh/Github/Qorvi/.env.example)
+- beta 배포 템플릿: [/.env.beta.example](/Users/kh/Github/Qorvi/.env.beta.example)
 
 현재 로컬 runtime 검증 결과:
 
@@ -25,12 +25,13 @@ env 기준:
 beta launch policy:
 
 - beta는 `invite-only / free beta` 기준으로 연다.
+- alerts와 alert delivery는 beta 동안 `signed-in free tier`에도 개방한다.
 - 따라서 Stripe checkout과 subscription sync는 코드상 유지하되, beta open blocker로 취급하지 않는다.
 - billing activation은 post-beta monetization track에서 다시 올린다.
 
 Moralis 설정 원칙:
 
-- 현재 FlowIntel의 Moralis integration은 `체인별 node URL` 모델이 아니라 `전역 API base URL + API key` 모델이다.
+- 현재 Qorvi의 Moralis integration은 `체인별 node URL` 모델이 아니라 `전역 API base URL + API key` 모델이다.
 - 즉 `MORALIS_BASE_URL`은 체인마다 여러 개를 만들지 않고 단일 값으로 유지한다.
 - 권장값:
   - `MORALIS_BASE_URL=https://deep-index.moralis.io/api/v2.2`
@@ -98,14 +99,14 @@ billing을 beta에서 함께 켤 경우 추가 확인:
 
 참고 문서:
 
-- `/Users/kh/Github/FlowIntel/docs/runbooks/beta-operator-handoff.md`
-- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
+- `/Users/kh/Github/Qorvi/docs/runbooks/beta-operator-handoff.md`
+- `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
 
 ## 4. Final Ready Check
 
 아래가 모두 참이면 ready다.
 
-1. `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`가 `go`
+1. `/Users/kh/Github/Qorvi/docs/runbooks/beta-launch-review.md`가 `go`
 2. `corepack pnpm beta:evidence:core`가 통과
 3. 운영자 확인 완료
 

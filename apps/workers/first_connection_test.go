@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type fakeFirstConnectionSignalReader struct {
@@ -98,16 +98,57 @@ func (s *fakeWalletEntryFeaturesStore) ReadHistoricalSustainedEntryOutcomeCount(
 	return s.historicalOutcomeCount, nil
 }
 
+func TestLoadFirstConnectionCounterpartyRouteCounts(t *testing.T) {
+	t.Parallel()
+
+	service := FirstConnectionSnapshotService{
+		Labels: &fakeWalletLabelReader{
+			labels: map[string]domain.WalletLabelSet{
+				"evm|0xrouter": {
+					Verified: []domain.WalletLabel{{
+						Key:   "verified:router:jupiter",
+						Name:  "Jupiter Router",
+						Class: domain.WalletLabelClassVerified,
+					}},
+				},
+				"evm|0xcollector": {
+					Inferred: []domain.WalletLabel{{
+						Key:   "inferred:fee_collector:protocol",
+						Name:  "Fee Collector",
+						Class: domain.WalletLabelClassInferred,
+					}},
+				},
+			},
+		},
+	}
+
+	aggregatorCount, deployerCollectorCount, err := service.loadFirstConnectionCounterpartyRouteCounts(context.Background(), []db.FirstConnectionCandidateCounterparty{
+		{Chain: domain.ChainEVM, Address: "0xrouter"},
+		{Chain: domain.ChainEVM, Address: "0xcollector"},
+	})
+	if err != nil {
+		t.Fatalf("loadFirstConnectionCounterpartyRouteCounts returned error: %v", err)
+	}
+	if aggregatorCount != 1 {
+		t.Fatalf("expected aggregator counterparty count 1, got %d", aggregatorCount)
+	}
+	if deployerCollectorCount != 1 {
+		t.Fatalf("expected deployer/collector count 1, got %d", deployerCollectorCount)
+	}
+}
+
 func TestFirstConnectionSnapshotServiceRunSnapshot(t *testing.T) {
 	t.Parallel()
 
 	signals := &fakeSignalEventStore{}
 	jobRuns := &fakeJobRunStore{}
 	summaryCache := &fakeWalletSummaryCache{}
+	tracking := &fakeWalletTrackingStateStore{}
 	service := FirstConnectionSnapshotService{
-		Signals: signals,
-		Cache:   summaryCache,
-		JobRuns: jobRuns,
+		Signals:  signals,
+		Tracking: tracking,
+		Cache:    summaryCache,
+		JobRuns:  jobRuns,
 		Now: func() time.Time {
 			return time.Date(2026, time.March, 20, 9, 10, 11, 0, time.UTC)
 		},
@@ -146,6 +187,9 @@ func TestFirstConnectionSnapshotServiceRunSnapshot(t *testing.T) {
 	}
 	if len(summaryCache.deleteKeys) != 1 || summaryCache.deleteKeys[0] != "wallet-summary:evm:0x1234567890abcdef1234567890abcdef12345678" {
 		t.Fatalf("expected summary cache invalidation, got %#v", summaryCache.deleteKeys)
+	}
+	if len(tracking.progresses) != 1 || tracking.progresses[0].Status != db.WalletTrackingStatusScored {
+		t.Fatalf("expected scored tracking progress, got %#v", tracking.progresses)
 	}
 	if jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("unexpected job run status %q", jobRuns.entries[0].Status)
@@ -354,20 +398,20 @@ func TestFirstConnectionSnapshotServiceMaturesPriorEntryFeatures(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
+	t.Setenv("QORVI_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
+	t.Setenv("QORVI_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("QORVI_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
+	t.Setenv("QORVI_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
+	t.Setenv("QORVI_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeFirstConnectionSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -397,20 +441,20 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
 }
 
 func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T) {
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_WALLET_ID", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("QORVI_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_FIRST_CONNECTION_OBSERVED_AT", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_HOT_FEED_MENTIONS", "")
 
 	output, err := buildWorkerOutput(
 		t.Context(),
 		workerModeFirstConnectionSnapshot,
 		config.WorkerEnv{
 			NodeEnv:     "development",
-			PostgresURL: "postgres://postgres:postgres@localhost:5432/flowintel",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
 			RedisURL:    "redis://localhost:6379",
 		},
 		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
@@ -452,13 +496,13 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T
 }
 
 func TestFirstConnectionSignalFromEnvBuildsDetectorInputs(t *testing.T) {
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "solana")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "So11111111111111111111111111111111111111112")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
+	t.Setenv("QORVI_FIRST_CONNECTION_WALLET_ID", "wallet_first_connection")
+	t.Setenv("QORVI_FIRST_CONNECTION_CHAIN", "solana")
+	t.Setenv("QORVI_FIRST_CONNECTION_ADDRESS", "So11111111111111111111111111111111111111112")
+	t.Setenv("QORVI_FIRST_CONNECTION_OBSERVED_AT", "2026-03-20T09:10:11Z")
+	t.Setenv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "2")
+	t.Setenv("QORVI_FIRST_CONNECTION_FIRST_SEEN_COUNTERPARTIES", "3")
+	t.Setenv("QORVI_FIRST_CONNECTION_HOT_FEED_MENTIONS", "1")
 
 	signal := firstConnectionSignalFromEnv()
 	if signal.WalletID != "wallet_first_connection" {
@@ -476,20 +520,20 @@ func TestFirstConnectionSignalFromEnvBuildsDetectorInputs(t *testing.T) {
 }
 
 func TestFirstConnectionShouldAutoDetect(t *testing.T) {
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_WALLET_ID", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_CHAIN", "evm")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
+	t.Setenv("QORVI_FIRST_CONNECTION_WALLET_ID", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_CHAIN", "evm")
+	t.Setenv("QORVI_FIRST_CONNECTION_ADDRESS", "0x1234567890abcdef1234567890abcdef12345678")
 	if !firstConnectionShouldAutoDetect() {
 		t.Fatal("expected auto detect to be enabled when manual metrics are absent")
 	}
 
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "1")
+	t.Setenv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "1")
 	if firstConnectionShouldAutoDetect() {
 		t.Fatal("expected manual metrics to disable auto detect")
 	}
 
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
-	t.Setenv("FLOWINTEL_FIRST_CONNECTION_AUTO_DETECT", "false")
+	t.Setenv("QORVI_FIRST_CONNECTION_NEW_COMMON_ENTRIES", "")
+	t.Setenv("QORVI_FIRST_CONNECTION_AUTO_DETECT", "false")
 	if firstConnectionShouldAutoDetect() {
 		t.Fatal("expected explicit auto detect=false to disable auto detect")
 	}

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/flowintel/flowintel/packages/db"
+	"github.com/qorvi/qorvi/packages/db"
 )
 
 type WebhookIngestService interface {

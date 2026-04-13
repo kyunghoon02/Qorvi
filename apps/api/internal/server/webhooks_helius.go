@@ -1,14 +1,18 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type HeliusAddressActivityWebhookEvent struct {
@@ -51,6 +55,40 @@ type heliusWebhookWalletActivitySeed struct {
 	tokenSymbol         string
 	tokenTransferCount  int
 	nativeTransferCount int
+}
+
+func (s *Server) handleHeliusAddressActivityWebhook(w http.ResponseWriter, r *http.Request) {
+	if expectedAuth := strings.TrimSpace(os.Getenv("QORVI_PROVIDER_WEBHOOK_AUTH_HEADER")); expectedAuth != "" {
+		receivedAuth := strings.TrimSpace(r.Header.Get("Authorization"))
+		if subtle.ConstantTimeCompare([]byte(receivedAuth), []byte(expectedAuth)) != 1 {
+			writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "invalid provider webhook authorization", "", ""))
+			return
+		}
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid webhook payload", "", ""))
+		return
+	}
+
+	result, err := s.webhookIngest.IngestProviderWebhook(r.Context(), "helius", json.RawMessage(raw))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", err.Error(), "", ""))
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, Envelope[ProviderWebhookAcceptancePayload]{
+		Success: true,
+		Data: ProviderWebhookAcceptancePayload{
+			Provider:      "helius",
+			EventKind:     result.EventKind,
+			AcceptedCount: result.AcceptedCount,
+			EventCount:    result.AcceptedCount,
+			Accepted:      true,
+		},
+		Meta: newMeta("", "system", freshness("live", 0)),
+	})
 }
 
 func parseHeliusAddressActivityWebhook(raw []byte) ([]HeliusAddressActivityWebhookEvent, error) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type LabeledWalletGraphReader struct {

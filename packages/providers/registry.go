@@ -7,6 +7,7 @@ func DefaultRegistry() Registry {
 		ProviderDune:    NewDuneAdapter(nil),
 		ProviderAlchemy: AlchemyAdapter{},
 		ProviderHelius:  HeliusAdapter{},
+		ProviderMobula:  NewMobulaAdapter(ProviderCredentials{Provider: ProviderMobula}, nil, nil),
 		ProviderMoralis: MoralisAdapter{},
 	}
 }
@@ -28,6 +29,11 @@ func NewConfiguredRegistry(env ProviderEnv) Registry {
 			FallbackAPIKey:  env.AlchemyAPIKey,
 			FallbackBaseURL: env.AlchemySolanaBaseURL,
 		}),
+		ProviderMobula: NewMobulaAdapter(ProviderCredentials{
+			Provider: ProviderMobula,
+			APIKey:   env.MobulaAPIKey,
+			BaseURL:  env.MobulaBaseURL,
+		}, env.MobulaSmartMoneySeeds, nil),
 		ProviderMoralis: NewMoralisAdapter(ProviderCredentials{Provider: ProviderMoralis, APIKey: env.MoralisAPIKey, BaseURL: env.MoralisBaseURL}),
 	}
 }

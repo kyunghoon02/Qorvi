@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/config"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/apps/api/internal/server"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/apps/api/internal/config"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/server"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 func openStorageClients(ctx context.Context, cfg config.Config) (*db.StorageClients, error) {
@@ -54,6 +54,16 @@ func buildFindingsFeedService(clients *db.StorageClients) *service.FindingsFeedS
 		repository.NewQueryBackedFindingsRepository(
 			db.NewFindingStoreFromClients(clients),
 		),
+	)
+}
+
+func buildDiscoverService(clients *db.StorageClients) *service.DiscoverService {
+	if clients == nil {
+		return service.NewDiscoverService(nil)
+	}
+
+	return service.NewDiscoverService(
+		db.NewPostgresWatchlistWalletSeedReaderFromPool(clients.Postgres),
 	)
 }
 
@@ -129,6 +139,42 @@ func buildAnalystFindingDrilldownService(
 			db.NewWalletEntryFeaturesStoreFromClients(clients),
 		),
 	)
+}
+
+func buildAnalystFindingExplanationService(
+	clients *db.StorageClients,
+	walletBriefs *service.WalletBriefService,
+) *service.AnalystFindingExplanationService {
+	findingsRepo := repository.NewQueryBackedFindingsRepository(nil)
+	var explanationStore *db.PostgresAIExplanationStore
+	var auditStore *db.PostgresAuditLogStore
+	if clients != nil {
+		findingsRepo = repository.NewQueryBackedFindingsRepository(
+			db.NewFindingStoreFromClients(clients),
+		)
+		explanationStore = db.NewAIExplanationStoreFromClients(clients)
+		auditStore = db.NewPostgresAuditLogStoreFromPool(clients.Postgres)
+	}
+
+	return service.NewAnalystFindingExplanationService(
+		findingsRepo,
+		walletBriefs,
+		explanationStore,
+		auditStore,
+		service.NewOpenAIChatFindingExplanationClient(
+			strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+			strings.TrimSpace(os.Getenv("OPENAI_MODEL")),
+		),
+	)
+}
+
+func buildInteractiveAnalystService(
+	walletBriefs *service.WalletBriefService,
+	analystTools *service.AnalystToolsService,
+	analystFindings *service.AnalystFindingDrilldownService,
+	entities *service.EntityInterpretationService,
+) *service.InteractiveAnalystService {
+	return service.NewInteractiveAnalystService(walletBriefs, analystTools, analystFindings, entities)
 }
 
 func buildClusterDetailService(clients *db.StorageClients) *service.ClusterDetailService {
@@ -211,11 +257,45 @@ func buildAdminConsoleService(clients *db.StorageClients) *service.AdminConsoleS
 	return service.NewAdminConsoleService(
 		repository.NewPostgresAdminConsoleRepository(
 			db.NewPostgresAdminConsoleStoreFromPool(clients.Postgres),
+			db.NewRedisAdminQueueStatsStore(clients.Redis),
 			db.NewPostgresWatchlistStoreFromPool(clients.Postgres),
 			db.NewPostgresAuditLogStoreFromPool(clients.Postgres),
 			db.NewCuratedEntityIndexStoreFromClients(clients),
 		),
 	)
+}
+
+func buildAdminBacktestOpsService() *service.AdminBacktestOpsService {
+	manifestPath := strings.TrimSpace(os.Getenv("QORVI_BACKTEST_MANIFEST_PATH"))
+	if manifestPath == "" {
+		manifestPath = "packages/intelligence/test/backtest-manifest.json"
+	}
+	presetPath := strings.TrimSpace(os.Getenv("QORVI_DUNE_QUERY_PRESET_PATH"))
+	if presetPath == "" {
+		presetPath = "queries/dune/backtest/query-presets.json"
+	}
+	candidateExportPath := strings.TrimSpace(os.Getenv("QORVI_DUNE_CANDIDATE_EXPORT_PATH"))
+	if candidateExportPath == "" {
+		candidateExportPath = "packages/intelligence/test/dune-backtest-candidates.json"
+	}
+	svc := service.NewAdminBacktestOpsService(
+		manifestPath,
+		presetPath,
+		candidateExportPath,
+	)
+	svcBaseURL := strings.TrimSpace(os.Getenv("DUNE_API_BASE_URL"))
+	if svcBaseURL != "" {
+		svcBaseURL = strings.TrimRight(svcBaseURL, "/")
+	}
+	if svcBaseURL == "" {
+		svcBaseURL = "https://api.dune.com/api/v1"
+	}
+	svc.ConfigureDuneFetch(
+		strings.TrimSpace(os.Getenv("DUNE_API_KEY")),
+		svcBaseURL,
+		&http.Client{Timeout: 20 * time.Second},
+	)
+	return svc
 }
 
 func buildBillingService(clients *db.StorageClients) *service.BillingService {
@@ -297,12 +377,12 @@ func buildWebhookIngestService(clients *db.StorageClients) server.WebhookIngestS
 }
 
 func apiRawPayloadRoot() string {
-	root := strings.TrimSpace(os.Getenv("FLOWINTEL_RAW_PAYLOAD_ROOT"))
+	root := strings.TrimSpace(os.Getenv("QORVI_RAW_PAYLOAD_ROOT"))
 	if root != "" {
 		return root
 	}
 
-	return ".flowintel/raw-payloads"
+	return ".qorvi/raw-payloads"
 }
 
 func buildMoralisWalletSummaryEnricher(clients *db.StorageClients) service.WalletSummaryEnricher {

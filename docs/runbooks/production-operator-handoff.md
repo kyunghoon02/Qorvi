@@ -1,6 +1,6 @@
 # Production Operator Handoff
 
-이 문서는 FlowIntel production 운영자가 바로 참고하는 handoff 요약본이다. gate 판단은 `/Users/kh/Github/FlowIntel/docs/runbooks/launch-gates.md`, release closeout 순서는 `/Users/kh/Github/FlowIntel/docs/runbooks/production-release-package.md`, 세부 운영 절차는 `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`를 따른다.
+이 문서는 Qorvi production 운영자가 바로 참고하는 handoff 요약본이다. gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`, release closeout 순서는 `/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md`, 세부 운영 절차는 `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`를 따른다.
 
 ## 1. Scope
 
@@ -46,19 +46,19 @@ corepack pnpm dev:stack:no-worker
 wallet backfill 재시도:
 
 ```bash
-FLOWINTEL_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
+QORVI_WORKER_MODE=wallet-backfill-drain-batch corepack pnpm dev:workers
 ```
 
 billing subscription sync 재실행:
 
 ```bash
-FLOWINTEL_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
+QORVI_WORKER_MODE=billing-subscription-sync corepack pnpm dev:workers
 ```
 
 Moralis enrichment refresh 재실행:
 
 ```bash
-FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
+QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 ```
 
 ## 5. Incident Triage

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import {
   Fragment,
   useCallback,
@@ -9,18 +10,29 @@ import {
   useState,
 } from "react";
 
-import { Badge, type Tone } from "@flowintel/ui";
+import { Badge, type Tone } from "@qorvi/ui";
 
+import {
+  type AnalystMemoryTurn,
+  buildWalletAnalystMemoryScopeKey,
+  readAnalystMemory,
+  writeAnalystMemory,
+} from "../../../../lib/analyst-memory";
 import type {
+  AnalystWalletAnalyzeEvidenceRefPreview,
+  AnalystWalletAnalyzePreview,
+  AnalystWalletAnalyzeRecentTurnInput,
   ClusterDetailPreview,
   WalletBriefPreview,
   WalletDetailRequest,
   WalletGraphPreview,
   WalletGraphPreviewEdge,
   WalletGraphPreviewNode,
+  WalletSummaryClusterScoreBreakdownPreview,
   WalletSummaryPreview,
 } from "../../../../lib/api-boundary";
 import {
+  analyzeAnalystWallet,
   buildClusterDetailHref,
   buildProductSearchHref,
   buildWalletDetailHref,
@@ -34,7 +46,11 @@ import {
   trackWalletAlertRule,
 } from "../../../../lib/api-boundary";
 import { useClerkRequestHeaders } from "../../../../lib/clerk-client-auth";
+import { useTranslation } from "../../../../lib/i18n/provider";
 import { persistClientForwardedAuthHeaders } from "../../../../lib/request-headers";
+import { LanguageSwitcher } from "../../../components/language-switcher";
+import { PageShell } from "../../../components/page-shell";
+import type { FlowLensContext } from "./wallet-detail-route";
 import {
   type GraphEntityAssignmentPresentation,
   buildCounterpartyEntityAssignment,
@@ -86,6 +102,7 @@ export type WalletDetailViewModel = {
     value: number;
     rating: string;
     tone: Tone;
+    clusterBreakdown?: WalletSummaryClusterScoreBreakdownPreview;
   }>;
   latestSignals: WalletLatestSignalViewModel[];
   indexing: WalletIndexingViewModel;
@@ -256,8 +273,8 @@ export type WalletRelatedAddressSortKey =
   | "outbound_volume"
   | "inbound_volume";
 
-const MAX_GRAPH_HOP_BUDGET = 20;
 const MAX_GRAPH_NODE_BUDGET = 120;
+const DEFAULT_WALLET_GRAPH_DEPTH = 3;
 
 export type WalletGraphExpansionState = {
   canExpand: boolean;
@@ -275,11 +292,13 @@ export function buildWalletDetailViewModel({
   summary,
   graph,
   brief,
+  t,
 }: {
   request: WalletDetailRequest;
   summary: WalletSummaryPreview;
   graph: WalletGraphPreview;
   brief?: WalletBriefPreview;
+  t: (key: string) => string;
 }): WalletDetailViewModel {
   const summaryAvailability =
     buildWalletSummaryAvailabilityPresentation(summary);
@@ -310,6 +329,9 @@ export function buildWalletDetailViewModel({
       value: score.value,
       rating: score.rating,
       tone: scoreToneByName[score.name] ?? score.tone,
+      ...(score.clusterBreakdown
+        ? { clusterBreakdown: score.clusterBreakdown }
+        : {}),
     })),
     latestSignals: summary.latestSignals.map((signal) => ({
       name: signal.name,
@@ -323,12 +345,12 @@ export function buildWalletDetailViewModel({
       status: summary.indexing.status,
       statusLabel:
         summary.indexing.status === "indexing"
-          ? "Background indexing"
-          : "Coverage ready",
+          ? t("walletDetail.labels.indexing")
+          : t("walletDetail.labels.coverageReady"),
       actionLabel:
         summary.indexing.status === "indexing"
-          ? "Continue indexing"
-          : "Expand coverage",
+          ? t("walletDetail.labels.continueIndexing")
+          : t("walletDetail.labels.expandCoverage"),
       helperCopy:
         summary.indexing.status === "indexing"
           ? "Fresh counterparties and flows are still being collected. This panel refreshes automatically."
@@ -463,6 +485,7 @@ function buildWalletBriefViewModel(
   const primarySignal = summary.latestSignals[0];
   const primaryCounterparty = summary.topCounterparties[0];
   const leadingScore = summary.scores[0];
+  const clusterBreakdown = findPrimaryClusterBreakdown(summary);
 
   const headline = primarySignal?.label
     ? `${summary.label} is showing ${primarySignal.label}.`
@@ -495,6 +518,11 @@ function buildWalletBriefViewModel(
   ].slice(0, 4);
 
   const evidence = [
+    ...(clusterBreakdown
+      ? [
+          `Cluster cohort evidence: ${clusterBreakdown.peerWalletOverlap} peer overlaps, ${clusterBreakdown.sharedEntityLinks} shared entity links, ${clusterBreakdown.bidirectionalPeerFlows} bidirectional peer flows.`,
+        ]
+      : []),
     primaryCounterparty
       ? `Top counterparty ${compactAddress(primaryCounterparty.address)} with ${primaryCounterparty.interactionCount} hits.`
       : "No top counterparty evidence is available yet.",
@@ -504,6 +532,10 @@ function buildWalletBriefViewModel(
   ];
 
   const nextWatch = [
+    ...(clusterBreakdown?.samplingApplied ||
+    clusterBreakdown?.sourceDensityCapped
+      ? ["Review the sampled cohort before treating the cluster as conclusive."]
+      : []),
     ...(primaryCounterparty?.entityLabel
       ? [`Follow ${primaryCounterparty.entityLabel} linked flow.`]
       : []),
@@ -531,6 +563,107 @@ const graphToneByKind: Record<string, Tone> = {
 
 function formatGraphKind(kind: string): string {
   return kind.replaceAll("_", " ");
+}
+
+function formatFlowLensDirectionLabel(direction: string | undefined): string {
+  const normalized = String(direction ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["ex_in", "exchange_in", "in", "inflow"].includes(normalized)) {
+    return "Exchange inflow";
+  }
+  if (["ex_out", "exchange_out", "out", "outflow"].includes(normalized)) {
+    return "Exchange outflow";
+  }
+  return normalized.replaceAll("_", " ");
+}
+
+function formatFlowLensObservedAt(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return normalized;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    hour12: false,
+  }).format(parsed);
+}
+
+function formatFlowLensNumeric(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  const asNumber = Number(normalized);
+  if (!normalized || Number.isNaN(asNumber)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: Math.abs(asNumber) >= 1000 ? 0 : 2,
+  }).format(asNumber);
+}
+
+function formatFlowLensUsd(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  const asNumber = Number(normalized);
+  if (!normalized || Number.isNaN(asNumber)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: Math.abs(asNumber) >= 1000 ? "compact" : "standard",
+    maximumFractionDigits: Math.abs(asNumber) >= 1000 ? 1 : 2,
+  }).format(asNumber);
+}
+
+function buildFlowLensContextSummary(
+  flowLensContext: FlowLensContext | null | undefined,
+): string {
+  if (!flowLensContext) {
+    return "";
+  }
+
+  const segments: string[] = [];
+  const directionLabel = formatFlowLensDirectionLabel(flowLensContext.direction);
+  const observedAt = formatFlowLensObservedAt(flowLensContext.flowMinute);
+  const amount = formatFlowLensNumeric(flowLensContext.amount);
+  const approxUsd = formatFlowLensUsd(flowLensContext.approxUsd);
+
+  if (directionLabel) {
+    segments.push(`Observed as ${directionLabel.toLowerCase()}`);
+  } else {
+    segments.push("Opened from a FlowLens signal");
+  }
+
+  if (flowLensContext.exchange) {
+    segments.push(`on ${flowLensContext.exchange}`);
+  }
+  if (flowLensContext.symbol) {
+    segments.push(`for ${flowLensContext.symbol}`);
+  }
+  if (observedAt) {
+    segments.push(`at ${observedAt} UTC`);
+  }
+  if (amount) {
+    segments.push(`transfer size ${amount}`);
+  }
+  if (approxUsd) {
+    segments.push(`approx ${approxUsd}`);
+  }
+
+  return `${segments.join(". ")}.`;
 }
 
 function resolveGraphNodeLabel(
@@ -662,14 +795,20 @@ export function WalletDetailScreen({
   summary,
   brief,
   graph,
+  flowLensContext,
   requestHeaders,
 }: {
   request: WalletDetailRequest;
   summary: WalletSummaryPreview;
   brief?: WalletBriefPreview;
   graph: WalletGraphPreview;
+  flowLensContext?: FlowLensContext | null;
   requestHeaders?: HeadersInit;
 }) {
+  const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const analystSeedQuestion = searchParams.get("ask")?.trim() ?? "";
+  const consumedAnalystSeedQuestionRef = useRef<string | null>(null);
   const [summaryPreviewState, setSummaryPreviewState] = useState(summary);
   const [briefPreviewState, setBriefPreviewState] = useState<
     WalletBriefPreview | undefined
@@ -697,6 +836,12 @@ export function WalletDetailScreen({
   const [isRefreshingWallet, setIsRefreshingWallet] = useState(false);
   const [isTrackingWallet, setIsTrackingWallet] = useState(false);
   const [trackWalletMessage, setTrackWalletMessage] = useState("");
+  const [analystQuestion, setAnalystQuestion] = useState("");
+  const [isAnalyzingWallet, setIsAnalyzingWallet] = useState(false);
+  const [walletAnalysisTurns, setWalletAnalysisTurns] = useState<
+    AnalystWalletAnalyzePreview[]
+  >([]);
+  const [walletAnalysisError, setWalletAnalysisError] = useState("");
   const getClerkRequestHeaders = useClerkRequestHeaders();
   const graphSectionRef = useRef<HTMLElement | null>(null);
   const viewModel = buildWalletDetailViewModel({
@@ -704,7 +849,12 @@ export function WalletDetailScreen({
     summary: summaryPreviewState,
     graph: graphPreviewState,
     ...(briefPreviewState ? { brief: briefPreviewState } : {}),
+    t,
   });
+  const analystMemoryScopeKey = useMemo(
+    () => buildWalletAnalystMemoryScopeKey(request.chain, request.address),
+    [request.address, request.chain],
+  );
 
   useEffect(() => {
     setSummaryPreviewState(summary);
@@ -716,12 +866,133 @@ export function WalletDetailScreen({
     );
     setExpandedGraphNeighborhoodKeys([]);
     setTrackWalletMessage("");
+    setAnalystQuestion("");
+    setWalletAnalysisError("");
     setIsTrackingWallet(false);
   }, [summary, brief, graph]);
 
   useEffect(() => {
+    const memory = readAnalystMemory(analystMemoryScopeKey);
+    if (memory.length === 0) {
+      setWalletAnalysisTurns([]);
+      return;
+    }
+    setWalletAnalysisTurns(
+      memory.map((turn) => ({
+        chain: request.chain,
+        address: request.address,
+        question: turn.question,
+        contextReused: true,
+        recentTurnCount: 0,
+        headline: turn.headline,
+        conclusion: [],
+        confidence: "medium",
+        observedFacts: [],
+        inferredInterpretations: [],
+        alternativeExplanations: [],
+        nextSteps: [],
+        toolTrace: turn.toolTrace,
+        evidenceRefs: turn.evidenceRefs,
+      })),
+    );
+  }, [analystMemoryScopeKey, request.address, request.chain]);
+
+  useEffect(() => {
+    const memory: AnalystMemoryTurn[] = walletAnalysisTurns.map((turn) => ({
+      question: turn.question,
+      headline: turn.headline,
+      toolTrace: turn.toolTrace,
+      evidenceRefs: turn.evidenceRefs,
+      createdAt: new Date().toISOString(),
+    }));
+    writeAnalystMemory(analystMemoryScopeKey, memory);
+  }, [analystMemoryScopeKey, walletAnalysisTurns]);
+
+  useEffect(() => {
     persistClientForwardedAuthHeaders(requestHeaders);
   }, [requestHeaders]);
+
+  useEffect(() => {
+    if (!analystSeedQuestion) {
+      return;
+    }
+    setAnalystQuestion((current) => current || analystSeedQuestion);
+  }, [analystSeedQuestion]);
+
+  useEffect(() => {
+    const body = document.body;
+    const html = document.documentElement;
+
+    const hasVisibleModal = () =>
+      Array.from(
+        document.querySelectorAll(
+          [
+            '[role="dialog"][aria-modal="true"]',
+            '[aria-modal="true"]',
+            "[data-clerk-modal]",
+          ].join(", "),
+        ),
+      ).some((element) => {
+        const style = window.getComputedStyle(element);
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        );
+      });
+
+    const clearScrollLockStyles = () => {
+      const targets = [body, html];
+      for (const target of targets) {
+        target.style.removeProperty("overflow");
+        target.style.removeProperty("overflow-x");
+        target.style.removeProperty("overflow-y");
+        target.style.removeProperty("pointer-events");
+        target.style.removeProperty("touch-action");
+        target.style.removeProperty("overscroll-behavior");
+        target.style.removeProperty("position");
+        target.style.removeProperty("top");
+        target.style.removeProperty("left");
+        target.style.removeProperty("right");
+        target.style.removeProperty("width");
+        target.style.removeProperty("height");
+        target.style.removeProperty("padding-right");
+      }
+      body.removeAttribute("data-scroll-locked");
+    };
+
+    const syncScrollLock = () => {
+      if (!hasVisibleModal()) {
+        clearScrollLockStyles();
+      }
+    };
+
+    syncScrollLock();
+
+    const observer = new MutationObserver(() => {
+      syncScrollLock();
+    });
+
+    observer.observe(body, {
+      attributes: true,
+      attributeFilter: ["style", "data-scroll-locked"],
+      childList: true,
+      subtree: true,
+    });
+    observer.observe(html, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+
+    const frame = window.requestAnimationFrame(() => {
+      syncScrollLock();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
 
   const refreshWalletArtifacts = useCallback(
     async ({
@@ -739,6 +1010,7 @@ export function WalletDetailScreen({
         await loadSearchPreview({
           query: request.address,
           refreshMode: "manual",
+          ...(requestHeaders ? { requestHeaders } : {}),
         });
       }
 
@@ -747,8 +1019,12 @@ export function WalletDetailScreen({
           ? {
               request,
               fallback: summaryFallback,
+              ...(requestHeaders ? { requestHeaders } : {}),
             }
-          : { request },
+          : {
+              request,
+              ...(requestHeaders ? { requestHeaders } : {}),
+            },
       );
       if (!canCommit()) {
         return;
@@ -777,15 +1053,17 @@ export function WalletDetailScreen({
           ? {
               request: {
                 ...request,
-                depthRequested: 1,
+                depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
               },
               fallback: graphFallback,
+              ...(requestHeaders ? { requestHeaders } : {}),
             }
           : {
               request: {
                 ...request,
-                depthRequested: 1,
+                depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
               },
+              ...(requestHeaders ? { requestHeaders } : {}),
             },
       );
       if (!canCommit()) {
@@ -798,7 +1076,7 @@ export function WalletDetailScreen({
           ? deriveWalletGraphPreviewFromSummary({
               request: {
                 ...request,
-                depthRequested: 1,
+                depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
               },
               summary: nextSummary,
               fallback: loadedGraph,
@@ -812,8 +1090,36 @@ export function WalletDetailScreen({
     [briefPreviewState, request, requestHeaders],
   );
 
+  const queuedUnavailableRefresh = useRef(false);
+
   useEffect(() => {
-    if (!shouldPollIndexedWalletSummary(summaryPreviewState)) {
+    if (queuedUnavailableRefresh.current) {
+      return;
+    }
+    if (summaryPreviewState.mode !== "unavailable") {
+      return;
+    }
+
+    queuedUnavailableRefresh.current = true;
+    let active = true;
+
+    void refreshWalletArtifacts({
+      triggerRefreshQueue: true,
+      summaryFallback: summaryPreviewState,
+      graphFallback: graphPreviewState,
+      canCommit: () => active,
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [graphPreviewState, refreshWalletArtifacts, summaryPreviewState]);
+
+  useEffect(() => {
+    if (
+      !shouldPollIndexedWalletSummary(summaryPreviewState) &&
+      summaryPreviewState.mode !== "unavailable"
+    ) {
       return;
     }
 
@@ -859,9 +1165,62 @@ export function WalletDetailScreen({
   const heroTitle = looksLikeWalletAddress(viewModel.title)
     ? `${viewModel.chainLabel} wallet`
     : viewModel.title;
+  const flowLensContextDirectionLabel = formatFlowLensDirectionLabel(
+    flowLensContext?.direction,
+  );
+  const flowLensContextSummary = buildFlowLensContextSummary(flowLensContext);
   const graphAvailability = useMemo(
     () => buildWalletGraphAvailabilityPresentation(graphPreviewState),
     [graphPreviewState],
+  );
+  const graphEmptyState = useMemo(() => {
+    const hasRenderedGraph =
+      graphPreviewState.nodes.length > 1 || graphPreviewState.edges.length > 0;
+    if (hasRenderedGraph) {
+      return null;
+    }
+
+    const summaryUnavailable = summaryPreviewState.mode === "unavailable";
+    const indexingStatus = summaryPreviewState.indexing.status;
+    const hasCounterparties = summaryPreviewState.topCounterparties.length > 0;
+
+    if (summaryUnavailable || indexingStatus === "indexing") {
+      return {
+        title: "Queued for indexing",
+        summary:
+          "We queued this wallet for background backfill. Summary data may appear before relationship edges are materialized.",
+        helper:
+          "Keep this page open for a few seconds or refresh once to load the first graph snapshot.",
+      };
+    }
+
+    if (!hasCounterparties) {
+      return {
+        title: "No indexed interactions yet",
+        summary:
+          "This wallet is indexed, but there are no counterparties in the current coverage window yet.",
+        helper:
+          "Try again after more activity is ingested or search a wallet with existing onchain interaction history.",
+      };
+    }
+
+    return {
+      title: "Graph is still warming up",
+      summary:
+        "We have summary coverage for this wallet, but the relationship graph has not materialized yet.",
+      helper:
+        "Use refresh now to request another graph load after the latest backfill finishes.",
+    };
+  }, [graphPreviewState, summaryPreviewState]);
+  const analystRecentTurns = useMemo<AnalystWalletAnalyzeRecentTurnInput[]>(
+    () =>
+      walletAnalysisTurns.slice(-3).map((turn) => ({
+        question: turn.question,
+        headline: turn.headline,
+        toolTrace: turn.toolTrace,
+        evidenceRefs: turn.evidenceRefs,
+      })),
+    [walletAnalysisTurns],
   );
   const graphSourceCopy = graphAvailability.statusCopy;
   const selectedGraphNode =
@@ -1028,6 +1387,7 @@ export function WalletDetailScreen({
         graphNodes: viewModel.graphNodes,
         relatedAddresses: viewModel.relatedAddresses,
         rootRequest: request,
+        ...(requestHeaders ? { requestHeaders } : {}),
       });
 
       if (
@@ -1077,6 +1437,7 @@ export function WalletDetailScreen({
         graphNodes: viewModel.graphNodes,
         relatedAddresses: viewModel.relatedAddresses,
         rootRequest: request,
+        ...(requestHeaders ? { requestHeaders } : {}),
       });
 
       if (
@@ -1117,266 +1478,755 @@ export function WalletDetailScreen({
       setCopiedRelatedAddressKey(null);
     }
   };
+  const handleAnalyzeWallet = useCallback(
+    async (nextQuestion?: string) => {
+      const question = (nextQuestion ?? analystQuestion).trim();
+      if (!question) {
+        setWalletAnalysisError("Enter a wallet question first.");
+        return;
+      }
 
-  return (
-    <main className="page-shell detail-shell">
-      <section className="detail-hero">
-        <div className="detail-hero-copy">
-          <h1>{heroTitle}</h1>
-          <p>{summaryPreviewState.label}</p>
+      setIsAnalyzingWallet(true);
+      setWalletAnalysisError("");
+      try {
+        const authHeaders = requestHeaders ?? (await getClerkRequestHeaders());
+        const result = await analyzeAnalystWallet({
+          request,
+          question,
+          recentTurns: analystRecentTurns,
+          ...(authHeaders ? { requestHeaders: authHeaders } : {}),
+        });
+        setWalletAnalysisTurns((current) => [...current, result].slice(-4));
+        setAnalystQuestion("");
+      } catch (error) {
+        setWalletAnalysisError(
+          error instanceof Error
+            ? error.message
+            : "wallet analyze request failed",
+        );
+      } finally {
+        setIsAnalyzingWallet(false);
+      }
+    },
+    [
+      analystQuestion,
+      analystRecentTurns,
+      getClerkRequestHeaders,
+      request,
+      requestHeaders,
+    ],
+  );
+
+  useEffect(() => {
+    if (!analystSeedQuestion) {
+      return;
+    }
+    if (consumedAnalystSeedQuestionRef.current === analystSeedQuestion) {
+      return;
+    }
+    if (isAnalyzingWallet) {
+      return;
+    }
+    consumedAnalystSeedQuestionRef.current = analystSeedQuestion;
+    void handleAnalyzeWallet(analystSeedQuestion);
+  }, [analystSeedQuestion, handleAnalyzeWallet, isAnalyzingWallet]);
+  const relationshipMapSection = (
+    <article
+      ref={graphSectionRef}
+      className="preview-card detail-card boundary-card"
+    >
+      <div className="preview-header">
+        <div>
+          <h2>{summaryPreviewState.label}</h2>
+          <span className="preview-kicker">
+            {t("walletDetail.headers.graphInvestigation")}
+          </span>
         </div>
-
-        <div className="detail-identity">
-          <div>
-            <span>Chain</span>
-            <strong>{viewModel.chainLabel}</strong>
-          </div>
-          <div>
-            <span>Status</span>
-            <strong>{viewModel.indexing.statusLabel}</strong>
-          </div>
-          <div>
-            <span>Coverage</span>
-            <strong>{viewModel.indexing.coverageWindowLabel}</strong>
-          </div>
+        <div className="preview-state">
+          <span className="detail-state-copy">
+            {graphAvailability.stateLabel}
+          </span>
         </div>
+      </div>
 
-        <div className="detail-address-block">
-          <span>Wallet address</span>
-          <strong>{viewModel.address}</strong>
+      <div className="preview-status">
+        <p>{graphSourceCopy}</p>
+        {viewModel.graphSnapshotGeneratedAt ? (
+          <span className="detail-route-copy">
+            {viewModel.graphSnapshotSourceLabel} ·{" "}
+            {viewModel.graphSnapshotGeneratedAt}
+          </span>
+        ) : null}
+      </div>
+      <div className="preview-identity">
+        <div>
+          <span>Hop expansion</span>
+          <strong>{graphExpansionState.hopsUsed} expanded</strong>
         </div>
+        <div>
+          <span>Visible nodes</span>
+          <strong>
+            {graphExpansionState.nodeCount} / {graphExpansionState.nodeBudget}
+          </strong>
+        </div>
+        <div>
+          <span>Density capped</span>
+          <strong>{graphPreviewState.densityCapped ? "true" : "false"}</strong>
+        </div>
+      </div>
 
-        {viewModel.enrichment ? (
-          <div className="detail-enrichment-grid">
-            <article className="detail-enrichment-card">
-              <span>Net worth</span>
+      {selectedGraphNode ? (
+        <div className="detail-graph-actions">
+          <button
+            className="search-cta detail-graph-action"
+            disabled={isExpandingGraph || !graphExpansionState.canExpand}
+            onClick={() => {
+              void handleExpandSelectedGraphNode();
+            }}
+            type="button"
+          >
+            {isExpandingGraph
+              ? "Expanding..."
+              : graphExpansionState.canExpand
+                ? "Expand next hop"
+                : "Expand unavailable"}
+          </button>
+          <span className="detail-graph-action-copy">
+            {graphExpansionState.reason}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="graph-preview-strip detail-graph-stage">
+        <WalletGraphVisual
+          densityCapped={graphPreviewState.densityCapped}
+          edges={graphPreviewState.edges}
+          neighborhoodSummary={graphPreviewState.neighborhoodSummary}
+          nodes={graphPreviewState.nodes}
+          expandableNodeIds={expandableGraphNodeIds}
+          expandingNodeId={isExpandingGraph ? selectedGraphNodeId : null}
+          onExpandNode={(nodeId) => {
+            void handleExpandGraphNode(nodeId);
+          }}
+          onSelectedEdgeIdChange={setSelectedGraphRelationshipKey}
+          onSelectedNodeIdChange={setSelectedGraphNodeId}
+          selectedEdgeId={selectedGraphRelationshipKey}
+          selectedNodeId={selectedGraphNodeId}
+          variant="hero"
+        />
+
+        <div className="detail-map-metrics">
+          <article className="detail-map-metric">
+            <span>Visible nodes</span>
+            <strong>{viewModel.graphNodeCount}</strong>
+          </article>
+          <article className="detail-map-metric">
+            <span>Visible edges</span>
+            <strong>{viewModel.graphEdgeCount}</strong>
+          </article>
+          <article className="detail-map-metric">
+            <span>Top relationship load</span>
+            <strong>{viewModel.graphRelationships[0]?.weight ?? 0}</strong>
+          </article>
+          <article className="detail-map-metric">
+            <span>Hop expansion</span>
+            <strong>{graphExpansionState.hopsUsed} expanded</strong>
+          </article>
+        </div>
+      </div>
+
+      {selectedGraphNode ? (
+        <div
+          className="detail-node-inspector"
+          data-node-kind={selectedGraphNode.kind}
+        >
+          <div className="detail-node-inspector-head">
+            <div>
+              <strong>{selectedGraphNode.label}</strong>
+            </div>
+            <div className="detail-node-inspector-actions">
+              <Badge tone={selectedGraphNode.tone}>
+                {selectedGraphNode.kindLabel}
+              </Badge>
+              {selectedGraphNodeHref ? (
+                <a className="detail-inline-link" href={selectedGraphNodeHref}>
+                  {buildSelectedGraphNodeHrefLabel(selectedGraphNode)}
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <div className="detail-node-inspector-grid">
+            <article className="detail-node-inspector-card">
+              <span>Identity</span>
               <strong>
-                {formatNetWorthUsd(viewModel.enrichment.netWorthUsd)}
+                {selectedGraphNode.address
+                  ? compactAddress(selectedGraphNode.address)
+                  : selectedGraphNode.id}
               </strong>
-              <p>
-                {formatEnrichmentProvider(viewModel.enrichment.provider)} ·{" "}
-                {formatRelativeTime(viewModel.enrichment.updatedAt)}
-              </p>
             </article>
-            <article className="detail-enrichment-card">
-              <span>Native balance</span>
+            <article className="detail-node-inspector-card">
+              <span>Expansion</span>
               <strong>
-                {formatEnrichmentValue(
-                  viewModel.enrichment.nativeBalanceFormatted,
-                )}
+                {graphExpansionState.canExpand ? "available" : "blocked"}
               </strong>
-              <p>{formatEnrichmentSource(viewModel.enrichment.source)}</p>
             </article>
-            <article className="detail-enrichment-card">
-              <span>Active chains</span>
-              <strong>{viewModel.enrichment.activeChainCount}</strong>
-              <p>{viewModel.enrichment.activeChainCount} chains observed</p>
-              <div className="detail-enrichment-list">
-                {viewModel.enrichment.activeChains
-                  .slice(0, 4)
-                  .map((chainLabel) => (
-                    <span key={chainLabel} className="detail-enrichment-item">
-                      {chainLabel}
-                    </span>
-                  ))}
-                {viewModel.enrichment.activeChainCount >
-                viewModel.enrichment.activeChains.slice(0, 4).length ? (
-                  <span className="detail-enrichment-item">
-                    +
-                    {viewModel.enrichment.activeChainCount -
-                      viewModel.enrichment.activeChains.slice(0, 4).length}
-                  </span>
-                ) : null}
+            <article className="detail-node-inspector-card">
+              <span>Rule</span>
+              <strong>{graphExpansionState.reason}</strong>
+            </article>
+            <article className="detail-node-inspector-card">
+              <span>Budget</span>
+              <strong>{graphExpansionState.budgetLabel}</strong>
+            </article>
+          </div>
+          {selectedGraphEntityAssignments.length > 0 ? (
+            <div
+              className="detail-entity-linkage"
+              data-node-kind={selectedGraphNode.kind}
+            >
+              <div className="detail-entity-linkage-head">
+                <div>
+                  <span className="preview-kicker">Entity assignments</span>
+                  <strong>
+                    {selectedGraphEntityAssignments.length} visible label
+                    {selectedGraphEntityAssignments.length === 1 ? "" : "s"}
+                  </strong>
+                </div>
               </div>
-            </article>
-            <article className="detail-enrichment-card detail-enrichment-card--wide">
-              <span>Top holdings</span>
-              <strong>{viewModel.enrichment.holdingCount}</strong>
-              <p>
-                {viewModel.enrichment.holdingCount} holdings captured in the
-                latest enrichment snapshot
+              <p className="detail-entity-linkage-copy">
+                Provider or heuristic entity assignments attached to the
+                selected wallet in the current neighborhood.
               </p>
-              <div className="detail-holdings-list">
-                {viewModel.enrichment.holdings.slice(0, 4).map((holding) => (
+              <div className="detail-entity-linkage-strip">
+                {selectedGraphEntityAssignments.map((assignment) => (
                   <div
-                    key={`${holding.symbol}:${holding.tokenAddress}`}
-                    className="detail-holding-item"
+                    key={`${assignment.entityNodeId}:${assignment.source}`}
+                    className="detail-entity-link"
                   >
-                    <div>
-                      <strong>{holding.symbol || "Token"}</strong>
-                      <span>
-                        {holding.balanceFormatted || "Unavailable"}
-                        {holding.isNative ? " · native" : ""}
-                      </span>
-                    </div>
-                    <div>
-                      <strong>{formatHoldingUsdValue(holding.valueUsd)}</strong>
-                      <span>
-                        {formatHoldingAllocation(holding.portfolioPercentage)}
-                      </span>
-                    </div>
+                    {assignment.entityHref ? (
+                      <a
+                        className="detail-inline-link"
+                        href={assignment.entityHref}
+                      >
+                        {assignment.entityLabel}
+                      </a>
+                    ) : (
+                      <span>{assignment.entityLabel}</span>
+                    )}
+                    <Badge tone="amber">entity</Badge>
+                    <Badge tone={assignment.sourceTone}>
+                      {assignment.sourceLabel}
+                    </Badge>
                   </div>
                 ))}
-                {viewModel.enrichment.holdings.length === 0 ? (
-                  <div className="detail-holding-item detail-holding-item--empty">
-                    <div>
-                      <strong>Unavailable</strong>
-                      <span>
-                        No token balances returned in the current snapshot
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
               </div>
-            </article>
-          </div>
-        ) : null}
-
-        <div className="detail-actions">
-          <a className="search-cta" href={viewModel.backHref}>
-            Back to search
-          </a>
-          <button
-            className="search-cta"
-            disabled={isRefreshingWallet}
-            onClick={() => {
-              void (async () => {
-                setIsRefreshingWallet(true);
-                try {
-                  await refreshWalletArtifacts({
-                    triggerRefreshQueue: true,
-                    summaryFallback: summaryPreviewState,
-                    graphFallback: graphPreviewState,
-                  });
-                } finally {
-                  setIsRefreshingWallet(false);
-                }
-              })();
-            }}
-            type="button"
-          >
-            {isRefreshingWallet
-              ? "Expanding..."
-              : viewModel.indexing.actionLabel}
-          </button>
-          <button
-            className="search-cta"
-            disabled={isTrackingWallet}
-            onClick={() => {
-              void (async () => {
-                setIsTrackingWallet(true);
-                setTrackWalletMessage("");
-
-                try {
-                  const authHeaders =
-                    requestHeaders ?? (await getClerkRequestHeaders());
-                  const result = await trackWalletAlertRule({
-                    chain: request.chain,
-                    address: request.address,
-                    label: summaryPreviewState.label,
-                    ...(authHeaders ? { requestHeaders: authHeaders } : {}),
-                  });
-
-                  if (result.nextHref) {
-                    window.location.assign(result.nextHref);
-                    return;
-                  }
-
-                  setTrackWalletMessage(result.message);
-                } finally {
-                  setIsTrackingWallet(false);
-                }
-              })();
-            }}
-            type="button"
-          >
-            {isTrackingWallet ? "Tracking..." : "Track wallet"}
-          </button>
-          {viewModel.clusterDetailHref ? (
-            <a className="search-cta" href={viewModel.clusterDetailHref}>
-              Open cluster detail
-            </a>
+            </div>
+          ) : null}
+          {selectedGraphEntityContext ? (
+            <div
+              className="detail-entity-linkage"
+              data-node-kind={selectedGraphNode.kind}
+            >
+              <div className="detail-entity-linkage-head">
+                <div>
+                  <span className="preview-kicker">
+                    {selectedGraphEntityContext.label}
+                  </span>
+                  <strong>
+                    {selectedGraphEntityContext.links.length} visible link
+                    {selectedGraphEntityContext.links.length === 1 ? "" : "s"}
+                  </strong>
+                </div>
+              </div>
+              <p className="detail-entity-linkage-copy">
+                {selectedGraphEntityContext.helperCopy}
+              </p>
+              {selectedGraphEntityContext.links.length > 0 ? (
+                <div className="detail-entity-linkage-strip">
+                  {selectedGraphEntityContext.links.map((link) =>
+                    link.href ? (
+                      <a
+                        key={link.id}
+                        className="detail-entity-link"
+                        href={link.href}
+                      >
+                        <span>{link.label}</span>
+                        <Badge tone={link.tone}>{link.kindLabel}</Badge>
+                        {link.sourceLabel ? (
+                          <Badge tone={link.sourceTone ?? "teal"}>
+                            {link.sourceLabel}
+                          </Badge>
+                        ) : null}
+                      </a>
+                    ) : (
+                      <div key={link.id} className="detail-entity-link">
+                        <span>{link.label}</span>
+                        <Badge tone={link.tone}>{link.kindLabel}</Badge>
+                        {link.sourceLabel ? (
+                          <Badge tone={link.sourceTone ?? "teal"}>
+                            {link.sourceLabel}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
-        {trackWalletMessage ? (
-          <p className="detail-route-copy" aria-live="polite">
-            {trackWalletMessage}
-          </p>
-        ) : null}
-      </section>
+      ) : null}
 
-      <section className="preview-card detail-card" aria-label="AI brief">
-        <div className="preview-header">
-          <div>
-            <h2>{viewModel.aiBrief.headline}</h2>
-            <span className="preview-kicker">AI brief</span>
+      {selectedGraphRelationship ? (
+        <div className="detail-relationship-inspector">
+          <div className="detail-relationship-inspector-head">
+            <div>
+              <span className="preview-kicker">Selected relationship</span>
+              <strong>
+                {selectedGraphRelationship.sourceLabel} →{" "}
+                {selectedGraphRelationship.targetLabel}
+              </strong>
+            </div>
+            <div className="detail-relationship-inspector-actions">
+              <Badge tone="teal">{selectedGraphRelationship.kindLabel}</Badge>
+              <Badge tone="amber">
+                {selectedGraphRelationship.directionLabel}
+              </Badge>
+              <Badge
+                tone={
+                  selectedGraphRelationship.family === "derived"
+                    ? "violet"
+                    : "teal"
+                }
+              >
+                {selectedGraphRelationship.familyLabel}
+              </Badge>
+              <Badge
+                tone={toneForConfidence(selectedGraphRelationship.confidence)}
+              >
+                {selectedGraphRelationship.confidence}
+              </Badge>
+            </div>
           </div>
-          <div className="preview-state">
-            <span className="detail-state-copy">
-              {viewModel.aiBrief.keyFindings.length} findings
+          <p className="detail-relationship-summary">
+            {selectedGraphRelationship.evidenceSummary}
+          </p>
+          <div className="detail-relationship-inspector-grid">
+            <article className="detail-node-inspector-card">
+              <span>Observed</span>
+              <strong>
+                {selectedGraphRelationship.observedAt || "Unavailable"}
+              </strong>
+            </article>
+            <article className="detail-node-inspector-card">
+              <span>Weight</span>
+              <strong>{selectedGraphRelationship.weight} hits</strong>
+            </article>
+            <article className="detail-node-inspector-card">
+              <span>Flow type</span>
+              <strong>{selectedGraphRelationship.directionLabel}</strong>
+            </article>
+            <article className="detail-node-inspector-card">
+              <span>Primary token</span>
+              <strong>
+                {selectedGraphRelationship.primaryToken || "Unavailable"}
+              </strong>
+            </article>
+            <article className="detail-node-inspector-card">
+              <span>Evidence source</span>
+              <strong>{selectedGraphRelationship.evidenceSource}</strong>
+            </article>
+          </div>
+          <div className="detail-relationship-flow-strip">
+            <article className="detail-relationship-flow-card">
+              <span>Inbound</span>
+              <strong>{selectedGraphRelationship.inboundAmount || "0"}</strong>
+              <small>{selectedGraphRelationship.inboundCount} transfers</small>
+            </article>
+            <article className="detail-relationship-flow-card">
+              <span>Outbound</span>
+              <strong>{selectedGraphRelationship.outboundAmount || "0"}</strong>
+              <small>{selectedGraphRelationship.outboundCount} transfers</small>
+            </article>
+            <article className="detail-relationship-flow-card">
+              <span>Latest provider</span>
+              <strong>
+                {selectedGraphRelationship.lastProvider || "Unavailable"}
+              </strong>
+              <small>
+                {selectedGraphRelationship.lastTxHash
+                  ? compactAddress(selectedGraphRelationship.lastTxHash)
+                  : "No tx hash"}
+              </small>
+            </article>
+          </div>
+          {selectedGraphRelationship.tokenBreakdowns.length > 0 ? (
+            <div className="detail-relationship-token-breakdowns">
+              {selectedGraphRelationship.tokenBreakdowns
+                .slice(0, 3)
+                .map((token) => (
+                  <article
+                    key={`${selectedGraphRelationship.key}:${token.symbol}`}
+                    className="detail-relationship-token-breakdown"
+                  >
+                    <strong>{token.symbol}</strong>
+                    <span>
+                      IN {token.inboundAmount || "0"} · OUT{" "}
+                      {token.outboundAmount || "0"}
+                    </span>
+                  </article>
+                ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {viewModel.graphRelationships.length > 0 ? (
+        <div className="detail-relationship-list">
+          <div className="detail-relationship-list-head">
+            <div>
+              <strong>{viewModel.graphRelationships.length} edges</strong>
+            </div>
+            <span className="detail-relationship-count">
+              {graphPreviewState.mode === "live"
+                ? "Live graph"
+                : "Waiting for graph"}
             </span>
           </div>
-        </div>
 
-        <p className="detail-route-copy">{viewModel.aiBrief.summary}</p>
-        <p className="detail-route-copy">
-          Interactive Analyst hook: follow-up questions will reuse this brief,
-          findings, and evidence bundles.
-        </p>
-
-        <div className="preview-status">
-          <span className="preview-kicker">Key findings</span>
-          <div className="detail-enrichment-list">
-            {viewModel.aiBrief.keyFindings.map((item) => (
-              <span key={item} className="detail-enrichment-item">
-                {item}
-              </span>
+          <div className="detail-relationship-list-body">
+            {viewModel.graphRelationships.slice(0, 6).map((relationship) => (
+              <button
+                key={relationship.key}
+                type="button"
+                className={`detail-relationship-item ${
+                  relationship.key === selectedGraphRelationshipKey
+                    ? "detail-relationship-item-active"
+                    : ""
+                }`}
+                onClick={() =>
+                  setSelectedGraphRelationshipKey(relationship.key)
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedGraphRelationshipKey(relationship.key);
+                  }
+                }}
+              >
+                <div>
+                  <span className="detail-relationship-path">
+                    {relationship.sourceLabel} → {relationship.targetLabel}
+                  </span>
+                  <span className="detail-relationship-meta">
+                    {relationship.kindLabel} · {relationship.directionLabel} ·{" "}
+                    {relationship.familyLabel}
+                    {relationship.observedAt
+                      ? ` · ${relationship.observedAt}`
+                      : ""}
+                  </span>
+                  <span className="detail-relationship-meta">
+                    {relationship.primaryToken
+                      ? `${relationship.primaryToken} · IN ${relationship.inboundAmount || "0"} · OUT ${relationship.outboundAmount || "0"}`
+                      : relationship.evidenceSummary}
+                  </span>
+                </div>
+                <div className="detail-relationship-actions">
+                  <Badge tone="teal">{relationship.weight} hits</Badge>
+                  {relationship.href ? (
+                    <a className="detail-inline-link" href={relationship.href}>
+                      Open
+                    </a>
+                  ) : null}
+                </div>
+              </button>
             ))}
           </div>
         </div>
+      ) : null}
+    </article>
+  );
 
+  return (
+    <PageShell>
+      <div className="detail-shell detail-shell--redesigned">
+        {/* 1. Header (Hero) */}
+        <section className="detail-hero detail-hero--redesigned">
+          <div className="detail-hero-copy">
+            <div className="detail-hero-title-row">
+              <h1>{heroTitle}</h1>
+              {viewModel.aiBrief.keyFindings[0] ? (
+                <Badge
+                  tone={
+                    (summaryPreviewState.scores[0]?.value ?? 60) >= 70
+                      ? "emerald"
+                      : "amber"
+                  }
+                >
+                  {formatPercent(
+                    (summaryPreviewState.scores[0]?.value ?? 60) / 100,
+                  )}{" "}
+                  confidence
+                </Badge>
+              ) : null}
+            </div>
+            <p className="detail-hero-summary">
+              {viewModel.aiBrief.summary || summaryPreviewState.label}
+            </p>
+          </div>
+
+          <div className="detail-identity detail-identity--compact">
+            <div>
+              <span>Chain</span>
+              <strong>{viewModel.chainLabel}</strong>
+            </div>
+            <div>
+              <span>Wallet address</span>
+              <strong>{viewModel.address}</strong>
+            </div>
+          </div>
+
+          {flowLensContext ? (
+            <div className="preview-status detail-status-inline">
+              <div>
+                <span className="preview-kicker">From FlowLens</span>
+                <p>{flowLensContextSummary}</p>
+              </div>
+              <div className="home-summary-actions">
+                {flowLensContextDirectionLabel ? (
+                  <Badge
+                    tone={
+                      flowLensContextDirectionLabel.includes("outflow")
+                        ? "amber"
+                        : "teal"
+                    }
+                  >
+                    {flowLensContextDirectionLabel}
+                  </Badge>
+                ) : null}
+                {flowLensContext.exchange ? (
+                  <Badge tone="teal">{flowLensContext.exchange}</Badge>
+                ) : null}
+                {flowLensContext.symbol ? (
+                  <Badge tone="violet">{flowLensContext.symbol}</Badge>
+                ) : null}
+                {flowLensContext.backUrl ? (
+                  <a className="search-cta" href={flowLensContext.backUrl}>
+                    Back to FlowLens
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="detail-actions">
+            <LanguageSwitcher />
+            <button
+              className="search-cta"
+              disabled={isTrackingWallet}
+              onClick={() => {
+                void (async () => {
+                  setIsTrackingWallet(true);
+                  setTrackWalletMessage("");
+                  try {
+                    const authHeaders =
+                      requestHeaders ?? (await getClerkRequestHeaders());
+                    const result = await trackWalletAlertRule({
+                      chain: request.chain,
+                      address: request.address,
+                      label: summaryPreviewState.label,
+                      ...(authHeaders ? { requestHeaders: authHeaders } : {}),
+                    });
+                    if (result.nextHref) {
+                      window.location.assign(result.nextHref);
+                      return;
+                    }
+                    setTrackWalletMessage(result.message);
+                  } finally {
+                    setIsTrackingWallet(false);
+                  }
+                })();
+              }}
+              type="button"
+            >
+              {isTrackingWallet ? "Tracking..." : "Track wallet"}
+            </button>
+            <a className="search-cta" href="#graph-canvas">
+              Open graph
+            </a>
+            <a className="search-cta" href="#evidence-timeline">
+              View evidence
+            </a>
+          </div>
+
+          {trackWalletMessage ? (
+            <p className="detail-route-copy" aria-live="polite">
+              {trackWalletMessage}
+            </p>
+          ) : null}
+          <article className="preview-card detail-card boundary-card">
+            <div className="preview-header">
+              <div>
+                <h2>Interactive analyst</h2>
+                <span className="preview-kicker">AI-powered wallet intelligence</span>
+              </div>
+              <div className="preview-state">
+                <Badge tone="violet">
+                  {walletAnalysisTurns.length} Turn
+                  {walletAnalysisTurns.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="analyst-chat-container">
+              {walletAnalysisTurns.length > 0 && (
+                <div className="analyst-history">
+                  {[...walletAnalysisTurns].map((turn, index) => (
+                    <Fragment key={`${turn.question}:${index}`}>
+                      <div className="analyst-message-user">
+                        <strong>You</strong>
+                        <div className="analyst-message-content">{turn.question}</div>
+                      </div>
+
+                      <div className="analyst-message-ai">
+                        <strong>Analyst</strong>
+                        <div className="analyst-message-content">
+                          <p style={{ fontWeight: 600, fontSize: "1.05rem", marginBottom: "8px" }}>{turn.headline}</p>
+                          {turn.conclusion.length > 0 && (
+                            <p style={{ marginBottom: "12px" }}>{turn.conclusion.join(" ")}</p>
+                          )}
+
+                          <div className="analyst-message-findings">
+                            {turn.observedFacts.length > 0 && (
+                              <div className="analyst-finding-row">
+                                <span>Facts</span>
+                                <div>{turn.observedFacts.join(" · ")}</div>
+                              </div>
+                            )}
+                            {turn.alternativeExplanations.length > 0 && (
+                              <div className="analyst-finding-row">
+                                <span>Alternatives</span>
+                                <div>{turn.alternativeExplanations.join(" · ")}</div>
+                              </div>
+                            )}
+                            {turn.toolTrace.length > 0 && (
+                              <div className="analyst-finding-row">
+                                <span>Analysis</span>
+                                <div style={{ opacity: 0.7, fontSize: "0.8rem" }}>
+                                  Used: {turn.toolTrace.join(", ")}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {turn.evidenceRefs.length > 0 && (
+                            <div className="detail-inline-evidence">
+                              {turn.evidenceRefs
+                                .map(describeAnalystEvidenceRef)
+                                .filter(Boolean)
+                                .map((item) => (
+                                  <Badge key={item} tone="teal">
+                                    {item}
+                                  </Badge>
+                                ))}
+                            </div>
+                          )}
+
+                          {turn.nextSteps.length > 0 && (
+                            <div className="analyst-next-steps">
+                              {turn.nextSteps.map((step) => (
+                                <button
+                                  key={step}
+                                  className="analyst-suggestion-pill"
+                                  onClick={() => void handleAnalyzeWallet(step)}
+                                  type="button"
+                                >
+                                  {step}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Fragment>
+                  ))}
+                </div>
+              )}
+
+              {isAnalyzingWallet && (
+                <div className="analyst-message-ai analyst-loading-state">
+                  <div className="analyst-shimmer" />
+                  <span>Analyst is processing data...</span>
+                </div>
+              )}
+
+              <div className="analyst-input-wrapper">
+                <input
+                  className="analyst-chat-input"
+                  onChange={(event) => setAnalystQuestion(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleAnalyzeWallet();
+                    }
+                  }}
+                  placeholder="Ask the analyst anything about this wallet..."
+                  type="text"
+                  value={analystQuestion}
+                />
+                <button
+                  className="analyst-send-button"
+                  disabled={isAnalyzingWallet || !analystQuestion.trim()}
+                  onClick={() => void handleAnalyzeWallet()}
+                  type="button"
+                  aria-label="Send question"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
+              </div>
+
+              {walletAnalysisError && (
+                <p className="detail-route-copy" style={{ color: "var(--amber)", marginTop: "-10px" }} aria-live="polite">
+                  {walletAnalysisError}
+                </p>
+              )}
+            </div>
+          </article>
+        </section>
+
+        {/* 2. AI Wallet Brief (Key Findings) */}
         {briefPreviewState?.mode === "live" &&
         briefPreviewState.keyFindings.length > 0 ? (
-          <div className="preview-status">
-            <span className="preview-kicker">Finding bundles</span>
+          <section className="detail-finding-cards" aria-label="Key Findings">
+            <h2>{t("walletDetail.headers.aiBrief")}</h2>
             <div className="detail-signal-list">
-              {briefPreviewState.keyFindings.slice(0, 2).map((finding) => (
-                <article key={finding.id} className="detail-signal-item">
+              {briefPreviewState.keyFindings.slice(0, 4).map((finding) => (
+                <article
+                  key={finding.id}
+                  className="detail-signal-item detail-finding-card"
+                >
                   <div>
                     <strong>{finding.summary}</strong>
-                    <span>
-                      {finding.observedFacts.slice(0, 2).join(" · ") ||
-                        "Observed facts pending"}
-                    </span>
-                    <span>
-                      {finding.inferredInterpretations
-                        .slice(0, 2)
-                        .join(" · ") || "Inference pending"}
-                    </span>
-                    {finding.evidence.length > 0 ? (
-                      <span>
-                        Evidence:{" "}
-                        {finding.evidence
-                          .slice(0, 2)
-                          .map((item) => item.value ?? item.type)
-                          .join(" · ")}
-                      </span>
-                    ) : null}
-                    {finding.nextWatch.length > 0 ? (
-                      <span>
-                        Next watch:{" "}
-                        {finding.nextWatch
-                          .slice(0, 2)
-                          .map(
-                            (item) =>
-                              item.label ??
-                              item.token ??
-                              item.address ??
-                              item.subjectType,
-                          )
-                          .join(" · ")}
-                      </span>
-                    ) : null}
+                    <span>{finding.observedFacts.slice(0, 2).join(" · ")}</span>
+                    <div className="detail-finding-actions">
+                      <a href="#graph-canvas" className="detail-inline-link">
+                        Drill down in graph
+                      </a>
+                      <button
+                        className="detail-inline-link"
+                        onClick={() => {
+                          void handleAnalyzeWallet(
+                            `Explain the ${finding.type.replaceAll("_", " ")} finding for this wallet.`,
+                          );
+                        }}
+                        type="button"
+                      >
+                        Explain with AI
+                      </button>
+                    </div>
                   </div>
                   <Badge
                     tone={finding.importanceScore >= 0.7 ? "emerald" : "amber"}
@@ -1386,151 +2236,117 @@ export function WalletDetailScreen({
                 </article>
               ))}
             </div>
-          </div>
+          </section>
         ) : null}
 
-        <div className="detail-flow-grid">
-          <article className="detail-flow-card">
-            <span>Evidence</span>
-            <strong>{viewModel.aiBrief.evidence.length}</strong>
-            <p>{viewModel.aiBrief.evidence[0] ?? "No evidence yet."}</p>
-          </article>
-          <article className="detail-flow-card">
-            <span>Next watch</span>
-            <strong>{viewModel.aiBrief.nextWatch.length}</strong>
-            <p>
-              {viewModel.aiBrief.nextWatch[0] ?? "No watch recommendation yet."}
-            </p>
-          </article>
+        {/* 3. Graph Canvas (Main Section) */}
+        <div id="graph-canvas" className="detail-graph-container">
+          {graphEmptyState ? (
+            <section className="detail-graph-empty-state" aria-live="polite">
+              <div>
+                <span className="preview-kicker">
+                  {graphAvailability.modeLabel}
+                </span>
+                <h3>{graphEmptyState.title}</h3>
+                <p>{graphEmptyState.summary}</p>
+                <p className="detail-route-copy">{graphEmptyState.helper}</p>
+              </div>
+              <div className="detail-actions">
+                <button
+                  className="search-cta"
+                  disabled={isRefreshingWallet}
+                  onClick={() => {
+                    void (async () => {
+                      setIsRefreshingWallet(true);
+                      try {
+                        await refreshWalletArtifacts({
+                          triggerRefreshQueue: true,
+                          summaryFallback: summaryPreviewState,
+                          graphFallback: graphPreviewState,
+                        });
+                      } finally {
+                        setIsRefreshingWallet(false);
+                      }
+                    })();
+                  }}
+                  type="button"
+                >
+                  {isRefreshingWallet ? "Refreshing..." : "Refresh now"}
+                </button>
+              </div>
+            </section>
+          ) : null}
+          {relationshipMapSection}
         </div>
-      </section>
 
-      <section className="detail-grid">
-        <article className="preview-card detail-card">
-          <div className="preview-header">
-            <div>
-              <h2>{summaryPreviewState.label}</h2>
-              <span className="preview-kicker">Summary</span>
-            </div>
-            <div className="preview-state">
-              <span className="detail-state-copy">
-                {summaryPreviewState.mode === "live" ? "Live" : "Unavailable"}
-              </span>
-            </div>
-          </div>
-
-          <div className="preview-identity">
-            <div>
-              <span>Address</span>
-              <strong>{compactAddress(summaryPreviewState.address)}</strong>
-            </div>
-            <div>
-              <span>Label</span>
-              <strong>{summaryPreviewState.label}</strong>
-            </div>
-            <div>
-              <span>Updated</span>
-              <strong>
-                {viewModel.indexing.lastIndexedAt
-                  ? formatRelativeTime(viewModel.indexing.lastIndexedAt)
-                  : "Warming up"}
-              </strong>
-            </div>
-          </div>
-
-          <div className="preview-status detail-status-inline">
-            <div className="detail-indexing-grid" aria-label="Indexing status">
-              <article className="detail-flow-card">
-                <span>Status</span>
-                <strong>{viewModel.indexing.statusLabel}</strong>
-                <p>{viewModel.indexing.helperCopy}</p>
-              </article>
-              <article className="detail-flow-card">
-                <span>Coverage</span>
-                <strong>{viewModel.indexing.coverageWindowLabel}</strong>
-                <p>{renderCoverageRange(viewModel.indexing)}</p>
-              </article>
-            </div>
-          </div>
-
-          <div className="preview-scores">
-            {viewModel.summaryScores.map((score) => (
-              <article key={score.name} className="score-row">
-                <div>
-                  <span>{score.name}</span>
-                  <strong>{score.value}</strong>
+        {/* 4. Evidence Timeline */}
+        <section id="evidence-timeline" className="detail-timeline-section">
+          <h2>Evidence Timeline</h2>
+          <div className="detail-timeline-list">
+            {viewModel.aiBrief.evidence.map((evidenceItem) => {
+              return (
+                <article
+                  key={`evidence-${evidenceItem}`}
+                  className="detail-timeline-item"
+                >
+                  <div className="timeline-marker" />
+                  <div className="timeline-content">
+                    <strong>Evidence Observation</strong>
+                    <span>{evidenceItem}</span>
+                  </div>
+                </article>
+              );
+            })}
+            {viewModel.latestSignals.map((signal) => (
+              <article
+                key={`${signal.name}-${signal.observedAt}-${signal.label}`}
+                className="detail-timeline-item"
+              >
+                <div className="timeline-marker" />
+                <div className="timeline-content">
+                  <strong>{signal.label}</strong>
+                  <span>
+                    {formatScoreLabel(signal.name)} ·{" "}
+                    {formatRelativeTime(signal.observedAt)}
+                  </span>
                 </div>
-                <Badge tone={scoreToneByName[score.name] ?? score.tone}>
-                  {score.rating}
+                <Badge tone={scoreToneByName[signal.name] ?? "teal"}>
+                  {signal.rating}
                 </Badge>
               </article>
             ))}
           </div>
+        </section>
 
-          {viewModel.latestSignals.length > 0 ? (
-            <div className="preview-status">
-              <span className="preview-kicker">Latest signals</span>
-              <div className="detail-signal-list">
-                {viewModel.latestSignals.slice(0, 3).map((signal) => (
-                  <article
-                    key={`${signal.name}:${signal.observedAt}:${signal.source}`}
-                    className="detail-signal-item"
-                  >
-                    <div>
-                      <strong>{signal.label}</strong>
-                      <span>
-                        {formatScoreLabel(signal.name)} ·{" "}
-                        {formatRelativeTime(signal.observedAt)}
-                      </span>
-                    </div>
-                    <Badge tone={scoreToneByName[signal.name] ?? "teal"}>
-                      {signal.rating}
-                    </Badge>
-                  </article>
-                ))}
+        {/* 5. Next Watch / Historical Analogs */}
+        {viewModel.aiBrief.nextWatch.length > 0 ? (
+          <section className="detail-next-watch-section">
+            <h2>Next watch & analogs</h2>
+            <div className="detail-enrichment-list">
+              {viewModel.aiBrief.nextWatch.map((item) => (
+                <span key={item} className="detail-enrichment-item">
+                  {item}
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="detail-stacked-grid">
+          {/* 6. Counterparties (Related Addresses) */}
+          <article className="preview-card detail-card detail-counterparties-section">
+            <div className="preview-header">
+              <div>
+                <h2>{t("walletDetail.headers.relatedAddresses")}</h2>
+                <span className="preview-kicker">Counterparties</span>
+              </div>
+              <div className="preview-state">
+                <span className="detail-state-copy">
+                  {viewModel.relatedAddressCountLabel}
+                </span>
               </div>
             </div>
-          ) : null}
 
-          <div className="preview-status">
-            <span className="preview-kicker">Recent flow</span>
-            <div className="detail-flow-grid" aria-label="Recent flow summary">
-              <article className="detail-flow-card">
-                <span>7d in / out</span>
-                <strong>
-                  {viewModel.recentFlow.incomingTxCount7d} /{" "}
-                  {viewModel.recentFlow.outgoingTxCount7d}
-                </strong>
-                <Badge
-                  tone={flowToneByDirection(
-                    viewModel.recentFlow.netDirection7d,
-                  )}
-                >
-                  {viewModel.recentFlow.netDirection7d}
-                </Badge>
-              </article>
-              <article className="detail-flow-card">
-                <span>30d in / out</span>
-                <strong>
-                  {viewModel.recentFlow.incomingTxCount30d} /{" "}
-                  {viewModel.recentFlow.outgoingTxCount30d}
-                </strong>
-                <Badge
-                  tone={flowToneByDirection(
-                    viewModel.recentFlow.netDirection30d,
-                  )}
-                >
-                  {viewModel.recentFlow.netDirection30d}
-                </Badge>
-              </article>
-            </div>
-          </div>
-
-          <div className="preview-status">
-            <span className="preview-kicker">Related addresses</span>
-            <p className="detail-route-copy">
-              {viewModel.relatedAddressCountLabel}
-            </p>
             <div className="related-address-toolbar">
               <div
                 className="related-address-filters"
@@ -1806,455 +2622,181 @@ export function WalletDetailScreen({
                 </tbody>
               </table>
             </div>
-          </div>
-        </article>
+          </article>
 
-        <article
-          ref={graphSectionRef}
-          className="preview-card detail-card boundary-card"
-        >
-          <div className="preview-header">
-            <div>
-              <h2>{summaryPreviewState.label}</h2>
-              <span className="preview-kicker">Relationship map</span>
-            </div>
-            <div className="preview-state">
-              <span className="detail-state-copy">
-                {graphAvailability.stateLabel}
-              </span>
-            </div>
-          </div>
-
-          <div className="preview-status">
-            <p>{graphSourceCopy}</p>
-            {viewModel.graphSnapshotGeneratedAt ? (
-              <span className="detail-route-copy">
-                {viewModel.graphSnapshotSourceLabel} ·{" "}
-                {viewModel.graphSnapshotGeneratedAt}
-              </span>
-            ) : null}
-          </div>
-          <div className="preview-identity">
-            <div>
-              <span>Hop budget</span>
-              <strong>
-                {graphExpansionState.hopsUsed} / {graphExpansionState.hopBudget}
-              </strong>
-            </div>
-            <div>
-              <span>Visible nodes</span>
-              <strong>
-                {graphExpansionState.nodeCount} /{" "}
-                {graphExpansionState.nodeBudget}
-              </strong>
-            </div>
-            <div>
-              <span>Density capped</span>
-              <strong>
-                {graphPreviewState.densityCapped ? "true" : "false"}
-              </strong>
-            </div>
-          </div>
-
-          {selectedGraphNode ? (
-            <div className="detail-graph-actions">
-              <button
-                className="search-cta detail-graph-action"
-                disabled={isExpandingGraph || !graphExpansionState.canExpand}
-                onClick={() => {
-                  void handleExpandSelectedGraphNode();
-                }}
-                type="button"
-              >
-                {isExpandingGraph
-                  ? "Expanding..."
-                  : graphExpansionState.canExpand
-                    ? "Expand next hop"
-                    : "Expand unavailable"}
-              </button>
-              <span className="detail-graph-action-copy">
-                {graphExpansionState.reason}
-              </span>
-            </div>
-          ) : null}
-
-          <div className="graph-preview-strip">
-            <WalletGraphVisual
-              densityCapped={graphPreviewState.densityCapped}
-              edges={graphPreviewState.edges}
-              neighborhoodSummary={graphPreviewState.neighborhoodSummary}
-              nodes={graphPreviewState.nodes}
-              expandableNodeIds={expandableGraphNodeIds}
-              expandingNodeId={isExpandingGraph ? selectedGraphNodeId : null}
-              onExpandNode={(nodeId) => {
-                void handleExpandGraphNode(nodeId);
-              }}
-              onSelectedEdgeIdChange={setSelectedGraphRelationshipKey}
-              onSelectedNodeIdChange={setSelectedGraphNodeId}
-              selectedEdgeId={selectedGraphRelationshipKey}
-              selectedNodeId={selectedGraphNodeId}
-              variant="compact"
-            />
-
-            <div className="detail-map-metrics">
-              <article className="detail-map-metric">
-                <span>Visible nodes</span>
-                <strong>{viewModel.graphNodeCount}</strong>
-              </article>
-              <article className="detail-map-metric">
-                <span>Visible edges</span>
-                <strong>{viewModel.graphEdgeCount}</strong>
-              </article>
-              <article className="detail-map-metric">
-                <span>Top relationship load</span>
-                <strong>{viewModel.graphRelationships[0]?.weight ?? 0}</strong>
-              </article>
-              <article className="detail-map-metric">
-                <span>Hop budget</span>
-                <strong>
-                  {graphExpansionState.hopsUsed} /{" "}
-                  {graphExpansionState.hopBudget}
-                </strong>
-              </article>
-            </div>
-          </div>
-
-          {selectedGraphNode ? (
-            <div
-              className="detail-node-inspector"
-              data-node-kind={selectedGraphNode.kind}
-            >
-              <div className="detail-node-inspector-head">
-                <div>
-                  <strong>{selectedGraphNode.label}</strong>
-                </div>
-                <div className="detail-node-inspector-actions">
-                  <Badge tone={selectedGraphNode.tone}>
-                    {selectedGraphNode.kindLabel}
-                  </Badge>
-                  {selectedGraphNodeHref ? (
-                    <a
-                      className="detail-inline-link"
-                      href={selectedGraphNodeHref}
-                    >
-                      {buildSelectedGraphNodeHrefLabel(selectedGraphNode)}
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-              <div className="detail-node-inspector-grid">
-                <article className="detail-node-inspector-card">
-                  <span>Identity</span>
-                  <strong>
-                    {selectedGraphNode.address
-                      ? compactAddress(selectedGraphNode.address)
-                      : selectedGraphNode.id}
-                  </strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Expansion</span>
-                  <strong>
-                    {graphExpansionState.canExpand ? "available" : "blocked"}
-                  </strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Rule</span>
-                  <strong>{graphExpansionState.reason}</strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Budget</span>
-                  <strong>{graphExpansionState.budgetLabel}</strong>
-                </article>
-              </div>
-              {selectedGraphEntityAssignments.length > 0 ? (
-                <div
-                  className="detail-entity-linkage"
-                  data-node-kind={selectedGraphNode.kind}
-                >
-                  <div className="detail-entity-linkage-head">
-                    <div>
-                      <span className="preview-kicker">Entity assignments</span>
-                      <strong>
-                        {selectedGraphEntityAssignments.length} visible label
-                        {selectedGraphEntityAssignments.length === 1 ? "" : "s"}
-                      </strong>
-                    </div>
-                  </div>
-                  <p className="detail-entity-linkage-copy">
-                    Provider or heuristic entity assignments attached to the
-                    selected wallet in the current neighborhood.
-                  </p>
-                  <div className="detail-entity-linkage-strip">
-                    {selectedGraphEntityAssignments.map((assignment) => (
-                      <div
-                        key={`${assignment.entityNodeId}:${assignment.source}`}
-                        className="detail-entity-link"
-                      >
-                        {assignment.entityHref ? (
-                          <a
-                            className="detail-inline-link"
-                            href={assignment.entityHref}
-                          >
-                            {assignment.entityLabel}
-                          </a>
-                        ) : (
-                          <span>{assignment.entityLabel}</span>
-                        )}
-                        <Badge tone="amber">entity</Badge>
-                        <Badge tone={assignment.sourceTone}>
-                          {assignment.sourceLabel}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {selectedGraphEntityContext ? (
-                <div
-                  className="detail-entity-linkage"
-                  data-node-kind={selectedGraphNode.kind}
-                >
-                  <div className="detail-entity-linkage-head">
-                    <div>
-                      <span className="preview-kicker">
-                        {selectedGraphEntityContext.label}
-                      </span>
-                      <strong>
-                        {selectedGraphEntityContext.links.length} visible link
-                        {selectedGraphEntityContext.links.length === 1
-                          ? ""
-                          : "s"}
-                      </strong>
-                    </div>
-                  </div>
-                  <p className="detail-entity-linkage-copy">
-                    {selectedGraphEntityContext.helperCopy}
-                  </p>
-                  {selectedGraphEntityContext.links.length > 0 ? (
-                    <div className="detail-entity-linkage-strip">
-                      {selectedGraphEntityContext.links.map((link) =>
-                        link.href ? (
-                          <a
-                            key={link.id}
-                            className="detail-entity-link"
-                            href={link.href}
-                          >
-                            <span>{link.label}</span>
-                            <Badge tone={link.tone}>{link.kindLabel}</Badge>
-                            {link.sourceLabel ? (
-                              <Badge tone={link.sourceTone ?? "teal"}>
-                                {link.sourceLabel}
-                              </Badge>
-                            ) : null}
-                          </a>
-                        ) : (
-                          <div key={link.id} className="detail-entity-link">
-                            <span>{link.label}</span>
-                            <Badge tone={link.tone}>{link.kindLabel}</Badge>
-                            {link.sourceLabel ? (
-                              <Badge tone={link.sourceTone ?? "teal"}>
-                                {link.sourceLabel}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        ),
+          {/* 7. Secondary Info (Tabs/Accordion) */}
+          <details className="detail-accordion secondary-info-accordion">
+            <summary>Enrichment, Labels & Flow (2nd-tier Data)</summary>
+            <div className="detail-accordion-content">
+              {viewModel.enrichment ? (
+                <div className="detail-enrichment-grid">
+                  <article className="detail-enrichment-card">
+                    <span>Net worth</span>
+                    <strong>
+                      {formatNetWorthUsd(viewModel.enrichment.netWorthUsd)}
+                    </strong>
+                    <p>
+                      {formatEnrichmentProvider(viewModel.enrichment.provider)}{" "}
+                      · {formatRelativeTime(viewModel.enrichment.updatedAt)}
+                    </p>
+                  </article>
+                  <article className="detail-enrichment-card">
+                    <span>Native balance</span>
+                    <strong>
+                      {formatEnrichmentValue(
+                        viewModel.enrichment.nativeBalanceFormatted,
                       )}
+                    </strong>
+                    <p>{formatEnrichmentSource(viewModel.enrichment.source)}</p>
+                  </article>
+                  <article className="detail-enrichment-card detail-enrichment-card--wide">
+                    <span>Top holdings</span>
+                    <strong>{viewModel.enrichment.holdingCount}</strong>
+                    <div className="detail-holdings-list">
+                      {viewModel.enrichment.holdings
+                        .slice(0, 4)
+                        .map((holding) => (
+                          <div
+                            key={`${holding.symbol}:${holding.tokenAddress}`}
+                            className="detail-holding-item"
+                          >
+                            <div>
+                              <strong>{holding.symbol || "Token"}</strong>
+                              <span>
+                                {holding.balanceFormatted || "Unavailable"}
+                                {holding.isNative ? " · native" : ""}
+                              </span>
+                            </div>
+                            <div>
+                              <strong>
+                                {formatHoldingUsdValue(holding.valueUsd)}
+                              </strong>
+                              <span>
+                                {formatHoldingAllocation(
+                                  holding.portfolioPercentage,
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
                     </div>
-                  ) : null}
+                  </article>
                 </div>
               ) : null}
-            </div>
-          ) : null}
 
-          {selectedGraphRelationship ? (
-            <div className="detail-relationship-inspector">
-              <div className="detail-relationship-inspector-head">
-                <div>
-                  <span className="preview-kicker">Selected relationship</span>
+              <div
+                className="detail-flow-grid"
+                aria-label="Recent flow summary"
+              >
+                <article className="detail-flow-card">
+                  <span>7d in / out</span>
                   <strong>
-                    {selectedGraphRelationship.sourceLabel} →{" "}
-                    {selectedGraphRelationship.targetLabel}
+                    {viewModel.recentFlow.incomingTxCount7d} /{" "}
+                    {viewModel.recentFlow.outgoingTxCount7d}
                   </strong>
-                </div>
-                <div className="detail-relationship-inspector-actions">
-                  <Badge tone="teal">
-                    {selectedGraphRelationship.kindLabel}
-                  </Badge>
-                  <Badge tone="amber">
-                    {selectedGraphRelationship.directionLabel}
-                  </Badge>
                   <Badge
-                    tone={
-                      selectedGraphRelationship.family === "derived"
-                        ? "violet"
-                        : "teal"
-                    }
-                  >
-                    {selectedGraphRelationship.familyLabel}
-                  </Badge>
-                  <Badge
-                    tone={toneForConfidence(
-                      selectedGraphRelationship.confidence,
+                    tone={flowToneByDirection(
+                      viewModel.recentFlow.netDirection7d,
                     )}
                   >
-                    {selectedGraphRelationship.confidence}
+                    {viewModel.recentFlow.netDirection7d}
                   </Badge>
-                </div>
-              </div>
-              <p className="detail-relationship-summary">
-                {selectedGraphRelationship.evidenceSummary}
-              </p>
-              <div className="detail-relationship-inspector-grid">
-                <article className="detail-node-inspector-card">
-                  <span>Observed</span>
+                </article>
+                <article className="detail-flow-card">
+                  <span>30d in / out</span>
                   <strong>
-                    {selectedGraphRelationship.observedAt || "Unavailable"}
+                    {viewModel.recentFlow.incomingTxCount30d} /{" "}
+                    {viewModel.recentFlow.outgoingTxCount30d}
                   </strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Weight</span>
-                  <strong>{selectedGraphRelationship.weight} hits</strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Flow type</span>
-                  <strong>{selectedGraphRelationship.directionLabel}</strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Primary token</span>
-                  <strong>
-                    {selectedGraphRelationship.primaryToken || "Unavailable"}
-                  </strong>
-                </article>
-                <article className="detail-node-inspector-card">
-                  <span>Evidence source</span>
-                  <strong>{selectedGraphRelationship.evidenceSource}</strong>
+                  <Badge
+                    tone={flowToneByDirection(
+                      viewModel.recentFlow.netDirection30d,
+                    )}
+                  >
+                    {viewModel.recentFlow.netDirection30d}
+                  </Badge>
                 </article>
               </div>
-              <div className="detail-relationship-flow-strip">
-                <article className="detail-relationship-flow-card">
-                  <span>Inbound</span>
-                  <strong>
-                    {selectedGraphRelationship.inboundAmount || "0"}
-                  </strong>
-                  <small>
-                    {selectedGraphRelationship.inboundCount} transfers
-                  </small>
-                </article>
-                <article className="detail-relationship-flow-card">
-                  <span>Outbound</span>
-                  <strong>
-                    {selectedGraphRelationship.outboundAmount || "0"}
-                  </strong>
-                  <small>
-                    {selectedGraphRelationship.outboundCount} transfers
-                  </small>
-                </article>
-                <article className="detail-relationship-flow-card">
-                  <span>Latest provider</span>
-                  <strong>
-                    {selectedGraphRelationship.lastProvider || "Unavailable"}
-                  </strong>
-                  <small>
-                    {selectedGraphRelationship.lastTxHash
-                      ? compactAddress(selectedGraphRelationship.lastTxHash)
-                      : "No tx hash"}
-                  </small>
-                </article>
-              </div>
-              {selectedGraphRelationship.tokenBreakdowns.length > 0 ? (
-                <div className="detail-relationship-token-breakdowns">
-                  {selectedGraphRelationship.tokenBreakdowns
-                    .slice(0, 3)
-                    .map((token) => (
-                      <article
-                        key={`${selectedGraphRelationship.key}:${token.symbol}`}
-                        className="detail-relationship-token-breakdown"
-                      >
-                        <strong>{token.symbol}</strong>
-                        <span>
-                          IN {token.inboundAmount || "0"} · OUT{" "}
-                          {token.outboundAmount || "0"}
-                        </span>
-                      </article>
-                    ))}
-                </div>
-              ) : null}
             </div>
-          ) : null}
+          </details>
 
-          {viewModel.graphRelationships.length > 0 ? (
-            <div className="detail-relationship-list">
-              <div className="detail-relationship-list-head">
+          {/* 8. Raw Details (Debug) */}
+          <details className="detail-accordion raw-details-accordion">
+            <summary>Raw Details & Status</summary>
+            <div className="detail-accordion-content">
+              <div className="preview-identity">
                 <div>
-                  <strong>{viewModel.graphRelationships.length} edges</strong>
+                  <span>Address</span>
+                  <strong>{compactAddress(summaryPreviewState.address)}</strong>
                 </div>
-                <span className="detail-relationship-count">
-                  {graphPreviewState.mode === "live"
-                    ? "Live graph"
-                    : "Waiting for graph"}
-                </span>
+                <div>
+                  <span>Updated</span>
+                  <strong>
+                    {viewModel.indexing.lastIndexedAt
+                      ? formatRelativeTime(viewModel.indexing.lastIndexedAt)
+                      : "Warming up"}
+                  </strong>
+                </div>
               </div>
 
-              <div className="detail-relationship-list-body">
-                {viewModel.graphRelationships
-                  .slice(0, 6)
-                  .map((relationship) => (
-                    <button
-                      key={relationship.key}
-                      type="button"
-                      className={`detail-relationship-item ${
-                        relationship.key === selectedGraphRelationshipKey
-                          ? "detail-relationship-item-active"
-                          : ""
-                      }`}
-                      onClick={() =>
-                        setSelectedGraphRelationshipKey(relationship.key)
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedGraphRelationshipKey(relationship.key);
-                        }
-                      }}
-                    >
-                      <div>
-                        <span className="detail-relationship-path">
-                          {relationship.sourceLabel} →{" "}
-                          {relationship.targetLabel}
-                        </span>
-                        <span className="detail-relationship-meta">
-                          {relationship.kindLabel} ·{" "}
-                          {relationship.directionLabel} ·{" "}
-                          {relationship.familyLabel}
-                          {relationship.observedAt
-                            ? ` · ${relationship.observedAt}`
-                            : ""}
-                        </span>
-                        <span className="detail-relationship-meta">
-                          {relationship.primaryToken
-                            ? `${relationship.primaryToken} · IN ${relationship.inboundAmount || "0"} · OUT ${relationship.outboundAmount || "0"}`
-                            : relationship.evidenceSummary}
-                        </span>
-                      </div>
-                      <div className="detail-relationship-actions">
-                        <Badge tone="teal">{relationship.weight} hits</Badge>
-                        {relationship.href ? (
-                          <a
-                            className="detail-inline-link"
-                            href={relationship.href}
-                          >
-                            Open
-                          </a>
-                        ) : null}
-                      </div>
-                    </button>
-                  ))}
+              <div className="detail-indexing-grid">
+                <article className="detail-flow-card">
+                  <span>Status</span>
+                  <strong>{viewModel.indexing.statusLabel}</strong>
+                  <p>{viewModel.indexing.helperCopy}</p>
+                </article>
+                <article className="detail-flow-card">
+                  <span>Coverage</span>
+                  <strong>{viewModel.indexing.coverageWindowLabel}</strong>
+                  <p>{renderCoverageRange(viewModel.indexing)}</p>
+                </article>
+              </div>
+
+              <div className="preview-scores">
+                {viewModel.summaryScores.map((score) => (
+                  <article key={score.name} className="score-row">
+                    <div className="score-row-copy">
+                      <span>{score.name}</span>
+                      <strong>{score.value}</strong>
+                      {score.clusterBreakdown ? (
+                        <div className="score-breakdown">
+                          <div className="score-breakdown-grid">
+                            <div>
+                              <span>Peer overlap</span>
+                              <strong>
+                                {score.clusterBreakdown.peerWalletOverlap}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Shared entities</span>
+                              <strong>
+                                {score.clusterBreakdown.sharedEntityLinks}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Bidirectional flow</span>
+                              <strong>
+                                {score.clusterBreakdown.bidirectionalPeerFlows}
+                              </strong>
+                            </div>
+                          </div>
+                          {renderClusterScoreBreakdownNote(
+                            score.clusterBreakdown,
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Badge tone={scoreToneByName[score.name] ?? score.tone}>
+                      {score.rating}
+                    </Badge>
+                  </article>
+                ))}
               </div>
             </div>
-          ) : null}
-        </article>
-      </section>
-    </main>
+          </details>
+        </section>
+      </div>
+    </PageShell>
   );
 }
 
@@ -2268,6 +2810,128 @@ function flowToneByDirection(direction: string): Tone {
   }
 
   return "violet";
+}
+
+function renderClusterScoreBreakdownNote(
+  breakdown: WalletSummaryClusterScoreBreakdownPreview,
+): string {
+  const notes: string[] = [];
+
+  if (breakdown.samplingApplied || breakdown.sourceDensityCapped) {
+    const source =
+      breakdown.sourceNodeCount > 0 || breakdown.sourceEdgeCount > 0
+        ? `${breakdown.sourceNodeCount} nodes / ${breakdown.sourceEdgeCount} edges`
+        : "dense source graph";
+    const analysis =
+      breakdown.analysisNodeCount > 0 || breakdown.analysisEdgeCount > 0
+        ? `${breakdown.analysisNodeCount} nodes / ${breakdown.analysisEdgeCount} edges`
+        : "analysis graph";
+    notes.push(`Sampled from ${source} into ${analysis}.`);
+  }
+  if (breakdown.contradictionPenalty > 0) {
+    notes.push(
+      `Contradiction penalty ${breakdown.contradictionPenalty} applied.`,
+    );
+  }
+  if (breakdown.suppressionDiscount > 0) {
+    notes.push(
+      `Suppression discount ${breakdown.suppressionDiscount} applied.`,
+    );
+  }
+  if (breakdown.contradictionReasons[0]) {
+    notes.push(
+      `Caution: ${formatReasonLabel(breakdown.contradictionReasons[0])}.`,
+    );
+  } else if (breakdown.suppressionReasons[0]) {
+    notes.push(
+      `Caution: ${formatReasonLabel(breakdown.suppressionReasons[0])}.`,
+    );
+  }
+
+  return notes.join(" ");
+}
+
+function findPrimaryClusterBreakdown(
+  summary: WalletSummaryPreview,
+): WalletSummaryClusterScoreBreakdownPreview | undefined {
+  for (const score of summary.scores) {
+    if (score.name === "cluster_score" && score.clusterBreakdown) {
+      return score.clusterBreakdown;
+    }
+  }
+  return undefined;
+}
+
+function formatReasonLabel(reason: string): string {
+  return reason.replaceAll("_", " ");
+}
+
+function describeAnalystEvidenceRef(
+  ref: AnalystWalletAnalyzeEvidenceRefPreview,
+): string {
+  if (ref.kind === "cluster_context") {
+    const peerOverlap = readEvidenceRefNumber(ref.metadata?.peerWalletOverlap);
+    const sharedEntities = readEvidenceRefNumber(
+      ref.metadata?.sharedEntityLinks,
+    );
+    const bidirectionalFlow = readEvidenceRefNumber(
+      ref.metadata?.bidirectionalPeerFlow,
+    );
+    const contradictionPenalty = readEvidenceRefNumber(
+      ref.metadata?.contradictionPenalty,
+    );
+    const suppressionDiscount = readEvidenceRefNumber(
+      ref.metadata?.suppressionDiscount,
+    );
+    const notes: string[] = [];
+    if (peerOverlap > 0 || sharedEntities > 0 || bidirectionalFlow > 0) {
+      notes.push(
+        `Cluster cohort: ${peerOverlap} peer overlaps, ${sharedEntities} shared entities, ${bidirectionalFlow} bidirectional flows`,
+      );
+    }
+    if (
+      readEvidenceRefBoolean(ref.metadata?.samplingApplied) ||
+      readEvidenceRefBoolean(ref.metadata?.sourceDensityCapped)
+    ) {
+      notes.push("sampled from a denser graph");
+    }
+    if (contradictionPenalty > 0) {
+      notes.push(`contradiction penalty ${contradictionPenalty}`);
+    }
+    if (suppressionDiscount > 0) {
+      notes.push(`suppression discount ${suppressionDiscount}`);
+    }
+    return notes.join(" · ");
+  }
+
+  if (ref.label?.trim()) {
+    return `${ref.kind.replaceAll("_", " ")}: ${ref.label.trim()}`;
+  }
+  if (ref.key?.trim()) {
+    return `${ref.kind.replaceAll("_", " ")}: ${ref.key.trim()}`;
+  }
+  return ref.kind.replaceAll("_", " ");
+}
+
+function readEvidenceRefNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function readEvidenceRefBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return value === "true";
+  }
+  return false;
 }
 
 function toneForConfidence(confidence: string): Tone {
@@ -2765,7 +3429,7 @@ export function resolveGraphExpansionState({
   relatedAddresses?: WalletRelatedAddressViewModel[];
 }): WalletGraphExpansionState {
   const hopsUsed = expandedGraphNeighborhoodKeys.length;
-  const budgetLabel = `${hopsUsed}/${MAX_GRAPH_HOP_BUDGET} hops used · ${graphNodeCount}/${MAX_GRAPH_NODE_BUDGET} nodes visible`;
+  const budgetLabel = `${hopsUsed} hops expanded · ${graphNodeCount}/${MAX_GRAPH_NODE_BUDGET} nodes visible`;
 
   if (!selectedNode) {
     return {
@@ -2774,7 +3438,7 @@ export function resolveGraphExpansionState({
       reason: "Select a wallet node to expand.",
       budgetLabel,
       hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      hopBudget: hopsUsed,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -2788,7 +3452,7 @@ export function resolveGraphExpansionState({
       reason: "This node cannot be expanded.",
       budgetLabel,
       hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      hopBudget: hopsUsed,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -2801,20 +3465,7 @@ export function resolveGraphExpansionState({
       reason: describeExpandedGraphNodeReason(selectedNode.kind),
       budgetLabel,
       hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
-      nodeCount: graphNodeCount,
-      nodeBudget: MAX_GRAPH_NODE_BUDGET,
-    };
-  }
-
-  if (expandedGraphNeighborhoodKeys.length >= MAX_GRAPH_HOP_BUDGET) {
-    return {
-      canExpand: false,
-      expansionKey,
-      reason: "Global hop budget reached.",
-      budgetLabel,
-      hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      hopBudget: hopsUsed,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -2827,7 +3478,7 @@ export function resolveGraphExpansionState({
       reason: "Visible node budget reached.",
       budgetLabel,
       hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      hopBudget: hopsUsed,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -2847,7 +3498,7 @@ export function resolveGraphExpansionState({
       reason: "No additional indexed wallets are linked to this entity.",
       budgetLabel,
       hopsUsed,
-      hopBudget: MAX_GRAPH_HOP_BUDGET,
+      hopBudget: hopsUsed,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -2859,7 +3510,7 @@ export function resolveGraphExpansionState({
     reason: describeGraphExpansionReason(selectedNode.kind),
     budgetLabel,
     hopsUsed,
-    hopBudget: MAX_GRAPH_HOP_BUDGET,
+    hopBudget: hopsUsed,
     nodeCount: graphNodeCount,
     nodeBudget: MAX_GRAPH_NODE_BUDGET,
   };
@@ -2895,11 +3546,13 @@ async function expandGraphNode({
   graphNodes,
   relatedAddresses,
   rootRequest,
+  requestHeaders,
 }: {
   node: WalletGraphNodeViewModel;
   graphNodes: WalletGraphNodeViewModel[];
   relatedAddresses: WalletRelatedAddressViewModel[];
   rootRequest: WalletDetailRequest;
+  requestHeaders?: HeadersInit;
 }): Promise<WalletGraphPreview> {
   if (node.kind === "cluster") {
     const cluster = await loadClusterDetailPreview({
@@ -2931,8 +3584,9 @@ async function expandGraphNode({
     request: {
       chain: node.chain,
       address: node.address,
-      depthRequested: 1,
+      depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
     },
+    ...(requestHeaders ? { requestHeaders } : {}),
   });
 
   if (requestedGraph.mode === "live") {
@@ -2944,6 +3598,7 @@ async function expandGraphNode({
       chain: node.chain,
       address: node.address,
     },
+    ...(requestHeaders ? { requestHeaders } : {}),
   });
 
   if (summary.mode !== "live") {
@@ -2955,7 +3610,7 @@ async function expandGraphNode({
       request: {
         chain: node.chain,
         address: node.address,
-        depthRequested: 1,
+        depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
       },
       summary,
       fallback: requestedGraph,

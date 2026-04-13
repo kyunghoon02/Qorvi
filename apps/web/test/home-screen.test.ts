@@ -96,19 +96,36 @@ test("buildHomeFindingsFeedItems ranks wallet signals before counterparties", ()
         value: 82,
         rating: "high" as const,
         tone: "emerald" as const,
+        clusterBreakdown: {
+          peerWalletOverlap: 6,
+          sharedEntityLinks: 4,
+          bidirectionalPeerFlows: 2,
+          contradictionPenalty: 12,
+          suppressionDiscount: 0,
+          samplingApplied: true,
+          sourceDensityCapped: true,
+          sourceNodeCount: 82,
+          sourceEdgeCount: 144,
+          analysisNodeCount: 30,
+          analysisEdgeCount: 49,
+          contradictionReasons: ["aggregator_routing_hub_neighbors"],
+          suppressionReasons: [],
+        },
       },
     ],
   };
 
   const items = buildHomeFindingsFeedItems(
     preview,
-    "/wallets/evm/0x1234",
+    "http://test",
+    (key: string) => key
   );
 
   assert.equal(items.length, 3);
   assert.equal(items[0]?.id, "score:cluster_score");
   assert.equal(items[0]?.findingTypeLabel, "Signal interpretation");
-  assert.match(items[0]?.evidenceLabel ?? "", /wallet score 82/);
+  assert.match(items[0]?.summary ?? "", /6 peer overlaps/);
+  assert.match(items[0]?.evidenceLabel ?? "", /4 shared entity links/);
   assert.equal(items[0]?.nextWatchLabel, "Open wallet brief");
   assert.equal(items[0]?.analystEntryLabel, "Analyze wallet");
   assert.equal(items[0]?.subjectHref, "/wallets/evm/0x1234");
@@ -197,6 +214,10 @@ test("buildHomeFindingsFeedItemsFromFeed maps live findings to discover cards", 
   );
   assert.equal(items[0]?.analystEntryLabel, "Analyze wallet");
   assert.equal(items[0]?.subjectHref, "/wallets/evm/0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+  assert.equal(
+    items[0]?.analystEntryHref,
+    "/wallets/evm/0xabcdefabcdefabcdefabcdefabcdefabcdefabcd?ask=Explain%20the%20smart%20money%20convergence%20finding%20for%20this%20wallet.",
+  );
   assert.equal(items[1]?.subjectHref, "/entity/curated%3Atreasury%3Aseed");
   assert.equal(items[1]?.findingTypeLabel, "entity");
   assert.equal(items[1]?.nextWatchLabel, "Open Seed Treasury");

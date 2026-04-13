@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
 )
 
 type ClerkPrincipal struct {
@@ -71,6 +71,17 @@ func (v HeaderClerkVerifier) Verify(r *http.Request) (ClerkPrincipal, error) {
 		principal, err := v.jwtVerifier.Verify(token)
 		if err != nil {
 			return ClerkPrincipal{}, err
+		}
+
+		if principal.Role == "" {
+			if legacyPrincipal, legacyErr := verifyLegacyHeaders(r); legacyErr == nil &&
+				legacyPrincipal.UserID == principal.UserID &&
+				legacyPrincipal.SessionID == principal.SessionID {
+				principal.Role = legacyPrincipal.Role
+				if principal.Email == "" {
+					principal.Email = legacyPrincipal.Email
+				}
+			}
 		}
 
 		return principal, nil
@@ -251,7 +262,7 @@ func (v *clerkJWTVerifier) principalFromClaims(claims map[string]any) (ClerkPrin
 	role := normalizeRole(claimRole(claims))
 	email := claimEmail(claims)
 
-	if userID == "" || sessionID == "" || role == "" {
+	if userID == "" || sessionID == "" {
 		return ClerkPrincipal{}, ErrUnauthenticated
 	}
 
@@ -493,6 +504,16 @@ func claimRole(claims map[string]any) string {
 			role := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "org:")
 			if normalized := normalizeRole(role); normalized != "" {
 				return normalized
+			}
+		}
+	}
+
+	for _, key := range []string{"public_metadata", "unsafeMetadata"} {
+		if nested, ok := claims[key].(map[string]any); ok {
+			if value, ok := claimString(nested["role"]); ok {
+				if normalized := normalizeRole(value); normalized != "" {
+					return normalized
+				}
 			}
 		}
 	}

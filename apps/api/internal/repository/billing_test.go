@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestInMemoryBillingRepositoryUpsertAndFindAccount(t *testing.T) {
@@ -16,7 +16,7 @@ func TestInMemoryBillingRepositoryUpsertAndFindAccount(t *testing.T) {
 
 	_, err := repo.UpsertBillingAccount(context.Background(), BillingAccount{
 		OwnerUserID:      "user_123",
-		Email:            "ops@flowintel.test",
+		Email:            "ops@qorvi.test",
 		CurrentTier:      domain.PlanPro,
 		Status:           "active",
 		CurrentPeriodEnd: &now,

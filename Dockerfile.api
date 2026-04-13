@@ -1,0 +1,26 @@
+FROM golang:1.24.4-bookworm AS build
+
+WORKDIR /src
+
+COPY go.work go.work.sum ./
+COPY apps ./apps
+COPY packages ./packages
+
+RUN cd apps/api && go build -o /out/qorvi-api ./cmd/api
+
+FROM debian:bookworm-slim AS runner
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /out/qorvi-api /app/qorvi-api
+
+ENV API_HOST=0.0.0.0
+ENV API_PORT=4000
+
+EXPOSE 4000
+
+CMD ["/app/qorvi-api"]

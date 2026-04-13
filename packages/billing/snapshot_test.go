@@ -3,7 +3,7 @@ package billing
 import (
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestNormalizePlanTier(t *testing.T) {

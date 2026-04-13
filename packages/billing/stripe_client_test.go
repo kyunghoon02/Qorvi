@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -62,9 +62,9 @@ func TestHTTPStripeClientCreateCheckoutSession(t *testing.T) {
 	}, StripeCheckoutSessionCreateRequest{
 		OwnerUserID:   "user_123",
 		Tier:          domain.PlanPro,
-		CustomerEmail: "ops@flowintel.test",
-		SuccessURL:    "https://flowintel.test/account?checkout=success",
-		CancelURL:     "https://flowintel.test/account?checkout=cancel",
+		CustomerEmail: "ops@qorvi.test",
+		SuccessURL:    "https://qorvi.test/account?checkout=success",
+		CancelURL:     "https://qorvi.test/account?checkout=cancel",
 		StripePriceID: "price_pro_live",
 	})
 	if err != nil {

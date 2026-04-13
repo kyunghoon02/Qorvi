@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var (
@@ -224,6 +224,10 @@ func (r *InMemoryWatchlistRepository) DeleteWatchlist(_ context.Context, ownerUs
 	}
 
 	return nil
+}
+
+func (r *InMemoryWatchlistRepository) ListAdminCuratedWalletSeeds(_ context.Context) ([]db.CuratedWalletSeed, error) {
+	return []db.CuratedWalletSeed{}, nil
 }
 
 func copyStoredWatchlist(watchlist domain.Watchlist) domain.Watchlist {

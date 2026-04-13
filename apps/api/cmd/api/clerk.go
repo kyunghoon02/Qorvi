@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/config"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/config"
 )
 
 const clerkSessionCookieName = "__session"

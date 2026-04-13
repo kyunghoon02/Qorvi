@@ -1,9 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import {
-  type MutableRefObject,
+  type ComponentType,
   type ReactElement,
+  type Ref,
   useEffect,
   useMemo,
   useRef,
@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { ForceGraphMethods, ForceGraphProps } from "react-force-graph-2d";
 
-import { Badge, Pill } from "@flowintel/ui";
+import { Badge, Pill } from "@qorvi/ui";
 
 import type {
   WalletGraphNeighborhoodSummaryPreview,
@@ -62,18 +62,41 @@ type WalletForceNodeWithPhysics = WalletForceGraphNode & {
   vy?: number;
 };
 
-type ForceGraph2DComponent = (
-  props: ForceGraphProps<WalletForceGraphNode, WalletForceGraphLink> & {
-    ref?: MutableRefObject<
+type WalletGraphZoomEvent = Event & {
+  ctrlKey?: boolean;
+  button?: number;
+  type?: string;
+};
+
+type WalletGraphZoomController = {
+  filter(): ((event: WalletGraphZoomEvent) => boolean) | undefined;
+  filter(
+    next: (event: WalletGraphZoomEvent) => boolean,
+  ): WalletGraphZoomController;
+};
+
+type WalletGraphZoomHandle = {
+  d3Zoom?: () => WalletGraphZoomController | undefined;
+};
+
+type WalletGraphCanvasListenerEntry = {
+  type?: string;
+  name?: string;
+  listener?: EventListenerOrEventListenerObject;
+  options?: AddEventListenerOptions | boolean;
+};
+
+type WalletGraphCanvasWithD3Listeners = HTMLCanvasElement & {
+  __on?: WalletGraphCanvasListenerEntry[];
+};
+
+type ForceGraph2DComponent = ComponentType<
+  ForceGraphProps<WalletForceGraphNode, WalletForceGraphLink> & {
+    ref?: Ref<
       ForceGraphMethods<WalletForceGraphNode, WalletForceGraphLink> | undefined
     >;
-  },
-) => ReactElement;
-
-const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
-  ssr: false,
-  loading: () => <div className="graph-force-loading">Loading graph...</div>,
-}) as unknown as ForceGraph2DComponent;
+  }
+>;
 
 export function WalletGraphVisual({
   densityCapped,
@@ -108,6 +131,8 @@ export function WalletGraphVisual({
   const [pinnedNodePositions, setPinnedNodePositions] = useState<
     Record<string, WalletGraphPinnedPosition>
   >({});
+  const [forceGraphComponent, setForceGraphComponent] =
+    useState<ForceGraph2DComponent | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<
     ForceGraphMethods<WalletForceGraphNode, WalletForceGraphLink> | undefined
@@ -171,8 +196,6 @@ export function WalletGraphVisual({
             ...node,
             x: ringSeedPosition.x,
             y: ringSeedPosition.y,
-            fx: ringSeedPosition.x,
-            fy: ringSeedPosition.y,
           };
         }
 
@@ -226,6 +249,102 @@ export function WalletGraphVisual({
     () => graphData.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [graphData.nodes, selectedNodeId],
   );
+  const ForceGraph2D = forceGraphComponent;
+
+  useEffect(() => {
+    let active = true;
+
+    void import("react-force-graph-2d").then((module) => {
+      if (!active) {
+        return;
+      }
+
+      setForceGraphComponent(() => module.default as ForceGraph2DComponent);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Disable react-force-graph-2d's d3-zoom from stealing mouse-wheel/trackpad scrolls
+    // so we can seamlessly scroll over the huge graph areas.
+    if (!graphRef.current) return;
+    try {
+      const zoom = (
+        graphRef.current as ForceGraphMethods<
+          WalletForceGraphNode,
+          WalletForceGraphLink
+        > &
+          WalletGraphZoomHandle
+      ).d3Zoom?.();
+      // Only filter if zoom object actually exists
+      if (zoom && typeof zoom.filter === "function") {
+        const defaultFilter = zoom.filter();
+        zoom.filter((e: WalletGraphZoomEvent) => {
+          if (e && e.type === "wheel") return false;
+          // default d3 zoom filter condition
+          return defaultFilter ? defaultFilter(e) : !e.ctrlKey && !e.button;
+        });
+      }
+    } catch {
+      // Ignore if unsupported or missing ref methods
+    }
+  }, []);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || stageSize.width === 0 || stageSize.height === 0) {
+      return;
+    }
+
+    const removeCanvasWheelZoomListener = () => {
+      const canvas = stage.querySelector("canvas");
+      if (!(canvas instanceof HTMLCanvasElement)) {
+        return;
+      }
+      const d3Canvas = canvas as WalletGraphCanvasWithD3Listeners;
+
+      const registeredListeners = Array.isArray(d3Canvas.__on)
+        ? [...d3Canvas.__on]
+        : [];
+
+      if (registeredListeners.length === 0) {
+        return;
+      }
+
+      const remainingListeners = registeredListeners.filter((entry) => {
+        const isWheelZoomListener =
+          entry?.type === "wheel" && entry?.name === "zoom";
+
+        if (isWheelZoomListener && entry.listener && entry.type) {
+          canvas.removeEventListener(entry.type, entry.listener, entry.options);
+        }
+
+        return !isWheelZoomListener;
+      });
+
+      if (remainingListeners.length !== registeredListeners.length) {
+        d3Canvas.__on = remainingListeners;
+      }
+    };
+
+    removeCanvasWheelZoomListener();
+
+    const observer = new MutationObserver(() => {
+      removeCanvasWheelZoomListener();
+    });
+
+    observer.observe(stage, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -328,7 +447,7 @@ export function WalletGraphVisual({
     const chargeForce = graph.d3Force("charge") as
       | { strength?: (value: number) => unknown }
       | undefined;
-    chargeForce?.strength?.(isHero ? -300 : isCompact ? -420 : -560);
+    chargeForce?.strength?.(isHero ? -360 : isCompact ? -520 : -800);
 
     const linkForce = graph.d3Force("link") as
       | {
@@ -344,23 +463,34 @@ export function WalletGraphVisual({
     linkForce?.distance?.((link) =>
       isWalletForceGraphLinkConnectedToNode(link, primaryNodeId)
         ? isCompact
-          ? 176
-          : 228
+          ? 284
+          : 420
         : isCompact
-          ? 214
-          : 286,
+          ? 356
+          : 580,
     );
     linkForce?.strength?.((link) =>
-      isWalletForceGraphLinkConnectedToNode(link, primaryNodeId) ? 0.14 : 0.06,
+      isWalletForceGraphLinkConnectedToNode(link, primaryNodeId) ? 0.16 : 0.08,
     );
     graph.d3Force(
       "wallet-collide",
-      createWalletGraphCollisionForce(isCompact ? 18 : 28),
+      createWalletGraphCollisionForce(isCompact ? 28 : 42),
+    );
+    graph.d3Force(
+      "wallet-lanes",
+      createWalletGraphLaneForce(ringSeedPositions, isCompact ? 0.06 : 0.07),
     );
 
     graph.d3ReheatSimulation();
     hasFitToCanvas.current = false;
-  }, [isCompact, isHero, primaryNodeId, stageSize.height, stageSize.width]);
+  }, [
+    isCompact,
+    isHero,
+    primaryNodeId,
+    ringSeedPositions,
+    stageSize.height,
+    stageSize.width,
+  ]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -532,7 +662,7 @@ export function WalletGraphVisual({
       ) : null}
 
       <div ref={stageRef} className="graph-visual-stage graph-force-stage">
-        {stageSize.width > 0 && stageSize.height > 0 ? (
+        {stageSize.width > 0 && stageSize.height > 0 && ForceGraph2D ? (
           <div className="graph-force-canvas">
             <ForceGraph2D
               ref={graphRef}
@@ -671,6 +801,8 @@ export function WalletGraphVisual({
                 handleSelectedEdgeChange(null);
               }}
               showPointerCursor={(obj) => Boolean(obj)}
+              enableZoomInteraction={false}
+              enablePanInteraction={true}
               enableNodeDrag
               onNodeDragEnd={(node) => {
                 node.fx = node.x;
@@ -1368,9 +1500,16 @@ function buildWalletGraphLaneSeedPositions(
     const metrics = estimateWalletGraphNodeCardMetrics(node);
     return Math.max(maximum, metrics.width);
   }, estimateWalletGraphNodeCardMetrics(primaryNode).width);
-  const laneGap = widestNode + (isCompact ? 84 : isHero ? 108 : 132);
-  const outerLaneOffset = laneGap + (isCompact ? 72 : 96);
-  const rowGap = isCompact ? 44 : isHero ? 54 : 62;
+  const tallestNode = sideNodes.reduce((maximum, node) => {
+    const metrics = estimateWalletGraphNodeCardMetrics(node);
+    return Math.max(maximum, metrics.height);
+  }, estimateWalletGraphNodeCardMetrics(primaryNode).height);
+  const laneGap = widestNode + (isCompact ? 132 : isHero ? 176 : 224);
+  const outerLaneOffset = laneGap + (isCompact ? 120 : isHero ? 156 : 192);
+  const rowGap = Math.max(
+    tallestNode + (isCompact ? 18 : isHero ? 24 : 28),
+    isCompact ? 106 : isHero ? 116 : 124,
+  );
   const positions: Record<string, WalletGraphPinnedPosition> = {
     [primaryNode.id]: {
       x: centerX,
@@ -1486,10 +1625,15 @@ function positionLaneNodeGroup({
     }
 
     positions[node.id] = {
-      x,
+      x: x + buildLaneNodeJitter(index),
       y: startY + index * rowGap,
     };
   }
+}
+
+function buildLaneNodeJitter(index: number): number {
+  const pattern = [0, -22, 22, -36, 36, -48, 48];
+  return pattern[index % pattern.length] ?? 0;
 }
 
 function createWalletGraphCollisionForce(padding: number) {
@@ -1537,6 +1681,38 @@ function createWalletGraphCollisionForce(padding: number) {
         left.y -= offsetY;
         right.x += offsetX;
         right.y += offsetY;
+      }
+    }
+  };
+
+  force.initialize = (nextNodes: WalletForceNodeWithPhysics[]) => {
+    nodes = nextNodes;
+  };
+
+  return force;
+}
+
+function createWalletGraphLaneForce(
+  targetPositions: Record<string, WalletGraphPinnedPosition>,
+  strength: number,
+) {
+  let nodes: WalletForceNodeWithPhysics[] = [];
+
+  const force = (alpha: number) => {
+    for (const node of nodes) {
+      if (!node || typeof node.x !== "number" || node.isPrimary) {
+        continue;
+      }
+
+      const target = targetPositions[node.id];
+      if (!target) {
+        continue;
+      }
+
+      node.vx = (node.vx ?? 0) + (target.x - node.x) * strength * alpha;
+      if (typeof node.y === "number") {
+        node.vy =
+          (node.vy ?? 0) + (target.y - node.y) * strength * 0.08 * alpha;
       }
     }
   };

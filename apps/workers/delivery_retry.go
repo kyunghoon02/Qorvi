@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
+	"github.com/qorvi/qorvi/packages/db"
 )
 
 const workerModeAlertDeliveryRetryBatch = "alert-delivery-retry-batch"
@@ -124,7 +124,7 @@ func buildAlertDeliveryRetryBatchSummary(report AlertDeliveryRetryBatchReport) s
 }
 
 func alertDeliveryRetryBatchLimitFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_DELIVERY_RETRY_BATCH_LIMIT"))
+	value := strings.TrimSpace(os.Getenv("QORVI_ALERT_DELIVERY_RETRY_BATCH_LIMIT"))
 	if value == "" {
 		return 25
 	}
@@ -139,7 +139,7 @@ func alertDeliveryRetryBatchLimitFromEnv() int {
 }
 
 func alertDeliveryRetryLimitFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_DELIVERY_RETRY_LIMIT"))
+	value := strings.TrimSpace(os.Getenv("QORVI_ALERT_DELIVERY_RETRY_LIMIT"))
 	if value == "" {
 		return 3
 	}
@@ -151,7 +151,7 @@ func alertDeliveryRetryLimitFromEnv() int {
 }
 
 func alertDeliveryRetryBaseDelayFromEnv() time.Duration {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_ALERT_DELIVERY_RETRY_BASE_DELAY_SECONDS"))
+	value := strings.TrimSpace(os.Getenv("QORVI_ALERT_DELIVERY_RETRY_BASE_DELAY_SECONDS"))
 	if value == "" {
 		return time.Minute
 	}
