@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/billing"
+	"github.com/qorvi/qorvi/packages/billing"
 )
 
 type BillingCheckoutSessionStore interface {

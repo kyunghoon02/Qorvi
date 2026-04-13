@@ -192,7 +192,7 @@ func CreateNormalizedTransactionFixture(chain Chain, walletAddress, txHash strin
 		BlockNumber:      12345678,
 		TransactionIndex: 7,
 		SchemaVersion:    1,
-		RawPayloadPath:   "s3://flowintel/raw/2026/03/19/tx.json",
+		RawPayloadPath:   "s3://qorvi/raw/2026/03/19/tx.json",
 		Provider:         "alchemy",
 	}
 }

@@ -1,0 +1,57 @@
+[
+  {
+    "chain": "evm",
+    "address": "0xf584F8728B874a6a5c7A8d4d387C9AAaA522B9Ef",
+    "displayName": "Jump Trading",
+    "description": "Public explorer-labeled Jump Trading wallet kept warm as a probable smart-money market participant.",
+    "category": "smart_money",
+    "trackingPriority": 228,
+    "candidateScore": 0.88,
+    "confidence": 0.82,
+    "tags": ["probable", "smart-money", "evm", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0x95b677f9154a4eccab68dd6f3fe52bca2590828f",
+    "displayName": "Wintermute",
+    "description": "Public explorer-labeled Wintermute wallet kept warm as a probable smart-money market participant.",
+    "category": "smart_money",
+    "trackingPriority": 226,
+    "candidateScore": 0.87,
+    "confidence": 0.81,
+    "tags": ["probable", "smart-money", "evm", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0xad6eaa735d9df3d7696fd03984379dae02ed8862",
+    "displayName": "Cumberland",
+    "description": "Public explorer-labeled Cumberland wallet kept warm as a probable smart-money market participant.",
+    "category": "smart_money",
+    "trackingPriority": 224,
+    "candidateScore": 0.86,
+    "confidence": 0.8,
+    "tags": ["probable", "smart-money", "evm", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0xa5f565650890fba1824ee0f21ebbbf660a179934",
+    "displayName": "Framework Ventures",
+    "description": "Public explorer-labeled Framework Ventures wallet kept warm as a probable fund cohort member.",
+    "category": "fund",
+    "trackingPriority": 222,
+    "candidateScore": 0.85,
+    "confidence": 0.79,
+    "tags": ["probable", "fund", "evm", "public-label"]
+  },
+  {
+    "chain": "evm",
+    "address": "0xaf080d497d9ca8fd2c7f97c857e908fbcbd2f4f5",
+    "displayName": "paradigm-crypto.eth",
+    "description": "Public ENS-addressed Paradigm wallet kept warm as a probable fund cohort member.",
+    "category": "fund",
+    "trackingPriority": 220,
+    "candidateScore": 0.84,
+    "confidence": 0.76,
+    "tags": ["probable", "fund", "evm", "public-ens"]
+  }
+]

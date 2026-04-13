@@ -1,8 +1,10 @@
 # Ops Admin Runbook
 
+상세 production operator checklist는 [/Users/kh/Github/Qorvi/docs/runbooks/admin-operations-checklist.md](/Users/kh/Github/Qorvi/docs/runbooks/admin-operations-checklist.md)를 따른다. 이 문서는 그중 최소 운영 원칙만 요약한다.
+
 ## Purpose
 
-This runbook covers the minimal operations flows for FlowIntel admin work: labels, suppression, provider quota monitoring, and audit review.
+This runbook covers the minimal operations flows for Qorvi admin work: labels, suppression, provider quota monitoring, and audit review.
 
 ## Core Rules
 

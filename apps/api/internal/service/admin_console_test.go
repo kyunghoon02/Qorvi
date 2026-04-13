@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
 )
 
 func TestAdminConsoleServiceListAndMutateResources(t *testing.T) {

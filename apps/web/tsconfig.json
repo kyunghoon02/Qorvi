@@ -15,7 +15,7 @@
       "@/*": [
         "./*"
       ],
-      "@flowintel/ui": [
+      "@qorvi/ui": [
         "../../packages/ui/src/index.ts"
       ]
     },

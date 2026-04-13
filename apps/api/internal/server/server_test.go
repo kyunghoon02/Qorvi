@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestHealthRoute(t *testing.T) {
@@ -690,6 +690,306 @@ func TestAnalystHistoricalAnalogsRouteReturnsSameTypeFindings(t *testing.T) {
 	}
 }
 
+func TestAnalystFindingExplainRouteRequiresAuth(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystExplanations: service.NewAnalystFindingExplanationService(
+			&testFindingsRepository{finding: findingFixture()},
+			nil,
+			nil,
+			nil,
+			nil,
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/findings/"+findingFixture().ID+"/explain", bytes.NewBufferString(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d", rr.Code)
+	}
+}
+
+func TestAnalystFindingExplainRouteReturnsExplanation(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystExplanations: service.NewAnalystFindingExplanationService(
+			&testFindingsRepository{finding: findingFixture()},
+			nil,
+			nil,
+			nil,
+			nil,
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/findings/"+findingFixture().ID+"/explain", bytes.NewBufferString(`{"question":"why does this matter?"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystFindingExplanation]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.FindingID != findingFixture().ID {
+		t.Fatalf("unexpected finding id %#v", body.Data)
+	}
+	if body.Data.Source == "" || body.Data.Summary == "" {
+		t.Fatalf("expected explanation payload, got %#v", body.Data)
+	}
+}
+
+func TestAnalystFindingExplainRouteReturnsRateLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystExplanations: service.NewAnalystFindingExplanationService(
+			&testFindingsRepository{finding: findingFixture()},
+			nil,
+			nil,
+			&testExplanationAuditStore{count: 20},
+			nil,
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/findings/"+findingFixture().ID+"/explain", bytes.NewBufferString(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status 429, got %d", rr.Code)
+	}
+}
+
+func TestAnalystWalletExplainRouteReturnsExplanation(t *testing.T) {
+	t.Parallel()
+
+	briefs := service.NewWalletBriefService(
+		&testWalletSummaryRepository{summary: walletSummaryFixture()},
+		nil,
+		&testFindingsRepository{walletFindings: []domain.Finding{findingFixture()}},
+		nil,
+	)
+
+	srv := NewWithDependencies(Dependencies{
+		AnalystExplanations: service.NewAnalystFindingExplanationService(
+			&testFindingsRepository{finding: findingFixture()},
+			briefs,
+			nil,
+			nil,
+			nil,
+		),
+		ClerkVerifier: auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/explain", bytes.NewBufferString(`{"question":"what matters here?"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.AnalystWalletExplanation]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.Address != "0x1234567890abcdef1234567890abcdef12345678" {
+		t.Fatalf("unexpected wallet explanation %#v", body.Data)
+	}
+	if body.Data.Summary == "" {
+		t.Fatalf("expected wallet explanation summary, got %#v", body.Data)
+	}
+}
+
+func TestInteractiveAnalystWalletAnalyzeRouteReturnsStructuredAnswer(t *testing.T) {
+	t.Parallel()
+
+	analyst := service.NewInteractiveAnalystService(
+		&testInteractiveAnalystWalletBriefReader{brief: service.WalletBrief{
+			Chain:       "evm",
+			Address:     "0x1234567890abcdef1234567890abcdef12345678",
+			DisplayName: "EVM wallet",
+			AISummary:   "High conviction entry detected before broader crowding.",
+			KeyFindings: []service.FindingItem{{
+				ID:         "finding-1",
+				Type:       "high_conviction_entry",
+				Summary:    "High conviction entry detected before broader crowding.",
+				Confidence: 0.83,
+				ObservedFacts: []string{
+					"Quality wallet overlap count 3.",
+				},
+				InferredInterpretation: []string{
+					"Early-entry overlap is elevated versus peer wallets.",
+				},
+			}},
+			Indexing: service.WalletIndexingState{CoverageWindowDays: 30},
+		}},
+		&testInteractiveAnalystToolReader{
+			patterns: service.AnalystBehaviorPatternsResponse{
+				Patterns: []service.AnalystBehaviorPattern{{
+					Key:        "behavior:fund_adjacent",
+					Label:      "Fund-adjacent",
+					Class:      "inferred",
+					Confidence: 0.71,
+					Summary:    "Funding overlap is elevated around this wallet.",
+				}},
+			},
+			counterparties: service.AnalystCounterpartiesResponse{
+				Counterparties: []service.WalletCounterparty{{
+					Chain:            "evm",
+					Address:          "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					EntityLabel:      "Wintermute",
+					InteractionCount: 7,
+				}},
+			},
+			graph: domain.WalletGraph{
+				Chain:         domain.Chain("evm"),
+				Address:       "0x1234567890abcdef1234567890abcdef12345678",
+				DepthResolved: 3,
+				Nodes: []domain.WalletGraphNode{
+					{ID: "wallet:1", Kind: domain.WalletGraphNodeWallet, Label: "focus"},
+				},
+				Edges: []domain.WalletGraphEdge{},
+			},
+		},
+		&testInteractiveAnalystFindingReader{
+			timeline: service.AnalystFindingEvidenceTimeline{
+				FindingID: "finding-1",
+				Items: []service.AnalystFindingTimelineItem{{
+					ObservedAt: "2026-03-29T00:00:00Z",
+					Type:       "quality_overlap",
+					Summary:    "Quality wallet overlap count 3",
+				}},
+			},
+		},
+		nil,
+	)
+
+	srv := NewWithDependencies(Dependencies{
+		InteractiveAnalyst: analyst,
+		ClerkVerifier:      auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/analyze", bytes.NewBufferString(`{"question":"Who is this wallet connected to and what does the flow graph show?"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var body Envelope[service.InteractiveAnalystWalletResponse]
+	decode(t, rr.Body.Bytes(), &body)
+
+	if !body.Success {
+		t.Fatal("expected success response")
+	}
+	if body.Data.Address != "0x1234567890abcdef1234567890abcdef12345678" {
+		t.Fatalf("unexpected analyst wallet response %#v", body.Data)
+	}
+	if len(body.Data.ToolTrace) < 3 {
+		t.Fatalf("expected tool trace, got %#v", body.Data)
+	}
+	if body.Meta.Freshness.Source != "analyst-tool" {
+		t.Fatalf("expected analyst-tool freshness, got %#v", body.Meta)
+	}
+}
+
+func TestInteractiveAnalystEntityAnalyzeRouteReturnsStructuredAnswer(t *testing.T) {
+	t.Parallel()
+
+	analyst := service.NewInteractiveAnalystService(
+		nil,
+		nil,
+		nil,
+		&testInteractiveAnalystEntityReader{
+			entity: service.EntityInterpretation{
+				EntityKey:   "entity:seed",
+				EntityType:  "fund",
+				DisplayName: "Seed Entity",
+				WalletCount: 2,
+				Members: []service.EntityMember{{
+					Chain:       "evm",
+					Address:     "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+					DisplayName: "Lead member",
+				}},
+				Findings: []service.FindingItem{{
+					ID:         "entity-finding-1",
+					Type:       "fund_adjacent_activity",
+					Summary:    "Fund-adjacent activity is elevated across member wallets.",
+					Confidence: 0.74,
+					ObservedFacts: []string{
+						"2 member wallets share repeat funding overlap.",
+					},
+				}},
+			},
+		},
+	)
+
+	srv := NewWithDependencies(Dependencies{
+		InteractiveAnalyst: analyst,
+		ClerkVerifier:      auth.NewHeaderClerkVerifier(),
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyst/entity/entity:seed/analyze", bytes.NewBufferString(`{"question":"Why does this entity matter?"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "user")
+
+	srv.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var body Envelope[service.InteractiveAnalystEntityResponse]
+	decode(t, rr.Body.Bytes(), &body)
+	if !body.Success {
+		t.Fatalf("expected success response")
+	}
+	if body.Data.EntityKey != "entity:seed" || body.Data.Headline == "" {
+		t.Fatalf("unexpected entity analyze payload %#v", body.Data)
+	}
+}
+
 func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
 	t.Parallel()
 
@@ -699,7 +999,7 @@ func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
 		"tier":"pro",
 		"successUrl":"http://localhost:3000/account?checkout=success",
 		"cancelUrl":"http://localhost:3000/account?checkout=cancel",
-		"customerEmail":"ops@flowintel.test"
+		"customerEmail":"ops@qorvi.test"
 	}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Clerk-User-Id", "user_123")
@@ -724,6 +1024,61 @@ func TestBillingCheckoutSessionRouteCreatesPlaceholderSession(t *testing.T) {
 	if body.Data.Plan.Tier != "pro" {
 		t.Fatalf("expected pro plan, got %q", body.Data.Plan.Tier)
 	}
+}
+
+type testInteractiveAnalystWalletBriefReader struct {
+	brief service.WalletBrief
+	err   error
+}
+
+func (t *testInteractiveAnalystWalletBriefReader) GetWalletBrief(context.Context, string, string) (service.WalletBrief, error) {
+	if t.err != nil {
+		return service.WalletBrief{}, t.err
+	}
+	return t.brief, nil
+}
+
+type testInteractiveAnalystToolReader struct {
+	counterparties service.AnalystCounterpartiesResponse
+	graph          domain.WalletGraph
+	patterns       service.AnalystBehaviorPatternsResponse
+}
+
+func (t *testInteractiveAnalystToolReader) GetWalletCounterparties(context.Context, string, string, int, int) (service.AnalystCounterpartiesResponse, error) {
+	return t.counterparties, nil
+}
+
+func (t *testInteractiveAnalystToolReader) GetWalletGraphEvidence(context.Context, string, string, int, string) (domain.WalletGraph, error) {
+	return t.graph, nil
+}
+
+func (t *testInteractiveAnalystToolReader) DetectBehaviorPatterns(context.Context, string, string) (service.AnalystBehaviorPatternsResponse, error) {
+	return t.patterns, nil
+}
+
+type testInteractiveAnalystFindingReader struct {
+	timeline service.AnalystFindingEvidenceTimeline
+	analogs  service.AnalystHistoricalAnalogs
+}
+
+func (t *testInteractiveAnalystFindingReader) GetEvidenceTimeline(context.Context, string) (service.AnalystFindingEvidenceTimeline, error) {
+	return t.timeline, nil
+}
+
+func (t *testInteractiveAnalystFindingReader) GetHistoricalAnalogs(context.Context, string, int) (service.AnalystHistoricalAnalogs, error) {
+	return t.analogs, nil
+}
+
+type testInteractiveAnalystEntityReader struct {
+	entity service.EntityInterpretation
+	err    error
+}
+
+func (t *testInteractiveAnalystEntityReader) GetEntityInterpretation(context.Context, string) (service.EntityInterpretation, error) {
+	if t.err != nil {
+		return service.EntityInterpretation{}, t.err
+	}
+	return t.entity, nil
 }
 
 func TestBillingPlansRouteReturnsCatalog(t *testing.T) {
@@ -833,11 +1188,12 @@ func TestWalletGraphRouteDefaultsToOneHop(t *testing.T) {
 	}
 }
 
-func TestWalletGraphRouteBlocksFreeTierTwoHop(t *testing.T) {
+func TestWalletGraphRouteAllowsFreeTierTwoHop(t *testing.T) {
 	t.Parallel()
 
+	repo := &testWalletGraphRepository{graph: walletGraphFixture()}
 	srv := NewWithDependencies(Dependencies{
-		Graphs:        service.NewWalletGraphService(&testWalletGraphRepository{graph: walletGraphFixture()}),
+		Graphs:        service.NewWalletGraphService(repo),
 		Clusters:      service.NewClusterDetailService(&testClusterDetailRepository{detail: clusterDetailFixture()}),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
 	})
@@ -846,15 +1202,18 @@ func TestWalletGraphRouteBlocksFreeTierTwoHop(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/wallets/evm/0x1234567890abcdef1234567890abcdef12345678/graph?depth=2", nil)
 	srv.Handler().ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
 	}
 
-	var body Envelope[any]
+	var body Envelope[domain.WalletGraph]
 	decode(t, rr.Body.Bytes(), &body)
 
-	if body.Error == nil || body.Error.Code != "FORBIDDEN" {
-		t.Fatalf("expected forbidden error, got %#v", body.Error)
+	if body.Error != nil {
+		t.Fatalf("expected no graph error, got %#v", body.Error)
+	}
+	if body.Data.DepthRequested != 2 {
+		t.Fatalf("expected requested depth 2, got %d", body.Data.DepthRequested)
 	}
 }
 
@@ -1559,6 +1918,18 @@ func (r *testFindingsRepository) FindFindingByID(_ context.Context, _ string) (d
 		return r.walletFindings[0], nil
 	}
 	return domain.Finding{}, nil
+}
+
+type testExplanationAuditStore struct {
+	count int
+}
+
+func (s *testExplanationAuditStore) RecordAuditLog(context.Context, db.AuditLogEntry) error {
+	return nil
+}
+
+func (s *testExplanationAuditStore) CountAuditLogsByActorActionBetween(context.Context, string, string, time.Time, time.Time) (int, error) {
+	return s.count, nil
 }
 
 type testEntityInterpretationRepository struct {

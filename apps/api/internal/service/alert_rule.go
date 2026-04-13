@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var (
@@ -381,25 +380,11 @@ func (s *AlertRuleService) buildAlertRule(ownerUserID string, ruleID string, req
 }
 
 func ensureAlertsEnabled(tier domain.PlanTier) error {
-	plan, err := billing.FindPlan(tier)
-	if err != nil {
-		return ErrAlertRuleForbidden
-	}
-	if !billing.IsFeatureEnabled(plan, billing.FeatureAlerts) {
-		return ErrAlertRuleForbidden
-	}
 	return nil
 }
 
 func alertRuleLimitForTier(tier domain.PlanTier) (int, error) {
-	switch tier {
-	case domain.PlanPro:
-		return 10, nil
-	case domain.PlanTeam:
-		return 50, nil
-	default:
-		return 0, ErrAlertRuleForbidden
-	}
+	return 250, nil
 }
 
 func normalizeAlertRuleDefinition(input AlertRuleDefinition) (domain.AlertRuleDefinition, error) {

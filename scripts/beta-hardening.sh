@@ -55,21 +55,21 @@ run_prep() {
 
 run_evidence_core() {
   echo "==> Beta evidence: web typecheck"
-  corepack pnpm --filter @flowintel/web typecheck
+  corepack pnpm --filter @qorvi/web typecheck
 
   echo "==> Beta evidence: web lint"
-  corepack pnpm --filter @flowintel/web lint
+  corepack pnpm --filter @qorvi/web lint
 
   echo "==> Beta evidence: backend/provider/worker contracts"
-  GOCACHE=/tmp/flowintel-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
+  GOCACHE=/tmp/qorvi-go-cache go test ./packages/providers ./apps/api/internal/server ./apps/workers
 
   echo "==> Beta evidence: browser/API tracking beta flow"
-  corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"
+  corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"
 }
 
 run_evidence_billing() {
   echo "==> Beta evidence: optional billing checkout flow"
-  corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "creates checkout intent, reconciles billing, and shows upgraded account"
+  corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts --grep "creates checkout intent, reconciles billing, and shows upgraded account"
 }
 
 case "$MODE" in

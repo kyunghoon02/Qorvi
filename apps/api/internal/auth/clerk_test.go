@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	sharedconfig "github.com/flowintel/flowintel/packages/config"
+	sharedconfig "github.com/qorvi/qorvi/packages/config"
 )
 
 func TestHeaderClerkVerifierRequiresIdentityHeaders(t *testing.T) {
@@ -57,7 +57,7 @@ func TestHeaderClerkVerifierVerifiesBearerToken(t *testing.T) {
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "flowintel",
+		Audience:         "qorvi",
 		ClockSkewSeconds: 60,
 	})
 
@@ -66,7 +66,7 @@ func TestHeaderClerkVerifierVerifiesBearerToken(t *testing.T) {
 		"sid":   "session_123",
 		"role":  "admin",
 		"iss":   "https://example.clerk.accounts.dev",
-		"aud":   "flowintel",
+		"aud":   "qorvi",
 		"exp":   time.Now().UTC().Add(time.Minute).Unix(),
 		"nbf":   time.Now().UTC().Add(-time.Minute).Unix(),
 		"email": "user@example.com",
@@ -93,6 +93,84 @@ func TestHeaderClerkVerifierVerifiesBearerToken(t *testing.T) {
 	}
 }
 
+func TestHeaderClerkVerifierFallsBackToMetadataRoleInBearerToken(t *testing.T) {
+	t.Parallel()
+
+	privateKey := mustRSAKey(t)
+	jwksServer, jwksURL := newJWKS(t, privateKey, "clerk-test-key")
+	defer jwksServer.Close()
+
+	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
+		IssuerURL:        "https://example.clerk.accounts.dev",
+		JWKSURL:          jwksURL,
+		Audience:         "qorvi",
+		ClockSkewSeconds: 60,
+	})
+
+	token := signClerkToken(t, privateKey, map[string]any{
+		"sub": "user_123",
+		"sid": "session_123",
+		"public_metadata": map[string]any{
+			"role": "admin",
+		},
+		"iss":   "https://example.clerk.accounts.dev",
+		"aud":   "qorvi",
+		"exp":   time.Now().UTC().Add(time.Minute).Unix(),
+		"nbf":   time.Now().UTC().Add(-time.Minute).Unix(),
+		"email": "user@example.com",
+	}, "clerk-test-key")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	principal, err := verifier.Verify(req)
+	if err != nil {
+		t.Fatalf("expected bearer token with metadata role to verify, got %v", err)
+	}
+	if principal.Role != "admin" {
+		t.Fatalf("unexpected role %q", principal.Role)
+	}
+}
+
+func TestHeaderClerkVerifierFallsBackToLegacyRoleWhenBearerClaimIsMissing(t *testing.T) {
+	t.Parallel()
+
+	privateKey := mustRSAKey(t)
+	jwksServer, jwksURL := newJWKS(t, privateKey, "clerk-test-key")
+	defer jwksServer.Close()
+
+	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
+		IssuerURL:        "https://example.clerk.accounts.dev",
+		JWKSURL:          jwksURL,
+		Audience:         "qorvi",
+		ClockSkewSeconds: 60,
+	})
+
+	token := signClerkToken(t, privateKey, map[string]any{
+		"sub":   "user_123",
+		"sid":   "session_123",
+		"iss":   "https://example.clerk.accounts.dev",
+		"aud":   "qorvi",
+		"exp":   time.Now().UTC().Add(time.Minute).Unix(),
+		"nbf":   time.Now().UTC().Add(-time.Minute).Unix(),
+		"email": "user@example.com",
+	}, "clerk-test-key")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Clerk-User-Id", "user_123")
+	req.Header.Set("X-Clerk-Session-Id", "session_123")
+	req.Header.Set("X-Clerk-Role", "admin")
+
+	principal, err := verifier.Verify(req)
+	if err != nil {
+		t.Fatalf("expected bearer token with forwarded role to verify, got %v", err)
+	}
+	if principal.Role != "admin" {
+		t.Fatalf("unexpected role %q", principal.Role)
+	}
+}
+
 func TestHeaderClerkVerifierPrefersBearerTokenOverLegacyHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -103,7 +181,7 @@ func TestHeaderClerkVerifierPrefersBearerTokenOverLegacyHeaders(t *testing.T) {
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "flowintel",
+		Audience:         "qorvi",
 		ClockSkewSeconds: 60,
 	})
 
@@ -112,7 +190,7 @@ func TestHeaderClerkVerifierPrefersBearerTokenOverLegacyHeaders(t *testing.T) {
 		"sid":  "session_123",
 		"role": "user",
 		"iss":  "https://example.clerk.accounts.dev",
-		"aud":  "flowintel",
+		"aud":  "qorvi",
 		"exp":  time.Now().UTC().Add(time.Minute).Unix(),
 		"nbf":  time.Now().UTC().Add(-time.Minute).Unix(),
 	}, "clerk-test-key")
@@ -142,7 +220,7 @@ func TestHeaderClerkVerifierRejectsInvalidBearerEvenWithLegacyHeaders(t *testing
 	verifier := NewHeaderClerkVerifierWithConfig(sharedconfig.ClerkVerificationConfig{
 		IssuerURL:        "https://example.clerk.accounts.dev",
 		JWKSURL:          jwksURL,
-		Audience:         "flowintel",
+		Audience:         "qorvi",
 		ClockSkewSeconds: 60,
 	})
 

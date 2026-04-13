@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { useCallback } from "react";
 
 import { resolveClerkRole } from "./clerk-role";
@@ -10,16 +10,18 @@ export function useClerkRequestHeaders(): () => Promise<
   HeadersInit | undefined
 > {
   const { userId, sessionId, sessionClaims, getToken } = useAuth();
+  const { user } = useUser();
 
   return useCallback(async () => {
     const token = await getToken();
+    const role = resolveClerkRole(sessionClaims) ?? resolveClerkRole(user);
 
     return createForwardedAuthHeaders({
       bearerToken: token ?? undefined,
       userId: userId ?? undefined,
       sessionId: sessionId ?? undefined,
-      role: resolveClerkRole(sessionClaims),
+      role,
       plan: undefined,
     });
-  }, [getToken, sessionClaims, sessionId, userId]);
+  }, [getToken, sessionClaims, sessionId, user, userId]);
 }

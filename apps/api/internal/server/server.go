@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type Envelope[T any] struct {
@@ -66,47 +66,56 @@ type ProviderWebhookAcceptancePayload struct {
 }
 
 type Server struct {
-	mux              *http.ServeMux
-	wallets          *service.WalletSummaryService
-	walletBriefs     *service.WalletBriefService
-	graphs           *service.WalletGraphService
-	analystTools     *service.AnalystToolsService
-	analystFindings  *service.AnalystFindingDrilldownService
-	findings         *service.FindingsFeedService
-	entities         *service.EntityInterpretationService
-	clusters         *service.ClusterDetailService
-	shadowExits      *service.ShadowExitFeedService
-	firstConnections *service.FirstConnectionFeedService
-	alertRules       *service.AlertRuleService
-	alertDelivery    *service.AlertDeliveryService
-	watchlists       *service.WatchlistService
-	adminConsole     *service.AdminConsoleService
-	account          *service.AccountService
-	billing          *service.BillingService
-	search           *service.SearchService
-	webhookIngest    WebhookIngestService
+	mux                *http.ServeMux
+	wallets            *service.WalletSummaryService
+	walletBriefs       *service.WalletBriefService
+	graphs             *service.WalletGraphService
+	discover           *service.DiscoverService
+	analystTools       *service.AnalystToolsService
+	analystFindings    *service.AnalystFindingDrilldownService
+	analystExplain     *service.AnalystFindingExplanationService
+	interactiveAnalyst *service.InteractiveAnalystService
+	findings           *service.FindingsFeedService
+	entities           *service.EntityInterpretationService
+	clusters           *service.ClusterDetailService
+	shadowExits        *service.ShadowExitFeedService
+	firstConnections   *service.FirstConnectionFeedService
+	alertRules         *service.AlertRuleService
+	alertDelivery      *service.AlertDeliveryService
+	watchlists         *service.WatchlistService
+	adminConsole       *service.AdminConsoleService
+	adminBacktests     *service.AdminBacktestOpsService
+	account            *service.AccountService
+	billing            *service.BillingService
+	search             *service.SearchService
+	webhookIngest      WebhookIngestService
+	adminAllowlist     adminPrincipalAllowlist
 }
 
 type Dependencies struct {
-	Wallets          *service.WalletSummaryService
-	WalletBriefs     *service.WalletBriefService
-	Graphs           *service.WalletGraphService
-	AnalystTools     *service.AnalystToolsService
-	AnalystFindings  *service.AnalystFindingDrilldownService
-	Findings         *service.FindingsFeedService
-	Entities         *service.EntityInterpretationService
-	Clusters         *service.ClusterDetailService
-	ShadowExits      *service.ShadowExitFeedService
-	FirstConnections *service.FirstConnectionFeedService
-	AlertRules       *service.AlertRuleService
-	AlertDelivery    *service.AlertDeliveryService
-	Watchlists       *service.WatchlistService
-	AdminConsole     *service.AdminConsoleService
-	Account          *service.AccountService
-	Billing          *service.BillingService
-	Search           *service.SearchService
-	WebhookIngest    WebhookIngestService
-	ClerkVerifier    auth.ClerkVerifier
+	Wallets             *service.WalletSummaryService
+	WalletBriefs        *service.WalletBriefService
+	Graphs              *service.WalletGraphService
+	Discover            *service.DiscoverService
+	AnalystTools        *service.AnalystToolsService
+	AnalystFindings     *service.AnalystFindingDrilldownService
+	AnalystExplanations *service.AnalystFindingExplanationService
+	InteractiveAnalyst  *service.InteractiveAnalystService
+	Findings            *service.FindingsFeedService
+	Entities            *service.EntityInterpretationService
+	Clusters            *service.ClusterDetailService
+	ShadowExits         *service.ShadowExitFeedService
+	FirstConnections    *service.FirstConnectionFeedService
+	AlertRules          *service.AlertRuleService
+	AlertDelivery       *service.AlertDeliveryService
+	Watchlists          *service.WatchlistService
+	AdminConsole        *service.AdminConsoleService
+	AdminBacktests      *service.AdminBacktestOpsService
+	Account             *service.AccountService
+	Billing             *service.BillingService
+	Search              *service.SearchService
+	WebhookIngest       WebhookIngestService
+	ClerkVerifier       auth.ClerkVerifier
 }
 
 func New() *Server {
@@ -124,6 +133,9 @@ func NewWithDependencies(deps Dependencies) *Server {
 		deps.Graphs = service.NewWalletGraphService(
 			repository.NewQueryBackedWalletGraphRepository(notFoundWalletGraphLoader{}),
 		)
+	}
+	if deps.Discover == nil {
+		deps.Discover = service.NewDiscoverService(nil)
 	}
 	if deps.Findings == nil {
 		deps.Findings = service.NewFindingsFeedService(
@@ -146,6 +158,9 @@ func NewWithDependencies(deps Dependencies) *Server {
 	if deps.Search == nil {
 		deps.Search = service.NewSearchService(deps.Wallets)
 	}
+	if deps.AdminBacktests == nil {
+		deps.AdminBacktests = service.NewAdminBacktestOpsService("", "", "")
+	}
 	if deps.AnalystTools == nil {
 		deps.AnalystTools = service.NewAnalystToolsService(
 			deps.Wallets,
@@ -158,6 +173,23 @@ func NewWithDependencies(deps Dependencies) *Server {
 			repository.NewQueryBackedFindingsRepository(nil),
 			deps.Wallets,
 			repository.NewQueryBackedWalletEntryFeaturesRepository(nil),
+		)
+	}
+	if deps.AnalystExplanations == nil {
+		deps.AnalystExplanations = service.NewAnalystFindingExplanationService(
+			repository.NewQueryBackedFindingsRepository(nil),
+			nil,
+			nil,
+			nil,
+			nil,
+		)
+	}
+	if deps.InteractiveAnalyst == nil {
+		deps.InteractiveAnalyst = service.NewInteractiveAnalystService(
+			deps.WalletBriefs,
+			deps.AnalystTools,
+			deps.AnalystFindings,
+			deps.Entities,
 		)
 	}
 	if deps.Clusters == nil {
@@ -202,34 +234,43 @@ func NewWithDependencies(deps Dependencies) *Server {
 
 	mux := http.NewServeMux()
 	s := &Server{
-		mux:              mux,
-		wallets:          deps.Wallets,
-		walletBriefs:     deps.WalletBriefs,
-		graphs:           deps.Graphs,
-		analystTools:     deps.AnalystTools,
-		analystFindings:  deps.AnalystFindings,
-		findings:         deps.Findings,
-		entities:         deps.Entities,
-		clusters:         deps.Clusters,
-		shadowExits:      deps.ShadowExits,
-		firstConnections: deps.FirstConnections,
-		alertRules:       deps.AlertRules,
-		alertDelivery:    deps.AlertDelivery,
-		watchlists:       deps.Watchlists,
-		adminConsole:     deps.AdminConsole,
-		account:          deps.Account,
-		billing:          deps.Billing,
-		search:           deps.Search,
-		webhookIngest:    deps.WebhookIngest,
+		mux:                mux,
+		wallets:            deps.Wallets,
+		walletBriefs:       deps.WalletBriefs,
+		graphs:             deps.Graphs,
+		discover:           deps.Discover,
+		analystTools:       deps.AnalystTools,
+		analystFindings:    deps.AnalystFindings,
+		analystExplain:     deps.AnalystExplanations,
+		interactiveAnalyst: deps.InteractiveAnalyst,
+		findings:           deps.Findings,
+		entities:           deps.Entities,
+		clusters:           deps.Clusters,
+		shadowExits:        deps.ShadowExits,
+		firstConnections:   deps.FirstConnections,
+		alertRules:         deps.AlertRules,
+		alertDelivery:      deps.AlertDelivery,
+		watchlists:         deps.Watchlists,
+		adminConsole:       deps.AdminConsole,
+		adminBacktests:     deps.AdminBacktests,
+		account:            deps.Account,
+		billing:            deps.Billing,
+		search:             deps.Search,
+		webhookIngest:      deps.WebhookIngest,
+		adminAllowlist:     loadAdminPrincipalAllowlistFromEnv(),
 	}
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/findings", s.handleFindingsFeed)
+	mux.HandleFunc("GET /v1/discover/featured-wallets", s.handleDiscoverFeaturedWallets)
 	mux.HandleFunc("GET /v1/analyst/findings", s.handleAnalystFindingsFeed)
 	mux.HandleFunc("GET /v1/analyst/findings/", s.handleAnalystFindingRoute)
+	mux.Handle("POST /v1/analyst/findings/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAuthorizedAnalystFindingRoute)))
 	mux.HandleFunc("GET /v1/entity/", s.handleEntityRoute)
 	mux.HandleFunc("GET /v1/analyst/entity/", s.handleAnalystEntityRoute)
+	mux.Handle("POST /v1/analyst/entity/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAuthorizedAnalystEntityRoute)))
+	mux.Handle("POST /v1/analyst/wallets/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAuthorizedAnalystWalletRoute)))
 	mux.HandleFunc("GET /v1/analyst/tools/wallets/", s.handleAnalystToolWalletRoute)
 	mux.HandleFunc("GET /v1/billing/plans", s.handleBillingPlans)
 	mux.HandleFunc("GET /v1/clusters/", s.handleClusterRoute)
@@ -256,6 +297,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 	mux.Handle("PATCH /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
 	mux.Handle("DELETE /v1/watchlists/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleWatchlistRoute)))
 	mux.HandleFunc("POST /v1/webhooks/providers/alchemy/address-activity", s.handleAlchemyAddressActivityWebhook)
+	mux.HandleFunc("POST /v1/webhooks/providers/helius/address-activity", s.handleHeliusAddressActivityWebhook)
 	mux.HandleFunc("POST /v1/providers/", s.handleProviderRoute)
 	mux.HandleFunc("GET /v1/wallets/", s.handleWalletRoute)
 	mux.HandleFunc("GET /v1/analyst/wallets/", s.handleAnalystWalletRoute)
@@ -294,6 +336,14 @@ func NewWithDependencies(deps Dependencies) *Server {
 	mux.Handle(
 		"GET /v1/admin/observability",
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminObservability)),
+	)
+	mux.Handle(
+		"GET /v1/admin/backtests",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminBacktests)),
+	)
+	mux.Handle(
+		"POST /v1/admin/backtests/",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminBacktestRoute)),
 	)
 	mux.Handle(
 		"GET /v1/admin/curated-lists",
@@ -438,6 +488,20 @@ func (s *Server) handleFindingsFeed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDiscoverFeaturedWallets(w http.ResponseWriter, r *http.Request) {
+	items, err := s.discover.ListFeaturedWallets(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "discover featured wallet lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.DiscoverFeaturedWalletResponse]{
+		Success: true,
+		Data:    items,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
 func (s *Server) handleAnalystFindingsFeed(w http.ResponseWriter, r *http.Request) {
 	limit, err := parseFindingsFeedLimit(r.URL.Query().Get("limit"))
 	if err != nil {
@@ -477,6 +541,74 @@ func (s *Server) handleAnalystFindingRoute(w http.ResponseWriter, r *http.Reques
 	default:
 		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding route not found", "", tierFromHeader(r)))
 	}
+}
+
+func (s *Server) handleAuthorizedAnalystFindingRoute(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", tierFromHeader(r)))
+		return
+	}
+
+	findingID, resource, ok := parseAnalystFindingRoutePath(r.URL.Path)
+	if !ok || resource != "explain" {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst finding route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", "", tierFromHeader(r)))
+		return
+	}
+
+	s.handleAnalystFindingExplain(w, r, principal, findingID)
+}
+
+func (s *Server) handleAuthorizedAnalystWalletRoute(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", tierFromHeader(r)))
+		return
+	}
+
+	chain, address, resource, ok := parseAnalystWalletRoutePath(r.URL.Path)
+	if !ok || (resource != "explain" && resource != "analyze") {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst wallet route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", chain, tierFromHeader(r)))
+		return
+	}
+
+	switch resource {
+	case "analyze":
+		s.handleInteractiveAnalystWalletAnalyze(w, r, principal, chain, address)
+	default:
+		s.handleAnalystWalletExplain(w, r, principal, chain, address)
+	}
+}
+
+func (s *Server) handleAuthorizedAnalystEntityRoute(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", tierFromHeader(r)))
+		return
+	}
+
+	entityKey, resource, ok := parseAuthorizedAnalystEntityRoutePath(r.URL.Path)
+	if !ok || resource != "analyze" {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst entity route not found", "", tierFromHeader(r)))
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", "", tierFromHeader(r)))
+		return
+	}
+
+	s.handleInteractiveAnalystEntityAnalyze(w, r, principal, entityKey)
 }
 
 func (s *Server) handleProviderRoute(w http.ResponseWriter, r *http.Request) {
@@ -730,6 +862,180 @@ func (s *Server) handleAnalystFindingHistoricalAnalogs(w http.ResponseWriter, r 
 	})
 }
 
+func (s *Server) handleAnalystFindingExplain(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal auth.ClerkPrincipal,
+	findingID string,
+) {
+	if s.analystExplain == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst explanation service unavailable", "", tierFromHeader(r)))
+		return
+	}
+
+	var req service.AnalystFindingExplainRequest
+	if err := decodeJSONBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst explanation payload", "", tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.analystExplain.ExplainFinding(r.Context(), principal, findingID, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		switch {
+		case errors.Is(err, service.ErrFindingNotFound):
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		case errors.Is(err, service.ErrAnalystExplanationInvalidRequest):
+			status = http.StatusBadRequest
+			code = "INVALID_ARGUMENT"
+		case errors.Is(err, service.ErrAnalystExplanationQuotaExceeded):
+			status = http.StatusTooManyRequests
+			code = "RATE_LIMITED"
+		}
+		writeJSON(w, status, errorEnvelope(code, "analyst finding explanation failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.AnalystFindingExplanation]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleAnalystWalletExplain(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal auth.ClerkPrincipal,
+	chain string,
+	address string,
+) {
+	if s.analystExplain == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "analyst explanation service unavailable", chain, tierFromHeader(r)))
+		return
+	}
+
+	var req service.AnalystWalletExplainRequest
+	if err := decodeJSONBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid analyst wallet explanation payload", chain, tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.analystExplain.ExplainWallet(r.Context(), principal, chain, address, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		switch {
+		case errors.Is(err, service.ErrWalletSummaryNotFound):
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		case errors.Is(err, service.ErrAnalystExplanationInvalidRequest):
+			status = http.StatusBadRequest
+			code = "INVALID_ARGUMENT"
+		case errors.Is(err, service.ErrAnalystExplanationQuotaExceeded):
+			status = http.StatusTooManyRequests
+			code = "RATE_LIMITED"
+		}
+		writeJSON(w, status, errorEnvelope(code, "analyst wallet explanation failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	httpStatus := http.StatusOK
+	if payload.Queued {
+		httpStatus = http.StatusAccepted
+	}
+	writeJSON(w, httpStatus, Envelope[service.AnalystWalletExplanation]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleInteractiveAnalystWalletAnalyze(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal auth.ClerkPrincipal,
+	chain string,
+	address string,
+) {
+	if s.interactiveAnalyst == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "interactive analyst unavailable", chain, tierFromHeader(r)))
+		return
+	}
+
+	var req service.InteractiveAnalystWalletRequest
+	if err := decodeJSONBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid interactive analyst payload", chain, tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.interactiveAnalyst.AnalyzeWallet(r.Context(), chain, address, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		switch {
+		case errors.Is(err, service.ErrWalletSummaryNotFound):
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		case errors.Is(err, service.ErrInteractiveAnalystInvalidRequest):
+			status = http.StatusBadRequest
+			code = "INVALID_ARGUMENT"
+		}
+		writeJSON(w, status, errorEnvelope(code, "interactive analyst wallet analysis failed", chain, tierFromHeader(r)))
+		return
+	}
+
+	_ = principal
+	writeJSON(w, http.StatusOK, Envelope[service.InteractiveAnalystWalletResponse]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta(chain, tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
+func (s *Server) handleInteractiveAnalystEntityAnalyze(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal auth.ClerkPrincipal,
+	entityKey string,
+) {
+	if s.interactiveAnalyst == nil {
+		writeJSON(w, http.StatusNotFound, errorEnvelope("NOT_FOUND", "interactive analyst unavailable", "", tierFromHeader(r)))
+		return
+	}
+
+	var req service.InteractiveAnalystEntityRequest
+	if err := decodeJSONBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, errorEnvelope("INVALID_ARGUMENT", "invalid interactive analyst entity payload", "", tierFromHeader(r)))
+		return
+	}
+
+	payload, err := s.interactiveAnalyst.AnalyzeEntity(r.Context(), entityKey, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL"
+		switch {
+		case errors.Is(err, service.ErrEntityInterpretationNotFound):
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		case errors.Is(err, service.ErrInteractiveAnalystInvalidRequest):
+			status = http.StatusBadRequest
+			code = "INVALID_ARGUMENT"
+		}
+		writeJSON(w, status, errorEnvelope(code, "interactive analyst entity analysis failed", "", tierFromHeader(r)))
+		return
+	}
+
+	_ = principal
+	writeJSON(w, http.StatusOK, Envelope[service.InteractiveAnalystEntityResponse]{
+		Success: true,
+		Data:    payload,
+		Meta:    newMeta("", tierFromHeader(r), freshness("analyst-tool", 180)),
+	})
+}
+
 func (s *Server) handleShadowExitFeed(w http.ResponseWriter, r *http.Request) {
 	limit, err := parseShadowExitFeedLimit(r.URL.Query().Get("limit"))
 	if err != nil {
@@ -869,6 +1175,14 @@ func (s *Server) handleWalletGraph(w http.ResponseWriter, r *http.Request, chain
 }
 
 func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
 	writeJSON(w, http.StatusOK, Envelope[AdminStatusPayload]{
 		Success: true,
 		Data: AdminStatusPayload{
@@ -949,7 +1263,7 @@ func parseAnalystWalletRoutePath(path string) (string, string, string, bool) {
 		return "", "", "", false
 	}
 
-	if resource != "brief" {
+	if resource != "brief" && resource != "explain" && resource != "analyze" {
 		return "", "", "", false
 	}
 
@@ -994,7 +1308,7 @@ func parseAnalystFindingRoutePath(path string) (string, string, bool) {
 	}
 	resource = strings.TrimSpace(resource)
 	switch resource {
-	case "evidence-timeline", "historical-analogs":
+	case "evidence-timeline", "historical-analogs", "explain":
 		return strings.TrimSpace(findingID), resource, true
 	default:
 		return "", "", false
@@ -1108,6 +1422,29 @@ func parseAnalystEntityRoutePath(path string) (string, bool) {
 	return entityKey, true
 }
 
+func parseAuthorizedAnalystEntityRoutePath(path string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1/analyst/entity/")
+	if !ok {
+		return "", "", false
+	}
+
+	entityKey, resource, ok := strings.Cut(rest, "/")
+	if !ok {
+		return "", "", false
+	}
+
+	entityKey = strings.TrimSpace(entityKey)
+	resource = strings.TrimSpace(resource)
+	if entityKey == "" || resource == "" || strings.Contains(entityKey, "/") {
+		return "", "", false
+	}
+	if resource != "analyze" {
+		return "", "", false
+	}
+
+	return entityKey, resource, true
+}
+
 func parseWalletGraphDepth(raw string) (int, error) {
 	if strings.TrimSpace(raw) == "" {
 		return 1, nil
@@ -1163,12 +1500,18 @@ func isSupportedWebhookProvider(provider string) bool {
 }
 
 func tierFromHeader(r *http.Request) string {
-	switch strings.ToLower(strings.TrimSpace(r.Header.Get("X-Whalegraph-Plan"))) {
-	case "pro", "team":
-		return strings.ToLower(strings.TrimSpace(r.Header.Get("X-Whalegraph-Plan")))
-	default:
-		return "free"
+	for _, headerName := range []string{
+		"X-Qorvi-Plan",
+		"X-Flowintel-Plan",
+		"X-Whalegraph-Plan",
+	} {
+		switch tier := strings.ToLower(strings.TrimSpace(r.Header.Get(headerName))); tier {
+		case "pro", "team":
+			return tier
+		}
 	}
+
+	return "free"
 }
 
 func freshness(source string, maxAgeSeconds int) FreshnessMeta {

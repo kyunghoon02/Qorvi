@@ -7,17 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
-func TestWatchlistServiceForbidsFreePlan(t *testing.T) {
+func TestWatchlistServiceAllowsFreePlan(t *testing.T) {
 	t.Parallel()
 
 	svc := NewWatchlistService(repository.NewInMemoryWatchlistRepository())
-	_, err := svc.ListWatchlists(context.Background(), "user_123", domain.PlanFree)
-	if !errors.Is(err, ErrWatchlistForbidden) {
-		t.Fatalf("expected forbidden error, got %v", err)
+	page, err := svc.ListWatchlists(context.Background(), "user_123", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("expected free plan to list watchlists, got %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("expected empty watchlist collection, got %#v", page)
 	}
 }
 
@@ -30,20 +33,20 @@ func TestWatchlistServiceEnforcesOwnerLimitsAndNormalizesItemTags(t *testing.T) 
 		return time.Date(2026, time.March, 20, 12, 0, 0, 0, time.UTC)
 	}
 
-	created := make([]WatchlistDetail, 0, 3)
-	for index := 0; index < 3; index++ {
-		detail, err := svc.CreateWatchlist(context.Background(), "user_123", domain.PlanPro, CreateWatchlistRequest{Name: "List"})
+	created := make([]WatchlistDetail, 0, 25)
+	for index := 0; index < 25; index++ {
+		detail, err := svc.CreateWatchlist(context.Background(), "user_123", domain.PlanFree, CreateWatchlistRequest{Name: fmt.Sprintf("List %d", index)})
 		if err != nil {
 			t.Fatalf("CreateWatchlist %d failed: %v", index, err)
 		}
 		created = append(created, detail)
 	}
 
-	if _, err := svc.CreateWatchlist(context.Background(), "user_123", domain.PlanPro, CreateWatchlistRequest{Name: "Overflow"}); !errors.Is(err, ErrWatchlistLimitExceeded) {
+	if _, err := svc.CreateWatchlist(context.Background(), "user_123", domain.PlanFree, CreateWatchlistRequest{Name: "Overflow"}); !errors.Is(err, ErrWatchlistLimitExceeded) {
 		t.Fatalf("expected list limit exceeded, got %v", err)
 	}
 
-	detail, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanPro, created[0].ID, CreateWatchlistItemRequest{
+	detail, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanFree, created[0].ID, CreateWatchlistItemRequest{
 		Chain:   "evm",
 		Address: "0x1234567890abcdef1234567890abcdef12345678",
 		Tags:    []string{" Seed ", "seed", "Hot"},
@@ -65,9 +68,9 @@ func TestWatchlistServiceEnforcesOwnerLimitsAndNormalizesItemTags(t *testing.T) 
 		t.Fatalf("unexpected note %q", detail.Items[0].Note)
 	}
 
-	for index := 1; index < 50; index++ {
+	for index := 1; index < 1000; index++ {
 		address := fmt.Sprintf("0x%040x", index+1)
-		_, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanPro, created[0].ID, CreateWatchlistItemRequest{
+		_, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanFree, created[0].ID, CreateWatchlistItemRequest{
 			Chain:   "evm",
 			Address: address,
 		})
@@ -76,7 +79,7 @@ func TestWatchlistServiceEnforcesOwnerLimitsAndNormalizesItemTags(t *testing.T) 
 		}
 	}
 
-	if _, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanPro, created[0].ID, CreateWatchlistItemRequest{
+	if _, err := svc.AddWatchlistItem(context.Background(), "user_123", domain.PlanFree, created[0].ID, CreateWatchlistItemRequest{
 		Chain:   "evm",
 		Address: "0x9999999999999999999999999999999999999999",
 	}); !errors.Is(err, ErrWatchlistLimitExceeded) {

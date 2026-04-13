@@ -1,24 +1,24 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: flowintel-postgres
+    container_name: qorvi-postgres
     environment:
-      POSTGRES_DB: flowintel
+      POSTGRES_DB: qorvi
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "5433:5432"
     volumes:
-      - flowintel_postgres_data:/var/lib/postgresql/data
+      - qorvi_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d flowintel"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d qorvi"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   neo4j:
     image: neo4j:5.24-community
-    container_name: flowintel-neo4j
+    container_name: qorvi-neo4j
     environment:
       NEO4J_AUTH: neo4j/neo4jpassword
       NEO4J_server_memory_pagecache_size: 512M
@@ -29,8 +29,8 @@ services:
       - "7474:7474"
       - "8687:7687"
     volumes:
-      - flowintel_neo4j_data:/data
-      - flowintel_neo4j_logs:/logs
+      - qorvi_neo4j_data:/data
+      - qorvi_neo4j_logs:/logs
     healthcheck:
       test:
         - CMD-SHELL
@@ -41,12 +41,12 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    container_name: flowintel-redis
+    container_name: qorvi-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
     volumes:
-      - flowintel_redis_data:/data
+      - qorvi_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -54,7 +54,7 @@ services:
       retries: 20
 
 volumes:
-  flowintel_postgres_data:
-  flowintel_neo4j_data:
-  flowintel_neo4j_logs:
-  flowintel_redis_data:
+  qorvi_postgres_data:
+  qorvi_neo4j_data:
+  qorvi_neo4j_logs:
+  qorvi_redis_data:

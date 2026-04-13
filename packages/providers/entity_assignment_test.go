@@ -3,7 +3,7 @@ package providers
 import (
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestDeriveHeuristicEntityAssignmentsUsesMeaningfulProviderMetadata(t *testing.T) {

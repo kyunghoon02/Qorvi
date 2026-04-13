@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 const workerModeClusterScoreSnapshot = "cluster-score-snapshot"
@@ -22,6 +22,7 @@ type ClusterScoreSnapshotService struct {
 	Wallets  WalletEnsurer
 	Graphs   WalletGraphLoader
 	Signals  db.SignalEventStore
+	Tracking db.WalletTrackingStateStore
 	Labels   db.WalletLabelReader
 	Findings db.FindingStore
 	Cache    db.WalletSummaryCache
@@ -31,13 +32,19 @@ type ClusterScoreSnapshotService struct {
 }
 
 type ClusterScoreSnapshotReport struct {
-	WalletID    string
-	Chain       string
-	Address     string
-	ScoreName   string
-	ScoreValue  int
-	ScoreRating string
-	ObservedAt  string
+	WalletID            string
+	Chain               string
+	Address             string
+	ScoreName           string
+	ScoreValue          int
+	ScoreRating         string
+	ObservedAt          string
+	GraphNodeCount      int
+	GraphEdgeCount      int
+	AnalysisNodeCount   int
+	AnalysisEdgeCount   int
+	SamplingApplied     bool
+	DensityCappedSource bool
 }
 
 func (s ClusterScoreSnapshotService) RunSnapshot(
@@ -78,24 +85,7 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 		return ClusterScoreSnapshotReport{}, err
 	}
 
-	query, err := db.BuildWalletGraphQuery(normalizedRef, depthRequested, depthRequested, 25)
-	if err != nil {
-		_ = s.recordJobRun(ctx, db.JobRunEntry{
-			JobName:    workerModeClusterScoreSnapshot,
-			Status:     db.JobRunStatusFailed,
-			StartedAt:  startedAt,
-			FinishedAt: pointerToTime(s.now().UTC()),
-			Details: map[string]any{
-				"wallet_id": identity.WalletID,
-				"chain":     string(normalizedRef.Chain),
-				"address":   normalizedRef.Address,
-				"error":     err.Error(),
-			},
-		})
-		return ClusterScoreSnapshotReport{}, err
-	}
-
-	graph, err := s.Graphs.LoadWalletGraph(ctx, query)
+	query, graph, err := s.loadAdaptiveClusterScoreGraph(ctx, normalizedRef, depthRequested)
 	if err != nil {
 		_ = s.recordJobRun(ctx, db.JobRunEntry{
 			JobName:    workerModeClusterScoreSnapshot,
@@ -113,7 +103,8 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 	}
 
 	snapshotObservedAt := normalizeClusterScoreObservedAt(observedAt, graph, s.now().UTC())
-	score := intelligence.BuildClusterScoreFromWalletGraph(graph, snapshotObservedAt)
+	analysisGraph := intelligence.BuildClusterAnalysisGraph(graph)
+	score := intelligence.BuildClusterScoreFromWalletGraph(analysisGraph, snapshotObservedAt)
 	signalObservedAt := parseClusterScoreObservedAt(snapshotObservedAt, s.now().UTC())
 
 	if err := s.Signals.RecordSignalEvent(ctx, db.SignalEventEntry{
@@ -121,20 +112,24 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 		SignalType: clusterScoreSnapshotSignalType,
 		ObservedAt: signalObservedAt,
 		Payload: map[string]any{
-			"score_name":                string(score.Name),
-			"score_value":               score.Value,
-			"score_rating":              string(score.Rating),
-			"observed_at":               snapshotObservedAt,
-			"wallet_id":                 identity.WalletID,
-			"chain":                     string(graph.Chain),
-			"address":                   graph.Address,
-			"depth_requested":           query.DepthRequested,
-			"depth_resolved":            query.DepthResolved,
-			"cluster_score_evidence":    score.Evidence,
-			"wallet_graph_node_count":   len(graph.Nodes),
-			"wallet_graph_edge_count":   len(graph.Edges),
-			"wallet_graph_density_cap":  graph.DensityCapped,
-			"wallet_graph_counterparty": countClusterGraphCounterparties(graph),
+			"score_name":                      string(score.Name),
+			"score_value":                     score.Value,
+			"score_rating":                    string(score.Rating),
+			"observed_at":                     snapshotObservedAt,
+			"wallet_id":                       identity.WalletID,
+			"chain":                           string(analysisGraph.Chain),
+			"address":                         analysisGraph.Address,
+			"depth_requested":                 query.DepthRequested,
+			"depth_resolved":                  query.DepthResolved,
+			"cluster_score_evidence":          score.Evidence,
+			"wallet_graph_node_count":         len(graph.Nodes),
+			"wallet_graph_edge_count":         len(graph.Edges),
+			"wallet_graph_density_cap":        graph.DensityCapped,
+			"wallet_graph_counterparty":       countClusterGraphCounterparties(graph),
+			"analysis_graph_node_count":       len(analysisGraph.Nodes),
+			"analysis_graph_edge_count":       len(analysisGraph.Edges),
+			"analysis_graph_counterparty":     countClusterGraphCounterparties(analysisGraph),
+			"analysis_graph_sampling_applied": len(analysisGraph.Nodes) != len(graph.Nodes) || len(analysisGraph.Edges) != len(graph.Edges),
 		},
 	}); err != nil {
 		_ = s.recordJobRun(ctx, db.JobRunEntry{
@@ -175,11 +170,26 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 		30,
 		labels,
 		score,
-		clusterScoreInterpretationContext(graph, score),
+		clusterScoreInterpretationContext(graph, analysisGraph, score),
 	) {
 		if err := recordWalletFinding(ctx, s.Findings, finding); err != nil {
 			return ClusterScoreSnapshotReport{}, err
 		}
+	}
+	if err := markWalletScored(
+		ctx,
+		s.Tracking,
+		db.WalletRef{Chain: identity.Chain, Address: identity.Address},
+		signalObservedAt,
+		clusterScoreSnapshotSignalType,
+		map[string]any{
+			"score_name":   string(score.Name),
+			"score_value":  score.Value,
+			"score_rating": string(score.Rating),
+			"observed_at":  snapshotObservedAt,
+		},
+	); err != nil {
+		return ClusterScoreSnapshotReport{}, err
 	}
 	if err := db.InvalidateWalletSummaryCache(ctx, s.Cache, db.WalletRef{
 		Chain:   identity.Chain,
@@ -213,8 +223,8 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 				"score_value":  score.Value,
 				"score_rating": string(score.Rating),
 				"observed_at":  snapshotObservedAt,
-				"chain":        string(graph.Chain),
-				"address":      graph.Address,
+				"chain":        string(analysisGraph.Chain),
+				"address":      analysisGraph.Address,
 				"evidence":     score.Evidence,
 			},
 		))
@@ -251,13 +261,19 @@ func (s ClusterScoreSnapshotService) RunSnapshot(
 	}
 
 	return ClusterScoreSnapshotReport{
-		WalletID:    identity.WalletID,
-		Chain:       string(normalizedRef.Chain),
-		Address:     normalizedRef.Address,
-		ScoreName:   string(score.Name),
-		ScoreValue:  score.Value,
-		ScoreRating: string(score.Rating),
-		ObservedAt:  snapshotObservedAt,
+		WalletID:            identity.WalletID,
+		Chain:               string(normalizedRef.Chain),
+		Address:             normalizedRef.Address,
+		ScoreName:           string(score.Name),
+		ScoreValue:          score.Value,
+		ScoreRating:         string(score.Rating),
+		ObservedAt:          snapshotObservedAt,
+		GraphNodeCount:      len(graph.Nodes),
+		GraphEdgeCount:      len(graph.Edges),
+		AnalysisNodeCount:   len(analysisGraph.Nodes),
+		AnalysisEdgeCount:   len(analysisGraph.Edges),
+		SamplingApplied:     len(analysisGraph.Nodes) != len(graph.Nodes) || len(analysisGraph.Edges) != len(graph.Edges),
+		DensityCappedSource: graph.DensityCapped,
 	}, nil
 }
 
@@ -286,6 +302,45 @@ func (s ClusterScoreSnapshotService) recordJobRun(ctx context.Context, entry db.
 	}
 
 	return s.JobRuns.RecordJobRun(ctx, entry)
+}
+
+func (s ClusterScoreSnapshotService) loadAdaptiveClusterScoreGraph(
+	ctx context.Context,
+	ref db.WalletRef,
+	depthRequested int,
+) (db.WalletGraphQuery, domain.WalletGraph, error) {
+	caps := clusterScoreMaxCounterpartyCaps(depthRequested)
+	var lastQuery db.WalletGraphQuery
+	var lastGraph domain.WalletGraph
+
+	for _, maxCounterparties := range caps {
+		query, err := db.BuildWalletGraphQuery(ref, depthRequested, depthRequested, maxCounterparties)
+		if err != nil {
+			return db.WalletGraphQuery{}, domain.WalletGraph{}, err
+		}
+		graph, err := s.Graphs.LoadWalletGraph(ctx, query)
+		if err != nil {
+			return db.WalletGraphQuery{}, domain.WalletGraph{}, err
+		}
+		lastQuery = query
+		lastGraph = graph
+		if !graph.DensityCapped {
+			return query, graph, nil
+		}
+	}
+
+	return lastQuery, lastGraph, nil
+}
+
+func clusterScoreMaxCounterpartyCaps(depthRequested int) []int {
+	switch {
+	case depthRequested >= 3:
+		return []int{25, 75, 150}
+	case depthRequested == 2:
+		return []int{25, 60, 120}
+	default:
+		return []int{25, 50, 100}
+	}
 }
 
 func normalizeClusterScoreObservedAt(observedAt string, graph domain.WalletGraph, fallback time.Time) string {

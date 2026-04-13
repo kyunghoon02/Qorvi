@@ -21,7 +21,7 @@ test("createForwardedAuthHeaders builds bearer and clerk identity headers", () =
   assert.equal(headers.get("x-clerk-user-id"), "user_123");
   assert.equal(headers.get("x-clerk-session-id"), "sess_123");
   assert.equal(headers.get("x-clerk-role"), "operator");
-  assert.equal(headers.get("x-flowintel-plan"), "team");
+  assert.equal(headers.get("x-qorvi-plan"), "team");
 });
 
 test("buildForwardedAuthHeaders normalizes incoming bearer headers", () => {
@@ -41,4 +41,19 @@ test("buildForwardedAuthHeaders normalizes incoming bearer headers", () => {
 
   assert.equal(headers.get("authorization"), "Bearer token_abc");
   assert.equal(headers.get("x-clerk-user-id"), "user_abc");
+});
+
+test("buildForwardedAuthHeaders accepts legacy plan headers", () => {
+  const headers = new Headers(
+    buildForwardedAuthHeaders({
+      get(name) {
+        if (name === "x-whalegraph-plan") {
+          return "pro";
+        }
+        return null;
+      },
+    }),
+  );
+
+  assert.equal(headers.get("x-qorvi-plan"), "pro");
 });

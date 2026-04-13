@@ -1,13 +1,13 @@
-module github.com/flowintel/flowintel/apps/api
+module github.com/qorvi/qorvi/apps/api
 
 go 1.24.4
 
 require (
-	github.com/flowintel/flowintel/packages/config v0.0.0
-	github.com/flowintel/flowintel/packages/db v0.0.0
-	github.com/flowintel/flowintel/packages/domain v0.0.0
-	github.com/flowintel/flowintel/packages/intelligence v0.0.0
-	github.com/flowintel/flowintel/packages/providers v0.0.0
+	github.com/qorvi/qorvi/packages/config v0.0.0
+	github.com/qorvi/qorvi/packages/db v0.0.0
+	github.com/qorvi/qorvi/packages/domain v0.0.0
+	github.com/qorvi/qorvi/packages/intelligence v0.0.0
+	github.com/qorvi/qorvi/packages/providers v0.0.0
 )
 
 require (
@@ -24,12 +24,12 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 )
 
-replace github.com/flowintel/flowintel/packages/config => ../../packages/config
+replace github.com/qorvi/qorvi/packages/config => ../../packages/config
 
-replace github.com/flowintel/flowintel/packages/db => ../../packages/db
+replace github.com/qorvi/qorvi/packages/db => ../../packages/db
 
-replace github.com/flowintel/flowintel/packages/domain => ../../packages/domain
+replace github.com/qorvi/qorvi/packages/domain => ../../packages/domain
 
-replace github.com/flowintel/flowintel/packages/intelligence => ../../packages/intelligence
+replace github.com/qorvi/qorvi/packages/intelligence => ../../packages/intelligence
 
-replace github.com/flowintel/flowintel/packages/providers => ../../packages/providers
+replace github.com/qorvi/qorvi/packages/providers => ../../packages/providers

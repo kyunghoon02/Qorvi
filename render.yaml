@@ -422,6 +422,6 @@ services:
 
 databases:
   - name: qorvi-postgres
-    plan: basic-256mb
+    plan: starter
     databaseName: qorvi
     user: qorvi

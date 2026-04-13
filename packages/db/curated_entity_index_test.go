@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeCuratedEntityIndexRow struct {
@@ -58,7 +59,11 @@ func (r *fakeCuratedEntityIndexRows) Scan(dest ...any) error {
 	*(dest[2].(*string)) = row.itemID
 	*(dest[3].(*string)) = row.itemType
 	*(dest[4].(*string)) = row.itemKey
-	*(dest[5].(*[]string)) = append([]string(nil), row.tags...)
+	tagsJSON, err := json.Marshal(row.tags)
+	if err != nil {
+		return err
+	}
+	*(dest[5].(*[]byte)) = tagsJSON
 	*(dest[6].(*string)) = row.notes
 	return nil
 }

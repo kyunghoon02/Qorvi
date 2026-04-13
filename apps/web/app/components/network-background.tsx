@@ -181,10 +181,25 @@ function ParticleNetwork() {
         <pointsMaterial
           transparent
           vertexColors
-          size={0.15}
+          size={0.3}
           sizeAttenuation={true}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
+          onBeforeCompile={(shader) => {
+            shader.fragmentShader = shader.fragmentShader.replace(
+              "#include <map_particle_fragment>",
+              `
+              vec2 xy = gl_PointCoord.xy - vec2(0.5);
+              float ll = length(xy);
+              if (ll > 0.5) discard;
+
+              float alpha = smoothstep(0.5, 0.0, ll);
+              float core = smoothstep(0.15, 0.0, ll);
+              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), core);
+              diffuseColor.a *= alpha * 0.9;
+              `,
+            );
+          }}
         />
       </points>
       {hasLines && (

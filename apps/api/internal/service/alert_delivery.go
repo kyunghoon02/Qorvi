@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var (
@@ -272,6 +272,8 @@ func ensureAlertDeliveryEnabled(tier domain.PlanTier) error {
 
 func alertDeliveryChannelLimitForTier(tier domain.PlanTier) (int, error) {
 	switch tier {
+	case domain.PlanFree:
+		return 1, nil
 	case domain.PlanPro:
 		return 3, nil
 	case domain.PlanTeam:

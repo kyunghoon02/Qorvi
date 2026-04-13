@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func (s *Server) handleAlertInbox(w http.ResponseWriter, r *http.Request) {

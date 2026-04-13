@@ -7,14 +7,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/flowintel/flowintel/apps/api/internal/auth"
-	"github.com/flowintel/flowintel/apps/api/internal/repository"
-	"github.com/flowintel/flowintel/apps/api/internal/service"
-	"github.com/flowintel/flowintel/packages/billing"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/apps/api/internal/auth"
+	"github.com/qorvi/qorvi/apps/api/internal/repository"
+	"github.com/qorvi/qorvi/apps/api/internal/service"
+	"github.com/qorvi/qorvi/packages/billing"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
-func TestWatchlistRoutesRequireAuthAndPlan(t *testing.T) {
+func TestWatchlistRoutesRequireAuthAndAllowSignedInUsers(t *testing.T) {
 	t.Parallel()
 
 	srv := NewWithDependencies(Dependencies{
@@ -30,15 +30,15 @@ func TestWatchlistRoutesRequireAuthAndPlan(t *testing.T) {
 		t.Fatalf("expected status 401, got %d", rr.Code)
 	}
 
-	forbidden := httptest.NewRecorder()
+	allowed := httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/v1/watchlists", nil)
 	req.Header.Set("X-Clerk-User-Id", "user_123")
 	req.Header.Set("X-Clerk-Session-Id", "session_123")
 	req.Header.Set("X-Clerk-Role", "user")
-	srv.Handler().ServeHTTP(forbidden, req)
+	srv.Handler().ServeHTTP(allowed, req)
 
-	if forbidden.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d", forbidden.Code)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", allowed.Code)
 	}
 }
 

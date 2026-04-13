@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
 )
 
 var ErrWalletSummaryNotFound = errors.New("wallet summary not found")
@@ -155,7 +155,7 @@ func behavioralLabelForScore(score domain.Score) (domain.WalletLabel, bool) {
 				EntityType:      "behavior",
 				Source:          latest.Source,
 				Confidence:      0.8,
-				EvidenceSummary: "Cluster score indicates repeated overlap with high-value counterparties.",
+				EvidenceSummary: "Cluster score indicates peer-wallet overlap, shared entity links, and recurrent flow inside a coordinated cohort.",
 				ObservedAt:      latest.ObservedAt,
 			}, true
 		}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/flowintel/flowintel/packages/ops"
+	"github.com/qorvi/qorvi/packages/ops"
 )
 
 var (
@@ -73,6 +73,21 @@ type AdminWalletTrackingSubscriptionOverviewRecord struct {
 	ErroredCount int
 	PausedCount  int
 	LastEventAt  *time.Time
+}
+
+type AdminBackfillHealthRecord struct {
+	Jobs24h         int
+	Activities24h   int
+	Transactions24h int
+	Expansions24h   int
+	LastSuccessAt   *time.Time
+}
+
+type AdminStaleRefreshHealthRecord struct {
+	Attempts24h   int
+	Succeeded24h  int
+	Productive24h int
+	LastHitAt     *time.Time
 }
 
 type AdminJobHealthRecord struct {
@@ -237,6 +252,83 @@ SELECT
   COUNT(*) FILTER (WHERE status = 'paused')::int AS paused_count,
   MAX(last_event_at) AS last_event_at
 FROM wallet_tracking_subscriptions
+`
+
+const readAdminBackfillHealthSQL = `
+SELECT
+  COUNT(*) FILTER (
+    WHERE job_name = 'wallet-backfill-drain'
+      AND status = 'succeeded'
+  )::int AS jobs_24h,
+  COALESCE(SUM(
+    CASE
+      WHEN job_name = 'wallet-backfill-drain'
+       AND status = 'succeeded'
+      THEN COALESCE((details->>'activities')::int, 0)
+      ELSE 0
+    END
+  ), 0)::int AS activities_24h,
+  COALESCE(SUM(
+    CASE
+      WHEN job_name = 'wallet-backfill-drain'
+       AND status = 'succeeded'
+      THEN COALESCE((details->>'transactions')::int, 0)
+      ELSE 0
+    END
+  ), 0)::int AS transactions_24h,
+  COALESCE(SUM(
+    CASE
+      WHEN job_name = 'wallet-backfill-drain'
+       AND status = 'succeeded'
+      THEN COALESCE((details->>'expansions')::int, 0)
+      ELSE 0
+    END
+  ), 0)::int AS expansions_24h,
+  MAX(
+    CASE
+      WHEN job_name = 'wallet-backfill-drain'
+       AND status = 'succeeded'
+      THEN COALESCE(finished_at, started_at)
+    END
+  ) AS last_success_at
+FROM job_runs
+WHERE started_at >= $1
+`
+
+const readAdminStaleRefreshHealthSQL = `
+SELECT
+  COUNT(*) FILTER (
+    WHERE job_name = 'wallet-backfill-drain'
+      AND details->>'source' = 'search_stale_refresh'
+  )::int AS attempts_24h,
+  COUNT(*) FILTER (
+    WHERE job_name = 'wallet-backfill-drain'
+      AND status = 'succeeded'
+      AND details->>'source' = 'search_stale_refresh'
+  )::int AS succeeded_24h,
+  COUNT(*) FILTER (
+    WHERE job_name = 'wallet-backfill-drain'
+      AND status = 'succeeded'
+      AND details->>'source' = 'search_stale_refresh'
+      AND (
+        COALESCE((details->>'activities')::int, 0) > 0
+        OR COALESCE((details->>'transactions')::int, 0) > 0
+      )
+  )::int AS productive_24h,
+  MAX(
+    CASE
+      WHEN job_name = 'wallet-backfill-drain'
+       AND status = 'succeeded'
+       AND details->>'source' = 'search_stale_refresh'
+       AND (
+         COALESCE((details->>'activities')::int, 0) > 0
+         OR COALESCE((details->>'transactions')::int, 0) > 0
+       )
+      THEN COALESCE(finished_at, started_at)
+    END
+  ) AS last_hit_at
+FROM job_runs
+WHERE started_at >= $1
 `
 
 const listAdminRecentJobHealthSQL = `
@@ -706,6 +798,77 @@ func (s *PostgresAdminConsoleStore) ReadWalletTrackingSubscriptionOverview(
 		record.LastEventAt = &next
 	}
 
+	return record, nil
+}
+
+func (s *PostgresAdminConsoleStore) ReadBackfillHealth(
+	ctx context.Context,
+	window time.Duration,
+) (AdminBackfillHealthRecord, error) {
+	if s == nil || s.Querier == nil {
+		return AdminBackfillHealthRecord{}, nil
+	}
+	if window <= 0 {
+		return AdminBackfillHealthRecord{}, fmt.Errorf("backfill health window must be positive")
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	windowStart := now.Add(-window)
+
+	var (
+		record        AdminBackfillHealthRecord
+		lastSuccessAt sql.NullTime
+	)
+	if err := s.Querier.QueryRow(ctx, readAdminBackfillHealthSQL, windowStart).Scan(
+		&record.Jobs24h,
+		&record.Activities24h,
+		&record.Transactions24h,
+		&record.Expansions24h,
+		&lastSuccessAt,
+	); err != nil {
+		return AdminBackfillHealthRecord{}, fmt.Errorf("read backfill health: %w", err)
+	}
+	if lastSuccessAt.Valid {
+		next := lastSuccessAt.Time.UTC()
+		record.LastSuccessAt = &next
+	}
+	return record, nil
+}
+
+func (s *PostgresAdminConsoleStore) ReadStaleRefreshHealth(
+	ctx context.Context,
+	window time.Duration,
+) (AdminStaleRefreshHealthRecord, error) {
+	if s == nil || s.Querier == nil {
+		return AdminStaleRefreshHealthRecord{}, nil
+	}
+	if window <= 0 {
+		return AdminStaleRefreshHealthRecord{}, fmt.Errorf("stale refresh window must be positive")
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	windowStart := now.Add(-window)
+
+	var (
+		record    AdminStaleRefreshHealthRecord
+		lastHitAt sql.NullTime
+	)
+	if err := s.Querier.QueryRow(ctx, readAdminStaleRefreshHealthSQL, windowStart).Scan(
+		&record.Attempts24h,
+		&record.Succeeded24h,
+		&record.Productive24h,
+		&lastHitAt,
+	); err != nil {
+		return AdminStaleRefreshHealthRecord{}, fmt.Errorf("read stale refresh health: %w", err)
+	}
+	if lastHitAt.Valid {
+		next := lastHitAt.Time.UTC()
+		record.LastHitAt = &next
+	}
 	return record, nil
 }
 

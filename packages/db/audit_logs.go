@@ -40,6 +40,15 @@ ORDER BY created_at DESC, id DESC
 LIMIT $1
 `
 
+const countAuditLogsByActorActionBetweenSQL = `
+SELECT COUNT(*)
+FROM audit_logs
+WHERE actor_user_id = $1
+  AND action = $2
+  AND created_at >= $3
+  AND created_at < $4
+`
+
 func NewPostgresAuditLogStore(
 	querier postgresQuerier,
 	execer ...postgresExecExecer,
@@ -129,6 +138,31 @@ func (s *PostgresAuditLogStore) ListAuditLogs(ctx context.Context, limit int) ([
 		return nil, fmt.Errorf("iterate audit logs: %w", err)
 	}
 	return items, nil
+}
+
+func (s *PostgresAuditLogStore) CountAuditLogsByActorActionBetween(
+	ctx context.Context,
+	actorUserID string,
+	action string,
+	start time.Time,
+	end time.Time,
+) (int, error) {
+	if s == nil || s.Querier == nil {
+		return 0, fmt.Errorf("audit log store is nil")
+	}
+
+	var count int
+	if err := s.Querier.QueryRow(
+		ctx,
+		countAuditLogsByActorActionBetweenSQL,
+		strings.TrimSpace(actorUserID),
+		strings.TrimSpace(action),
+		start.UTC(),
+		end.UTC(),
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count audit logs: %w", err)
+	}
+	return count, nil
 }
 
 func normalizeAuditLogEntry(entry AuditLogEntry) (AuditLogEntry, error) {

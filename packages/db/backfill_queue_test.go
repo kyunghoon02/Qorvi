@@ -7,41 +7,45 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeRedisWalletBackfillQueueClient struct {
-	queue [][]byte
-	err   error
+	queues map[string][][]byte
+	err    error
 }
 
-func (c *fakeRedisWalletBackfillQueueClient) RPush(_ context.Context, _ string, values ...interface{}) *redis.IntCmd {
+func (c *fakeRedisWalletBackfillQueueClient) RPush(_ context.Context, key string, values ...interface{}) *redis.IntCmd {
 	if c.err != nil {
 		return redis.NewIntResult(0, c.err)
+	}
+	if c.queues == nil {
+		c.queues = map[string][][]byte{}
 	}
 
 	for _, value := range values {
 		switch typed := value.(type) {
 		case []byte:
-			c.queue = append(c.queue, append([]byte(nil), typed...))
+			c.queues[key] = append(c.queues[key], append([]byte(nil), typed...))
 		case string:
-			c.queue = append(c.queue, []byte(typed))
+			c.queues[key] = append(c.queues[key], []byte(typed))
 		}
 	}
 
-	return redis.NewIntResult(int64(len(c.queue)), nil)
+	return redis.NewIntResult(int64(len(c.queues[key])), nil)
 }
 
-func (c *fakeRedisWalletBackfillQueueClient) LPop(_ context.Context, _ string) *redis.StringCmd {
+func (c *fakeRedisWalletBackfillQueueClient) LPop(_ context.Context, key string) *redis.StringCmd {
 	if c.err != nil {
 		return redis.NewStringResult("", c.err)
 	}
-	if len(c.queue) == 0 {
+	queue := c.queues[key]
+	if len(queue) == 0 {
 		return redis.NewStringResult("", redis.Nil)
 	}
 
-	next := string(c.queue[0])
-	c.queue = c.queue[1:]
+	next := string(queue[0])
+	c.queues[key] = queue[1:]
 	return redis.NewStringResult(next, nil)
 }
 
@@ -79,6 +83,85 @@ func TestRedisWalletBackfillQueueStoreRoundTrip(t *testing.T) {
 	}
 	if dequeued.Metadata["input_kind"] != "evm_address" {
 		t.Fatalf("unexpected metadata %#v", dequeued.Metadata)
+	}
+}
+
+func TestRedisWalletBackfillQueueStorePrioritizesSearchJobs(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRedisWalletBackfillQueueClient{}
+	store := NewRedisWalletBackfillQueueStore(client)
+	defaultJob := WalletBackfillJob{
+		Chain:       domain.ChainSolana,
+		Address:     "So11111111111111111111111111111111111111112",
+		Source:      "wallet_backfill_expansion",
+		RequestedAt: time.Date(2026, time.March, 20, 4, 5, 6, 0, time.UTC),
+	}
+	priorityJob := WalletBackfillJob{
+		Chain:       domain.ChainEVM,
+		Address:     "0x1234567890abcdef1234567890abcdef12345678",
+		Source:      "search_lookup_miss",
+		RequestedAt: time.Date(2026, time.March, 20, 4, 5, 7, 0, time.UTC),
+	}
+
+	if err := store.EnqueueWalletBackfill(context.Background(), defaultJob); err != nil {
+		t.Fatalf("enqueue default job: %v", err)
+	}
+	if err := store.EnqueueWalletBackfill(context.Background(), priorityJob); err != nil {
+		t.Fatalf("enqueue priority job: %v", err)
+	}
+
+	first, ok, err := store.DequeueWalletBackfill(context.Background(), DefaultWalletBackfillQueueName)
+	if err != nil || !ok {
+		t.Fatalf("expected first dequeue, ok=%v err=%v", ok, err)
+	}
+	if first.Source != priorityJob.Source {
+		t.Fatalf("expected priority source %q, got %q", priorityJob.Source, first.Source)
+	}
+
+	second, ok, err := store.DequeueWalletBackfill(context.Background(), DefaultWalletBackfillQueueName)
+	if err != nil || !ok {
+		t.Fatalf("expected second dequeue, ok=%v err=%v", ok, err)
+	}
+	if second.Source != defaultJob.Source {
+		t.Fatalf("expected default source %q, got %q", defaultJob.Source, second.Source)
+	}
+}
+
+func TestRedisWalletBackfillQueueStorePrioritizesSeedListJobs(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRedisWalletBackfillQueueClient{}
+	store := NewRedisWalletBackfillQueueStore(client)
+	defaultJob := WalletBackfillJob{
+		Chain:       domain.ChainSolana,
+		Address:     "So11111111111111111111111111111111111111112",
+		Source:      "wallet_backfill_expansion",
+		RequestedAt: time.Date(2026, time.March, 20, 4, 5, 6, 0, time.UTC),
+	}
+	priorityJob := WalletBackfillJob{
+		Chain:       domain.ChainEVM,
+		Address:     "0x1234567890abcdef1234567890abcdef12345678",
+		Source:      "curated_wallet_seed",
+		RequestedAt: time.Date(2026, time.March, 20, 4, 5, 7, 0, time.UTC),
+		Metadata: map[string]any{
+			"source_type": WalletTrackingSourceTypeSeedList,
+		},
+	}
+
+	if err := store.EnqueueWalletBackfill(context.Background(), defaultJob); err != nil {
+		t.Fatalf("enqueue default job: %v", err)
+	}
+	if err := store.EnqueueWalletBackfill(context.Background(), priorityJob); err != nil {
+		t.Fatalf("enqueue priority job: %v", err)
+	}
+
+	first, ok, err := store.DequeueWalletBackfill(context.Background(), DefaultWalletBackfillQueueName)
+	if err != nil || !ok {
+		t.Fatalf("expected first dequeue, ok=%v err=%v", ok, err)
+	}
+	if first.Source != priorityJob.Source {
+		t.Fatalf("expected priority source %q, got %q", priorityJob.Source, first.Source)
 	}
 }
 

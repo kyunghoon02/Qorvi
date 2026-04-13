@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 func TestProviderAdaptersEmitSchemaCompliantFixtures(t *testing.T) {
@@ -24,6 +24,7 @@ func TestProviderAdaptersEmitSchemaCompliantFixtures(t *testing.T) {
 		DuneAdapter{},
 		AlchemyAdapter{},
 		HeliusAdapter{},
+		NewMobulaAdapter(ProviderCredentials{Provider: ProviderMobula}, nil, nil),
 		MoralisAdapter{},
 	}
 
@@ -77,7 +78,7 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 		"ALCHEMY_BASE_URL":                  "https://eth-mainnet.g.alchemy.com",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "flowintel",
+		"CLERK_AUDIENCE":                    "qorvi",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -92,7 +93,7 @@ func TestParseProviderEnvLayersOnTopOfSharedWorkerEnvValidation(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/qorvi",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -137,7 +138,7 @@ func TestParseProviderEnvNormalizesHeliusURLs(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "flowintel",
+		"CLERK_AUDIENCE":                    "qorvi",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -152,7 +153,7 @@ func TestParseProviderEnvNormalizesHeliusURLs(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/qorvi",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -176,7 +177,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromJSON(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "flowintel",
+		"CLERK_AUDIENCE":                    "qorvi",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -190,7 +191,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromJSON(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/qorvi",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -220,7 +221,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromFile(t *testing.T) {
 		"ALCHEMY_API_KEY":                   "alchemy_secret",
 		"AUTH_PROVIDER":                     "clerk",
 		"AUTH_SECRET":                       "supersecret",
-		"CLERK_AUDIENCE":                    "flowintel",
+		"CLERK_AUDIENCE":                    "qorvi",
 		"CLERK_CLOCK_SKEW_SECONDS":          "60",
 		"CLERK_ISSUER_URL":                  "https://example.clerk.accounts.dev",
 		"CLERK_JWKS_URL":                    "https://example.clerk.accounts.dev/.well-known/jwks.json",
@@ -234,7 +235,7 @@ func TestParseProviderEnvLoadsDuneSeedExportRowsFromFile(t *testing.T) {
 		"NEO4J_URL":                         "bolt://localhost:7687",
 		"NEO4J_USERNAME":                    "neo4j",
 		"NODE_ENV":                          "development",
-		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/flowintel",
+		"POSTGRES_URL":                      "postgres://postgres:postgres@localhost:5432/qorvi",
 		"REDIS_URL":                         "redis://localhost:6379",
 		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "clerk_publishable",
 	})
@@ -274,5 +275,84 @@ func TestNewConfiguredRegistryInjectsDuneSeedExportRows(t *testing.T) {
 	}
 	if len(adapter.SeedDiscoveryRows) != 1 {
 		t.Fatalf("expected configured Dune rows to be injected, got %d", len(adapter.SeedDiscoveryRows))
+	}
+}
+
+func TestParseProviderEnvLoadsMobulaSmartMoneySeeds(t *testing.T) {
+	t.Parallel()
+
+	env, err := ParseProviderEnv(map[string]string{
+		"APP_BASE_URL":                        "http://localhost:3000",
+		"ALCHEMY_API_KEY":                     "alchemy_secret",
+		"AUTH_PROVIDER":                       "clerk",
+		"AUTH_SECRET":                         "supersecret",
+		"CLERK_AUDIENCE":                      "qorvi",
+		"CLERK_CLOCK_SKEW_SECONDS":            "60",
+		"CLERK_ISSUER_URL":                    "https://example.clerk.accounts.dev",
+		"CLERK_JWKS_URL":                      "https://example.clerk.accounts.dev/.well-known/jwks.json",
+		"CLERK_SECRET_KEY":                    "clerk_secret",
+		"DUNE_API_KEY":                        "dune_secret",
+		"HELIUS_API_KEY":                      "helius_secret",
+		"LOG_LEVEL":                           "info",
+		"MOBULA_API_KEY":                      "mobula_secret",
+		"QORVI_MOBULA_SMART_MONEY_SEEDS_JSON": `[{"chain":"evm","tokenAddress":"0x6982508145454Ce325dDbE47a25d4ec3d2311933","tokenSymbol":"PEPE"}]`,
+		"MORALIS_API_KEY":                     "moralis_secret",
+		"NEO4J_PASSWORD":                      "neo4jpassword",
+		"NEO4J_URL":                           "bolt://localhost:7687",
+		"NEO4J_USERNAME":                      "neo4j",
+		"NODE_ENV":                            "development",
+		"POSTGRES_URL":                        "postgres://postgres:postgres@localhost:5432/qorvi",
+		"REDIS_URL":                           "redis://localhost:6379",
+		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY":   "clerk_publishable",
+	})
+	if err != nil {
+		t.Fatalf("ParseProviderEnv returned error: %v", err)
+	}
+
+	if env.MobulaBaseURL != "https://api.mobula.io" {
+		t.Fatalf("expected Mobula base URL default, got %q", env.MobulaBaseURL)
+	}
+	if len(env.MobulaSmartMoneySeeds) != 1 {
+		t.Fatalf("expected 1 Mobula seed, got %d", len(env.MobulaSmartMoneySeeds))
+	}
+	if env.MobulaSmartMoneySeeds[0].Blockchain != "ethereum" {
+		t.Fatalf("expected normalized blockchain, got %q", env.MobulaSmartMoneySeeds[0].Blockchain)
+	}
+	if env.MobulaSmartMoneySeeds[0].Address != "0x6982508145454Ce325dDbE47a25d4ec3d2311933" {
+		t.Fatalf("unexpected seed address %q", env.MobulaSmartMoneySeeds[0].Address)
+	}
+	if len(env.MobulaSmartMoneySeeds[0].Labels) != 2 {
+		t.Fatalf("expected default Mobula labels, got %#v", env.MobulaSmartMoneySeeds[0].Labels)
+	}
+}
+
+func TestParseProviderEnvRequiresMobulaKeyWhenSeedsConfigured(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseProviderEnv(map[string]string{
+		"APP_BASE_URL":                        "http://localhost:3000",
+		"ALCHEMY_API_KEY":                     "alchemy_secret",
+		"AUTH_PROVIDER":                       "clerk",
+		"AUTH_SECRET":                         "supersecret",
+		"CLERK_AUDIENCE":                      "qorvi",
+		"CLERK_CLOCK_SKEW_SECONDS":            "60",
+		"CLERK_ISSUER_URL":                    "https://example.clerk.accounts.dev",
+		"CLERK_JWKS_URL":                      "https://example.clerk.accounts.dev/.well-known/jwks.json",
+		"CLERK_SECRET_KEY":                    "clerk_secret",
+		"DUNE_API_KEY":                        "dune_secret",
+		"HELIUS_API_KEY":                      "helius_secret",
+		"LOG_LEVEL":                           "info",
+		"QORVI_MOBULA_SMART_MONEY_SEEDS_JSON": `[{"blockchain":"ethereum","address":"0x6982508145454Ce325dDbE47a25d4ec3d2311933","labels":["smartTrader"]}]`,
+		"MORALIS_API_KEY":                     "moralis_secret",
+		"NEO4J_PASSWORD":                      "neo4jpassword",
+		"NEO4J_URL":                           "bolt://localhost:7687",
+		"NEO4J_USERNAME":                      "neo4j",
+		"NODE_ENV":                            "development",
+		"POSTGRES_URL":                        "postgres://postgres:postgres@localhost:5432/qorvi",
+		"REDIS_URL":                           "redis://localhost:6379",
+		"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY":   "clerk_publishable",
+	})
+	if err == nil {
+		t.Fatal("expected ParseProviderEnv to require MOBULA_API_KEY")
 	}
 }

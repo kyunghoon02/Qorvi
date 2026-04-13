@@ -17,12 +17,12 @@ bin
 go.work.sum
 .DS_Store
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
 !.env.example
+!.env.beta.example
+!.env.production.example
+.env*.seeded*
 .whalegraph/raw-payloads
-.flowintel/raw-payloads
+.qorvi/raw-payloads
 apps/web/test-results
 apps/web/tsconfig.tsbuildinfo

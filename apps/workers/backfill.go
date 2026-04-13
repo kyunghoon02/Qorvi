@@ -10,15 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/config"
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/config"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/intelligence"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 const workerModeHistoricalBackfillFixture = "historical-backfill-fixture"
 const workerModeHistoricalBackfillIngest = "historical-backfill-ingest"
 const workerModeWalletBackfillDrain = "wallet-backfill-drain"
+const workerModeWalletBackfillDrainPriority = "wallet-backfill-drain-priority"
 const workerModeWalletBackfillDrainBatch = "wallet-backfill-drain-batch"
 
 type WalletEnsurer interface {
@@ -109,6 +111,13 @@ type historicalBackfillBatchReport struct {
 	TransactionsWritten int
 	TransactionsDeduped int
 	ExpansionEnqueued   int
+}
+
+type walletTrackingPromotion struct {
+	Status               string
+	LabelConfidence      float64
+	EntityConfidence     float64
+	SmartMoneyConfidence float64
 }
 
 type WalletSummaryEnrichmentRefresher interface {
@@ -333,8 +342,54 @@ func buildWorkerOutput(
 		}
 		return buildHistoricalBackfillIngestSummary(report), nil
 	}
+	if mode == workerModeAnalysisBenchmarkFixture {
+		summary := intelligence.RunBenchmarkScenarios(intelligence.DefaultBenchmarkScenarios())
+		return buildAnalysisBenchmarkSummary(summary), nil
+	}
+	if mode == workerModeAnalysisBacktestManifestValidate {
+		summary, err := loadAndValidateBacktestManifest()
+		if err != nil {
+			return "", err
+		}
+		return buildBacktestManifestSummary(summary), nil
+	}
+	if mode == workerModeAnalysisDuneBacktestNormalize {
+		summary, err := normalizeAndWriteDuneBacktestCandidates()
+		if err != nil {
+			return "", err
+		}
+		return buildDuneBacktestCandidateSummary(summary), nil
+	}
+	if mode == workerModeAnalysisDuneBacktestPromote {
+		summary, promoted, err := promoteReviewedDuneCandidatesToManifest()
+		if err != nil {
+			return "", err
+		}
+		return buildDunePromotionSummary(summary, promoted), nil
+	}
+	if mode == workerModeAnalysisDuneBacktestCandidateValidate {
+		summary, err := loadAndValidateDuneCandidateExport()
+		if err != nil {
+			return "", err
+		}
+		return buildDuneCandidateValidationSummary(summary), nil
+	}
+	if mode == workerModeAnalysisDuneBacktestPresetValidate {
+		summary, err := loadAndValidateDuneBacktestQueryPresets()
+		if err != nil {
+			return "", err
+		}
+		return buildDuneBacktestPresetSummary(summary), nil
+	}
 	if mode == workerModeWalletBackfillDrain {
 		report, err := ingest.RunQueuedBackfillOnce(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildQueuedWalletBackfillSummary(report), nil
+	}
+	if mode == workerModeWalletBackfillDrainPriority {
+		report, err := ingest.RunQueuedBackfillOnceFromQueue(ctx, db.PriorityWalletBackfillQueueName)
 		if err != nil {
 			return "", err
 		}
@@ -368,6 +423,13 @@ func buildWorkerOutput(
 		}
 		return buildSeedDiscoveryEnqueueSummary(report), nil
 	}
+	if mode == workerModeMobulaSmartMoneyEnqueue {
+		report, err := seedDiscovery.RunMobulaSmartMoneyEnqueue(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildMobulaSmartMoneyEnqueueSummary(report), nil
+	}
 	if mode == workerModeSeedDiscoverySeedWatchlist {
 		report, err := seedDiscovery.RunSeedWatchlist(
 			ctx,
@@ -378,6 +440,33 @@ func buildWorkerOutput(
 			return "", err
 		}
 		return buildSeedDiscoveryWatchlistSummary(report), nil
+	}
+	if mode == workerModeCuratedWalletSeedEnqueue {
+		report, err := CuratedWalletSeedBootstrapService{
+			Reader:   seedDiscovery.CuratedSeeds,
+			Tracking: seedDiscovery.Tracking,
+			Queue:    seedDiscovery.Queue,
+			Dedup:    seedDiscovery.Dedup,
+			JobRuns:  seedDiscovery.JobRuns,
+			Now:      seedDiscovery.Now,
+		}.RunEnqueue(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildCuratedWalletSeedBootstrapSummary(report), nil
+	}
+	if mode == workerModeAdminCuratedWalletImport {
+		report, err := AdminCuratedWalletImportService{
+			Watchlists: seedDiscovery.Watchlists,
+			EntityIndex: seedDiscovery.EntityIndex,
+			JobRuns:  seedDiscovery.JobRuns,
+			SeedPath: config.CuratedWalletSeedsPathFromEnv(),
+			Now:      seedDiscovery.Now,
+		}.RunImport(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildAdminCuratedWalletImportSummary(report), nil
 	}
 	if mode == workerModeWatchlistBootstrapEnqueue {
 		report, err := watchlistBootstrap.RunEnqueue(ctx)
@@ -470,11 +559,18 @@ func (s HistoricalBackfillIngestService) now() time.Time {
 }
 
 func (s HistoricalBackfillIngestService) RunQueuedBackfillOnce(ctx context.Context) (QueuedWalletBackfillReport, error) {
+	return s.RunQueuedBackfillOnceFromQueue(ctx, db.DefaultWalletBackfillQueueName)
+}
+
+func (s HistoricalBackfillIngestService) RunQueuedBackfillOnceFromQueue(
+	ctx context.Context,
+	queueName string,
+) (QueuedWalletBackfillReport, error) {
 	if s.Queue == nil {
 		return QueuedWalletBackfillReport{}, fmt.Errorf("wallet backfill queue is required")
 	}
 
-	job, ok, err := s.Queue.DequeueWalletBackfill(ctx, db.DefaultWalletBackfillQueueName)
+	job, ok, err := s.Queue.DequeueWalletBackfill(ctx, queueName)
 	if err != nil {
 		return QueuedWalletBackfillReport{}, err
 	}
@@ -732,13 +828,13 @@ func pointerToTime(value time.Time) *time.Time {
 
 func clusterScoreTargetFromEnv() db.WalletRef {
 	return db.WalletRef{
-		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_CHAIN"))),
-		Address: strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_ADDRESS")),
+		Chain:   domain.Chain(strings.TrimSpace(os.Getenv("QORVI_CLUSTER_SCORE_CHAIN"))),
+		Address: strings.TrimSpace(os.Getenv("QORVI_CLUSTER_SCORE_ADDRESS")),
 	}
 }
 
 func clusterScoreDepthFromEnv() int {
-	value := strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_DEPTH"))
+	value := strings.TrimSpace(os.Getenv("QORVI_CLUSTER_SCORE_DEPTH"))
 	if value == "" {
 		return 1
 	}
@@ -752,7 +848,7 @@ func clusterScoreDepthFromEnv() int {
 }
 
 func clusterScoreObservedAtFromEnv() string {
-	return strings.TrimSpace(os.Getenv("FLOWINTEL_CLUSTER_SCORE_OBSERVED_AT"))
+	return strings.TrimSpace(os.Getenv("QORVI_CLUSTER_SCORE_OBSERVED_AT"))
 }
 
 func (s HistoricalBackfillIngestService) recordProviderUsage(
@@ -832,11 +928,13 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 	if err != nil {
 		return historicalBackfillBatchReport{}, err
 	}
-	if err := s.upsertHeuristicEntityAssignments(ctx, activities); err != nil {
+	entityAssignments, err := s.upsertHeuristicEntityAssignments(ctx, activities)
+	if err != nil {
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
-	if err := s.applyWalletLabeling(ctx, activities); err != nil {
+	derivedLabeling, err := s.applyWalletLabeling(ctx, activities)
+	if err != nil {
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
@@ -881,8 +979,12 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 		return historicalBackfillBatchReport{}, err
 	}
 	if err := s.refreshWalletEnrichment(ctx, batch.Request.Chain, batch.Request.WalletAddress); err != nil {
-		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
-		return historicalBackfillBatchReport{}, err
+		log.Printf(
+			"wallet enrichment refresh skipped (chain=%s, address=%s, error=%v)",
+			batch.Request.Chain,
+			batch.Request.WalletAddress,
+			err,
+		)
 	}
 	if err := s.invalidateWalletSummary(ctx, db.WalletRef{
 		Chain:   batch.Request.Chain,
@@ -898,7 +1000,14 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
-	if err := s.markWalletTracked(ctx, batch, job, policy, activities); err != nil {
+	if err := s.markWalletTracked(
+		ctx,
+		batch,
+		job,
+		policy,
+		activities,
+		deriveWalletTrackingPromotion(batch, job, entityAssignments, derivedLabeling),
+	); err != nil {
 		_ = s.recordProviderUsage(ctx, batch.Provider, operation, 500, s.now().Sub(batchStartedAt))
 		return historicalBackfillBatchReport{}, err
 	}
@@ -919,14 +1028,14 @@ func (s HistoricalBackfillIngestService) runBatchIngest(
 func (s HistoricalBackfillIngestService) upsertHeuristicEntityAssignments(
 	ctx context.Context,
 	activities []providers.ProviderWalletActivity,
-) error {
+) ([]providers.HeuristicEntityAssignment, error) {
 	if s.EntityIndex == nil {
-		return nil
+		return nil, nil
 	}
 
 	assignments := providers.DeriveHeuristicEntityAssignments(activities)
 	if len(assignments) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	writes := make([]db.WalletEntityAssignment, 0, len(assignments))
@@ -941,7 +1050,11 @@ func (s HistoricalBackfillIngestService) upsertHeuristicEntityAssignments(
 		})
 	}
 
-	return s.EntityIndex.UpsertHeuristicEntityAssignments(ctx, writes)
+	if err := s.EntityIndex.UpsertHeuristicEntityAssignments(ctx, writes); err != nil {
+		return nil, err
+	}
+
+	return assignments, nil
 }
 
 func (s HistoricalBackfillIngestService) refreshWalletEnrichment(
@@ -963,14 +1076,14 @@ func (s HistoricalBackfillIngestService) refreshWalletEnrichment(
 func (s HistoricalBackfillIngestService) applyWalletLabeling(
 	ctx context.Context,
 	activities []providers.ProviderWalletActivity,
-) error {
+) (providers.DerivedWalletLabeling, error) {
 	if s.Labeling == nil || len(activities) == 0 {
-		return nil
+		return providers.DerivedWalletLabeling{}, nil
 	}
 
 	derived := providers.DeriveWalletLabeling(activities)
 	if len(derived.Definitions) == 0 && len(derived.Evidences) == 0 && len(derived.Memberships) == 0 {
-		return nil
+		return providers.DerivedWalletLabeling{}, nil
 	}
 
 	batch := db.WalletLabelingBatch{
@@ -1015,7 +1128,11 @@ func (s HistoricalBackfillIngestService) applyWalletLabeling(
 			Metadata:        membership.Metadata,
 		})
 	}
-	return s.Labeling.ApplyWalletLabeling(ctx, batch)
+	if err := s.Labeling.ApplyWalletLabeling(ctx, batch); err != nil {
+		return providers.DerivedWalletLabeling{}, err
+	}
+
+	return derived, nil
 }
 
 func (s HistoricalBackfillIngestService) invalidateWalletSummary(
@@ -1218,28 +1335,123 @@ func (s HistoricalBackfillIngestService) markWalletTracked(
 	job *db.WalletBackfillJob,
 	policy queuedBackfillPolicy,
 	activities []providers.ProviderWalletActivity,
+	promotion walletTrackingPromotion,
 ) error {
 	if s.Tracking == nil {
 		return nil
 	}
 
 	lastBackfillAt := s.now().UTC()
+	notes := map[string]any{
+		"queued_source": jobSource(job),
+		"provider":      string(batch.Provider),
+		"window_days":   policy.WindowDays,
+		"limit":         policy.Limit,
+	}
+	if promotion.LabelConfidence > 0 {
+		notes["label_confidence"] = promotion.LabelConfidence
+	}
+	if promotion.EntityConfidence > 0 {
+		notes["entity_confidence"] = promotion.EntityConfidence
+	}
+	if promotion.SmartMoneyConfidence > 0 {
+		notes["smart_money_confidence"] = promotion.SmartMoneyConfidence
+	}
+
 	return s.Tracking.MarkWalletTracked(ctx, db.WalletTrackingProgress{
-		Chain:          batch.Request.Chain,
-		Address:        batch.Request.WalletAddress,
-		Status:         db.WalletTrackingStatusTracked,
-		SourceType:     trackingSourceTypeForJob(job),
-		SourceRef:      trackingSourceRefForJob(job, batch),
-		LastActivityAt: latestObservedAtFromActivities(activities),
-		LastBackfillAt: &lastBackfillAt,
-		StaleAfterAt:   pointerToTime(lastBackfillAt.Add(24 * time.Hour)),
-		Notes: map[string]any{
-			"queued_source": jobSource(job),
-			"provider":      string(batch.Provider),
-			"window_days":   policy.WindowDays,
-			"limit":         policy.Limit,
-		},
+		Chain:                batch.Request.Chain,
+		Address:              batch.Request.WalletAddress,
+		Status:               promotion.Status,
+		SourceType:           trackingSourceTypeForJob(job),
+		SourceRef:            trackingSourceRefForJob(job, batch),
+		LastActivityAt:       latestObservedAtFromActivities(activities),
+		LastBackfillAt:       &lastBackfillAt,
+		StaleAfterAt:         pointerToTime(lastBackfillAt.Add(24 * time.Hour)),
+		LabelConfidence:      promotion.LabelConfidence,
+		EntityConfidence:     promotion.EntityConfidence,
+		SmartMoneyConfidence: promotion.SmartMoneyConfidence,
+		Notes:                notes,
 	})
+}
+
+func deriveWalletTrackingPromotion(
+	batch providers.HistoricalBackfillBatch,
+	job *db.WalletBackfillJob,
+	assignments []providers.HeuristicEntityAssignment,
+	labeling providers.DerivedWalletLabeling,
+) walletTrackingPromotion {
+	rootRef := db.WalletRef{
+		Chain:   batch.Request.Chain,
+		Address: batch.Request.WalletAddress,
+	}
+	labelConfidence := maxRootLabelConfidence(rootRef, labeling.Memberships)
+	entityConfidence := maxRootEntityConfidence(rootRef, assignments)
+	smartMoneyConfidence := smartMoneyConfidenceForJob(job)
+	status := db.WalletTrackingStatusTracked
+	if labelConfidence > 0 || entityConfidence > 0 || smartMoneyConfidence > 0 {
+		status = db.WalletTrackingStatusLabeled
+	}
+
+	return walletTrackingPromotion{
+		Status:               status,
+		LabelConfidence:      labelConfidence,
+		EntityConfidence:     entityConfidence,
+		SmartMoneyConfidence: smartMoneyConfidence,
+	}
+}
+
+func maxRootLabelConfidence(
+	rootRef db.WalletRef,
+	memberships []providers.DerivedWalletLabelMembership,
+) float64 {
+	maxConfidence := 0.0
+	for _, membership := range memberships {
+		if walletRefMatches(rootRef, membership.Chain, membership.Address) {
+			maxConfidence = maxFloat(maxConfidence, membership.Confidence)
+		}
+	}
+
+	return maxConfidence
+}
+
+func maxRootEntityConfidence(
+	rootRef db.WalletRef,
+	assignments []providers.HeuristicEntityAssignment,
+) float64 {
+	maxConfidence := 0.0
+	for _, assignment := range assignments {
+		if walletRefMatches(rootRef, assignment.Chain, assignment.Address) {
+			maxConfidence = maxFloat(maxConfidence, assignment.Confidence)
+		}
+	}
+
+	return maxConfidence
+}
+
+func smartMoneyConfidenceForJob(job *db.WalletBackfillJob) float64 {
+	switch trackingSourceTypeForJob(job) {
+	case db.WalletTrackingSourceTypeDuneCandidate, db.WalletTrackingSourceTypeMobulaCandidate:
+		return maxFloat(
+			floatMetadataValue(jobMetadata(job), "candidate_score", 0),
+			floatMetadataValue(jobMetadata(job), "seed_discovery_confidence", 0),
+			floatMetadataValue(jobMetadata(job), "confidence", 0),
+		)
+	default:
+		return 0
+	}
+}
+
+func walletRefMatches(rootRef db.WalletRef, chain domain.Chain, address string) bool {
+	normalizedRoot, rootErr := db.NormalizeWalletRef(rootRef)
+	normalizedRef, refErr := db.NormalizeWalletRef(db.WalletRef{
+		Chain:   chain,
+		Address: address,
+	})
+	if rootErr == nil && refErr == nil {
+		return normalizedRoot.Chain == normalizedRef.Chain && normalizedRoot.Address == normalizedRef.Address
+	}
+
+	return rootRef.Chain == chain && strings.EqualFold(strings.TrimSpace(rootRef.Address), strings.TrimSpace(address))
 }
 
 func jobMetadata(job *db.WalletBackfillJob) map[string]any {
@@ -1270,6 +1482,8 @@ func trackingSourceTypeForJob(job *db.WalletBackfillJob) string {
 		return db.WalletTrackingSourceTypeWatchlist
 	case "seed_discovery":
 		return db.WalletTrackingSourceTypeDuneCandidate
+	case "mobula_smart_money":
+		return db.WalletTrackingSourceTypeMobulaCandidate
 	case "wallet_backfill_expansion":
 		return db.WalletTrackingSourceTypeHopExpansion
 	default:
@@ -1300,6 +1514,8 @@ func trackingPriorityForJob(job *db.WalletBackfillJob) int {
 	switch jobSource(job) {
 	case "watchlist_bootstrap":
 		return 200
+	case "mobula_smart_money":
+		return 190
 	case "seed_discovery":
 		return 180
 	case "search_lookup_miss":

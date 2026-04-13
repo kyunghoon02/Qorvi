@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 var evmAddressPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
@@ -28,8 +28,8 @@ const (
 
 const (
 	searchStaleRefreshAfter      = 30 * time.Minute
-	searchStaleRefreshWindowDays = 30
-	searchStaleRefreshLimit      = 250
+	searchStaleRefreshWindowDays = 90
+	searchStaleRefreshLimit      = 500
 	searchStaleRefreshDepth      = 1
 	searchManualRefreshWindowDays = 365
 	searchManualRefreshLimit      = 1000

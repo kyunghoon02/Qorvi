@@ -1,11 +1,11 @@
 # Production Open Prep
 
-이 문서는 FlowIntel production launch 직전 마지막 환경/운영 준비 체크리스트다. gate 판단은 `/Users/kh/Github/FlowIntel/docs/runbooks/production-launch-review.md`를 따르고, 세부 복구 절차는 `/Users/kh/Github/FlowIntel/docs/runbooks/production-release-package.md`를 따른다.
+이 문서는 Qorvi production launch 직전 마지막 환경/운영 준비 체크리스트다. gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/production-launch-review.md`를 따르고, 세부 복구 절차는 `/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md`를 따른다.
 
 env 기준:
 
-- 로컬 개발 템플릿: [/.env.example](/Users/kh/Github/FlowIntel/.env.example)
-- target production 템플릿: [/.env.production.example](/Users/kh/Github/FlowIntel/.env.production.example)
+- 로컬 개발 템플릿: [/.env.example](/Users/kh/Github/Qorvi/.env.example)
+- target production 템플릿: [/.env.production.example](/Users/kh/Github/Qorvi/.env.production.example)
 
 현재 로컬 dry-run 결과:
 
@@ -92,14 +92,14 @@ billing을 production launch에 함께 켤 경우 추가 확인:
 
 참고 문서:
 
-- `/Users/kh/Github/FlowIntel/docs/runbooks/production-operator-handoff.md`
-- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
+- `/Users/kh/Github/Qorvi/docs/runbooks/production-operator-handoff.md`
+- `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
 
 ## 4. Final Ready Check
 
 아래가 모두 참이면 ready다.
 
-1. `/Users/kh/Github/FlowIntel/docs/runbooks/production-launch-review.md`가 `go`
+1. `/Users/kh/Github/Qorvi/docs/runbooks/production-launch-review.md`가 `go`
 2. `corepack pnpm prod:evidence:core`가 통과
 3. 운영자 확인 완료
 4. representative replay diff에서 finding count 급증/누락이 없음

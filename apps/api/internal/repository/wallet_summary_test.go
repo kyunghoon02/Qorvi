@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
 )
 
 type fakeWalletSummaryInputsLoader struct {
@@ -446,6 +446,9 @@ func TestQueryBackedWalletSummaryRepositorySeparatesVerifiedInferredAndBehaviora
 	}
 	if len(summary.Labels.Behavioral) != 1 || summary.Labels.Behavioral[0].Key != "behavioral:smart_money_candidate" {
 		t.Fatalf("expected behavioral label from score, got %#v", summary.Labels)
+	}
+	if got := summary.Labels.Behavioral[0].EvidenceSummary; got != "Cluster score indicates peer-wallet overlap, shared entity links, and recurrent flow inside a coordinated cohort." {
+		t.Fatalf("unexpected behavioral evidence summary %q", got)
 	}
 }
 

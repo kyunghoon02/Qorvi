@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/flowintel/flowintel/packages/db"
-	"github.com/flowintel/flowintel/packages/domain"
-	"github.com/flowintel/flowintel/packages/providers"
+	"github.com/qorvi/qorvi/packages/db"
+	"github.com/qorvi/qorvi/packages/domain"
+	"github.com/qorvi/qorvi/packages/providers"
 )
 
 type fakeSeedDiscoveryWatchlistStore struct {
@@ -74,6 +76,48 @@ func (s *fakeSeedDiscoveryWatchlistStore) AddWatchlistWalletItem(
 	}
 	s.items[watchlistID] = append(s.items[watchlistID], item)
 	return item, nil
+}
+
+func newMobulaSeedDiscoveryRunnerForTest(t *testing.T) SeedDiscoveryJobRunner {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"walletAddress": "0x1111111111111111111111111111111111111111",
+					"tokenAddress": "0x6982508145454Ce325dDbE47a25d4ec3d2311933",
+					"lastActivityAt": "2026-03-29T12:00:00Z",
+					"labels": ["smartTrader"]
+				}
+			],
+			"totalCount": 1
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	registry := providers.Registry{
+		providers.ProviderMobula: providers.NewMobulaAdapter(providers.ProviderCredentials{
+			Provider: providers.ProviderMobula,
+			APIKey:   "mobula_secret",
+			BaseURL:  server.URL,
+		}, []providers.MobulaSmartMoneySeed{
+			{
+				Blockchain:  "ethereum",
+				Address:     "0x6982508145454Ce325dDbE47a25d4ec3d2311933",
+				TokenSymbol: "PEPE",
+				Labels:      []string{"smartTrader"},
+				Limit:       10,
+			},
+		}, server.Client()),
+	}
+
+	runner := NewSeedDiscoveryJobRunner(registry)
+	runner.Now = func() time.Time {
+		return time.Date(2026, time.March, 30, 9, 10, 11, 0, time.UTC)
+	}
+	return runner
 }
 
 func TestSeedDiscoveryJobRunnerRunEnqueue(t *testing.T) {
@@ -152,6 +196,41 @@ func TestSeedDiscoveryJobRunnerRunEnqueueDedupsRepeatedCandidates(t *testing.T) 
 	}
 }
 
+func TestSeedDiscoveryJobRunnerRunMobulaSmartMoneyEnqueue(t *testing.T) {
+	t.Parallel()
+
+	queue := &fakeWalletBackfillQueueStore{}
+	dedup := &fakeIngestDedupStore{}
+	jobRuns := &fakeJobRunStore{}
+	runner := newMobulaSeedDiscoveryRunnerForTest(t)
+	runner.Queue = queue
+	runner.Dedup = dedup
+	runner.JobRuns = jobRuns
+
+	report, err := runner.RunMobulaSmartMoneyEnqueue(context.Background())
+	if err != nil {
+		t.Fatalf("RunMobulaSmartMoneyEnqueue returned error: %v", err)
+	}
+	if report.BatchesWritten != 1 || report.CandidatesSeen != 1 || report.CandidatesEnqueued != 1 {
+		t.Fatalf("unexpected report %#v", report)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected 1 queued job, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Source != "mobula_smart_money" {
+		t.Fatalf("unexpected queue source %q", queue.jobs[0].Source)
+	}
+	if queue.jobs[0].Metadata["source_type"] != db.WalletTrackingSourceTypeMobulaCandidate {
+		t.Fatalf("expected mobula source type metadata, got %#v", queue.jobs[0].Metadata["source_type"])
+	}
+	if queue.jobs[0].Metadata["priority"] != 190 {
+		t.Fatalf("expected Mobula priority 190, got %#v", queue.jobs[0].Metadata["priority"])
+	}
+	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
+		t.Fatalf("expected one succeeded job run, got %#v", jobRuns.entries)
+	}
+}
+
 func TestBuildSeedDiscoveryFixtureBatchesUsesDuneEVMFixture(t *testing.T) {
 	t.Parallel()
 
@@ -172,53 +251,28 @@ func TestSeedDiscoveryJobRunnerRunSeedWatchlist(t *testing.T) {
 
 	watchlists := &fakeSeedDiscoveryWatchlistStore{}
 	jobRuns := &fakeJobRunStore{}
-	runner := NewSeedDiscoveryJobRunner(providers.NewConfiguredRegistry(providers.ProviderEnv{
-		DuneAPIKey: "dune_secret",
-		DuneSeedExportRows: []providers.DuneSeedExportRow{
-			{
-				Chain:         "evm",
-				WalletAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				SeedLabel:     "high-signal",
-				Confidence:    0.95,
-			},
-			{
-				Chain:         "evm",
-				WalletAddress: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				SeedLabel:     "mid-signal",
-				Confidence:    0.75,
-			},
-			{
-				Chain:         "evm",
-				WalletAddress: "0xcccccccccccccccccccccccccccccccccccccccc",
-				SeedLabel:     "low-signal",
-				Confidence:    0.4,
-			},
-		},
-		AlchemyAPIKey: "alchemy_secret",
-		HeliusAPIKey:  "helius_secret",
-		MoralisAPIKey: "moralis_secret",
-	}))
+	runner := newMobulaSeedDiscoveryRunnerForTest(t)
 	runner.Watchlists = watchlists
 	runner.JobRuns = jobRuns
 	runner.Now = func() time.Time {
-		return time.Date(2026, time.March, 22, 9, 10, 11, 0, time.UTC)
+		return time.Date(2026, time.March, 30, 9, 10, 11, 0, time.UTC)
 	}
 
-	report, err := runner.RunSeedWatchlist(context.Background(), 2, 0.7)
+	report, err := runner.RunSeedWatchlist(context.Background(), 1, 0.7)
 	if err != nil {
 		t.Fatalf("RunSeedWatchlist returned error: %v", err)
 	}
-	if report.CandidatesSeen != 3 || report.CandidatesSelected != 2 {
+	if report.CandidatesSeen != 1 || report.CandidatesSelected != 1 {
 		t.Fatalf("unexpected report %#v", report)
 	}
 	if !report.WatchlistCreated {
 		t.Fatalf("expected watchlist to be created, got %#v", report)
 	}
-	if report.WatchlistItemsAdded != 2 {
-		t.Fatalf("expected 2 watchlist items added, got %#v", report)
+	if report.WatchlistItemsAdded != 1 {
+		t.Fatalf("expected 1 watchlist item added, got %#v", report)
 	}
-	if len(watchlists.items[report.WatchlistID]) != 2 {
-		t.Fatalf("expected 2 stored watchlist items, got %d", len(watchlists.items[report.WatchlistID]))
+	if len(watchlists.items[report.WatchlistID]) != 1 {
+		t.Fatalf("expected 1 stored watchlist item, got %d", len(watchlists.items[report.WatchlistID]))
 	}
 	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("expected one succeeded job run, got %#v", jobRuns.entries)
@@ -244,12 +298,12 @@ func TestSeedDiscoveryJobRunnerRunSeedWatchlistKeepsExistingItems(t *testing.T) 
 					ID:          "item_existing",
 					WatchlistID: "seed_watchlist_1",
 					ItemType:    domain.WatchlistItemTypeWallet,
-					ItemKey:     "evm:0x1234567890abcdef1234567890abcdef12345678",
+					ItemKey:     "evm:0x1111111111111111111111111111111111111111",
 				},
 			},
 		},
 	}
-	runner := NewSeedDiscoveryJobRunner(providers.DefaultRegistry())
+	runner := newMobulaSeedDiscoveryRunnerForTest(t)
 	runner.Watchlists = watchlists
 
 	report, err := runner.RunSeedWatchlist(context.Background(), 10, 0.7)

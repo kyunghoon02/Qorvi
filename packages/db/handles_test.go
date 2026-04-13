@@ -6,7 +6,7 @@ func TestNewHandlesAndValidation(t *testing.T) {
 	t.Parallel()
 
 	handles := NewHandles(
-		NewPostgresConfig("postgres://postgres:postgres@localhost:5432/flowintel"),
+		NewPostgresConfig("postgres://postgres:postgres@localhost:5432/qorvi"),
 		NewNeo4jConfig("bolt://localhost:7687", "neo4j", "neo4jpassword"),
 		NewRedisConfig("localhost:6379", "", 0),
 	)
