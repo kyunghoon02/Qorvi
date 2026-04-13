@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveWalletDetailRequestFromParams } from "../app/wallets/[chain]/[address]/wallet-detail-route";
+import {
+  resolveFlowLensContextFromSearchParams,
+  resolveWalletDetailRequestFromParams,
+} from "../app/wallets/[chain]/[address]/wallet-detail-route";
 import {
   buildGraphEntityAssignmentIndex,
   buildWalletDetailViewModel,
@@ -399,6 +402,64 @@ test("resolveWalletDetailRequestFromParams validates wallet route params", () =>
   });
   assert.equal(resolveWalletDetailRequestFromParams("btc", "0x1234"), null);
   assert.equal(resolveWalletDetailRequestFromParams("evm", ""), null);
+});
+
+test("resolveFlowLensContextFromSearchParams parses FlowLens handoff params", () => {
+  assert.deepEqual(
+    resolveFlowLensContextFromSearchParams({
+      source: "flowlens",
+      exchange: "binance",
+      symbol: "FLOKI",
+      token_address: "0xabc",
+      flow_minute: "2026-04-12T05:11:00Z",
+      direction: "ex_in",
+      amount: "138929968.41",
+      approx_usd: "138900000",
+      signal_score: "0.82",
+      back_url: "https://flow.qorvi.app/dashboard",
+    }),
+    {
+      source: "flowlens",
+      exchange: "binance",
+      symbol: "FLOKI",
+      tokenAddress: "0xabc",
+      flowMinute: "2026-04-12T05:11:00Z",
+      direction: "ex_in",
+      amount: "138929968.41",
+      approxUsd: "138900000",
+      signalScore: "0.82",
+      backUrl: "https://flow.qorvi.app/dashboard",
+    },
+  );
+});
+
+test("resolveFlowLensContextFromSearchParams sanitizes unsafe links", () => {
+  assert.equal(
+    resolveFlowLensContextFromSearchParams({
+      source: "other",
+      exchange: "binance",
+    }),
+    null,
+  );
+
+  assert.deepEqual(
+    resolveFlowLensContextFromSearchParams({
+      source: "flowlens",
+      back_url: "javascript:alert(1)",
+    }),
+    {
+      source: "flowlens",
+      exchange: "",
+      symbol: "",
+      tokenAddress: "",
+      flowMinute: "",
+      direction: "",
+      amount: "",
+      approxUsd: "",
+      signalScore: "",
+      backUrl: "",
+    },
+  );
 });
 
 test("buildWalletDetailViewModel carries the screen copy and CTAs", () => {

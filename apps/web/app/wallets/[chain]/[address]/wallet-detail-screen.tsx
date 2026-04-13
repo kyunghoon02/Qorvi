@@ -50,6 +50,7 @@ import { useTranslation } from "../../../../lib/i18n/provider";
 import { persistClientForwardedAuthHeaders } from "../../../../lib/request-headers";
 import { LanguageSwitcher } from "../../../components/language-switcher";
 import { PageShell } from "../../../components/page-shell";
+import type { FlowLensContext } from "./wallet-detail-route";
 import {
   type GraphEntityAssignmentPresentation,
   buildCounterpartyEntityAssignment,
@@ -564,6 +565,107 @@ function formatGraphKind(kind: string): string {
   return kind.replaceAll("_", " ");
 }
 
+function formatFlowLensDirectionLabel(direction: string | undefined): string {
+  const normalized = String(direction ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["ex_in", "exchange_in", "in", "inflow"].includes(normalized)) {
+    return "Exchange inflow";
+  }
+  if (["ex_out", "exchange_out", "out", "outflow"].includes(normalized)) {
+    return "Exchange outflow";
+  }
+  return normalized.replaceAll("_", " ");
+}
+
+function formatFlowLensObservedAt(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return normalized;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    hour12: false,
+  }).format(parsed);
+}
+
+function formatFlowLensNumeric(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  const asNumber = Number(normalized);
+  if (!normalized || Number.isNaN(asNumber)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: Math.abs(asNumber) >= 1000 ? 0 : 2,
+  }).format(asNumber);
+}
+
+function formatFlowLensUsd(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  const asNumber = Number(normalized);
+  if (!normalized || Number.isNaN(asNumber)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: Math.abs(asNumber) >= 1000 ? "compact" : "standard",
+    maximumFractionDigits: Math.abs(asNumber) >= 1000 ? 1 : 2,
+  }).format(asNumber);
+}
+
+function buildFlowLensContextSummary(
+  flowLensContext: FlowLensContext | null | undefined,
+): string {
+  if (!flowLensContext) {
+    return "";
+  }
+
+  const segments: string[] = [];
+  const directionLabel = formatFlowLensDirectionLabel(flowLensContext.direction);
+  const observedAt = formatFlowLensObservedAt(flowLensContext.flowMinute);
+  const amount = formatFlowLensNumeric(flowLensContext.amount);
+  const approxUsd = formatFlowLensUsd(flowLensContext.approxUsd);
+
+  if (directionLabel) {
+    segments.push(`Observed as ${directionLabel.toLowerCase()}`);
+  } else {
+    segments.push("Opened from a FlowLens signal");
+  }
+
+  if (flowLensContext.exchange) {
+    segments.push(`on ${flowLensContext.exchange}`);
+  }
+  if (flowLensContext.symbol) {
+    segments.push(`for ${flowLensContext.symbol}`);
+  }
+  if (observedAt) {
+    segments.push(`at ${observedAt} UTC`);
+  }
+  if (amount) {
+    segments.push(`transfer size ${amount}`);
+  }
+  if (approxUsd) {
+    segments.push(`approx ${approxUsd}`);
+  }
+
+  return `${segments.join(". ")}.`;
+}
+
 function resolveGraphNodeLabel(
   nodes: WalletGraphPreviewNode[],
   nodeId: string,
@@ -693,12 +795,14 @@ export function WalletDetailScreen({
   summary,
   brief,
   graph,
+  flowLensContext,
   requestHeaders,
 }: {
   request: WalletDetailRequest;
   summary: WalletSummaryPreview;
   brief?: WalletBriefPreview;
   graph: WalletGraphPreview;
+  flowLensContext?: FlowLensContext | null;
   requestHeaders?: HeadersInit;
 }) {
   const { t } = useTranslation();
@@ -1061,6 +1165,10 @@ export function WalletDetailScreen({
   const heroTitle = looksLikeWalletAddress(viewModel.title)
     ? `${viewModel.chainLabel} wallet`
     : viewModel.title;
+  const flowLensContextDirectionLabel = formatFlowLensDirectionLabel(
+    flowLensContext?.direction,
+  );
+  const flowLensContextSummary = buildFlowLensContextSummary(flowLensContext);
   const graphAvailability = useMemo(
     () => buildWalletGraphAvailabilityPresentation(graphPreviewState),
     [graphPreviewState],
@@ -1877,6 +1985,39 @@ export function WalletDetailScreen({
               <strong>{viewModel.address}</strong>
             </div>
           </div>
+
+          {flowLensContext ? (
+            <div className="preview-status detail-status-inline">
+              <div>
+                <span className="preview-kicker">From FlowLens</span>
+                <p>{flowLensContextSummary}</p>
+              </div>
+              <div className="home-summary-actions">
+                {flowLensContextDirectionLabel ? (
+                  <Badge
+                    tone={
+                      flowLensContextDirectionLabel.includes("outflow")
+                        ? "amber"
+                        : "teal"
+                    }
+                  >
+                    {flowLensContextDirectionLabel}
+                  </Badge>
+                ) : null}
+                {flowLensContext.exchange ? (
+                  <Badge tone="teal">{flowLensContext.exchange}</Badge>
+                ) : null}
+                {flowLensContext.symbol ? (
+                  <Badge tone="violet">{flowLensContext.symbol}</Badge>
+                ) : null}
+                {flowLensContext.backUrl ? (
+                  <a className="search-cta" href={flowLensContext.backUrl}>
+                    Back to FlowLens
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div className="detail-actions">
             <LanguageSwitcher />

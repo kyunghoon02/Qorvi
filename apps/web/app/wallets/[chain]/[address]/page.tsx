@@ -10,7 +10,10 @@ import {
 } from "../../../../lib/api-boundary";
 import { buildForwardedAuthHeaders } from "../../../../lib/request-headers";
 
-import { resolveWalletDetailRequestFromParams } from "./wallet-detail-route";
+import {
+  resolveFlowLensContextFromSearchParams,
+  resolveWalletDetailRequestFromParams,
+} from "./wallet-detail-route";
 import { WalletDetailScreen } from "./wallet-detail-screen";
 
 const DEFAULT_WALLET_GRAPH_DEPTH = 3;
@@ -28,17 +31,20 @@ function InvalidWalletRoute() {
 
 export default async function WalletDetailPage({
   params,
+  searchParams,
 }: Readonly<{
   params: {
     chain: string;
     address: string;
   };
+  searchParams?: Record<string, string | string[] | undefined>;
 }>) {
   const requestHeaders = buildForwardedAuthHeaders(await headers());
   const request = resolveWalletDetailRequestFromParams(
     params.chain,
     params.address,
   );
+  const flowLensContext = resolveFlowLensContextFromSearchParams(searchParams);
 
   if (!request) {
     return <InvalidWalletRoute />;
@@ -89,6 +95,7 @@ export default async function WalletDetailPage({
       summary={summary}
       brief={brief}
       graph={graph}
+      flowLensContext={flowLensContext}
       {...(requestHeaders ? { requestHeaders } : {})}
     />
   );
