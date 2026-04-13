@@ -1861,7 +1861,7 @@ const walletSummaryRequest: WalletSummaryRequest = {
 const walletGraphRequest: WalletGraphRequest = {
   chain: "evm",
   address: "0x8f1d9c72be9f2a8ec6d3b9ac1e5d7c4289a1031f",
-  depthRequested: 1,
+  depthRequested: 2,
 };
 
 const walletBriefRequest: WalletBriefRequest = walletSummaryRequest;

@@ -24,6 +24,7 @@ import {
   resolveWalletSummaryRequestFromRoute,
   shouldPollIndexedWalletSummary,
 } from "../lib/api-boundary";
+import { defaultLocale, getDictionary } from "../lib/i18n/dictionaries";
 import { persistClientForwardedAuthHeaders } from "../lib/request-headers";
 
 import { useTranslation } from "../lib/i18n/provider";
@@ -86,12 +87,42 @@ export type HomeFindingFeedItem = {
   badgeTone: "teal" | "amber" | "violet" | "emerald";
 };
 
+function resolveHomeCopy(
+  t: (key: string) => string,
+  key:
+    | "home.feedItem.nextWatch"
+    | "home.feedItem.analyzeWallet"
+    | "home.feedItem.subjectType",
+): string {
+  const translated = t(key);
+  if (translated !== key) {
+    return translated;
+  }
+
+  const dictionary = getDictionary(defaultLocale);
+  if (key === "home.feedItem.nextWatch") {
+    return dictionary.home.feedItem.nextWatch;
+  }
+  if (key === "home.feedItem.analyzeWallet") {
+    return dictionary.home.feedItem.analyzeWallet;
+  }
+  return dictionary.home.feedItem.subjectType;
+}
+
 export function buildHomeFindingsFeedItems(
   preview: WalletSummaryPreview,
   walletDetailHref: string | null,
   t: (key: string) => string,
 ): HomeFindingFeedItem[] {
   const items: HomeFindingFeedItem[] = [];
+  const rootWalletHref =
+    buildWalletDetailHref({
+      chain: preview.chain === "SOLANA" ? "solana" : "evm",
+      address: preview.address,
+    }) || walletDetailHref;
+  const nextWatchLabel = resolveHomeCopy(t, "home.feedItem.nextWatch");
+  const analyzeWalletLabel = resolveHomeCopy(t, "home.feedItem.analyzeWallet");
+  const subjectTypeLabel = resolveHomeCopy(t, "home.feedItem.subjectType");
 
   for (const score of preview.scores.slice(0, 2)) {
     const title = formatScoreLabel(score.name);
@@ -109,15 +140,15 @@ export function buildHomeFindingsFeedItems(
       evidenceLabel: clusterBreakdown
         ? `Derived from wallet score ${score.value}/100 · ${clusterBreakdown.peerWalletOverlap} peer overlaps · ${clusterBreakdown.sharedEntityLinks} shared entity links`
         : `Derived from wallet score ${score.value}/100`,
-      nextWatchLabel: t("home.feedItem.nextWatch"),
-      nextWatchHref: walletDetailHref,
-      analystEntryLabel: t("home.feedItem.analyzeWallet"),
-      analystEntryHref: walletDetailHref,
+      nextWatchLabel,
+      nextWatchHref: rootWalletHref,
+      analystEntryLabel: analyzeWalletLabel,
+      analystEntryHref: rootWalletHref,
       importance: score.value / 100,
       confidence: score.value >= 90 ? 0.9 : 0.65,
       subjectLabel: preview.label,
-      subjectHref: walletDetailHref,
-      subjectTypeLabel: t("home.feedItem.subjectType"),
+      subjectHref: rootWalletHref,
+      subjectTypeLabel,
       badgeTone: score.rating === "high" ? "emerald" : "amber",
     });
   }
@@ -132,15 +163,15 @@ export function buildHomeFindingsFeedItems(
           ? `${signal.label || formatScoreLabel(signal.name)} is the latest high-priority signal.`
           : `${signal.label || formatScoreLabel(signal.name)} is still active in the current coverage window.`,
       evidenceLabel: `Source ${signal.source} · observed ${signal.observedAt.slice(0, 10)}`,
-      nextWatchLabel: t("home.feedItem.nextWatch"),
-      nextWatchHref: walletDetailHref,
-      analystEntryLabel: t("home.feedItem.analyzeWallet"),
-      analystEntryHref: walletDetailHref,
+      nextWatchLabel,
+      nextWatchHref: rootWalletHref,
+      analystEntryLabel: analyzeWalletLabel,
+      analystEntryHref: rootWalletHref,
       importance: signal.value / 100,
       confidence: signal.value / 100,
       subjectLabel: preview.label,
-      subjectHref: walletDetailHref,
-      subjectTypeLabel: t("home.feedItem.subjectType"),
+      subjectHref: rootWalletHref,
+      subjectTypeLabel,
       badgeTone: signal.rating === "high" ? "emerald" : "amber",
     });
   }
@@ -155,14 +186,14 @@ export function buildHomeFindingsFeedItems(
       evidenceLabel: topCounterparty.latestActivityAt
         ? `${topCounterparty.interactionCount} indexed interactions · latest activity ${topCounterparty.latestActivityAt.slice(0, 10)}`
         : `${topCounterparty.interactionCount} indexed interactions`,
-      nextWatchLabel: t("home.feedItem.nextWatch"),
+      nextWatchLabel: `Watch ${compactAddress(topCounterparty.address)}`,
       nextWatchHref: topCounterparty.entityLabel
         ? buildProductSearchHref(topCounterparty.entityLabel)
         : buildWalletDetailHref({
             chain: topCounterparty.chain,
             address: topCounterparty.address,
           }),
-      analystEntryLabel: t("home.feedItem.analyzeWallet"),
+      analystEntryLabel: analyzeWalletLabel,
       analystEntryHref: topCounterparty.entityLabel
         ? buildProductSearchHref(topCounterparty.entityLabel)
         : buildWalletDetailHref({
@@ -189,7 +220,7 @@ export function buildHomeFindingsFeedItems(
           }),
       subjectTypeLabel: topCounterparty.entityLabel
         ? "Entity"
-        : t("home.feedItem.subjectType"),
+        : subjectTypeLabel,
       badgeTone:
         topCounterparty.directionLabel === "inbound" ? "violet" : "teal",
     });

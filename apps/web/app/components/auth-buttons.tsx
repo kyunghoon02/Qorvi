@@ -1,12 +1,51 @@
 "use client";
 
-import {
-  SignInButton,
-  SignUpButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
+import type { ComponentType, ReactNode } from "react";
+
+import * as ClerkReact from "@clerk/clerk-react";
+import * as ClerkNext from "@clerk/nextjs";
+
+type ButtonWrapperProps = {
+  children?: ReactNode;
+  mode?: "modal" | "redirect";
+};
+
+type VisibilityWrapperProps = {
+  children?: ReactNode;
+};
+
+function renderChildren({ children }: VisibilityWrapperProps) {
+  return <>{children ?? null}</>;
+}
+
+function renderNothing() {
+  return null;
+}
+
+const SignInButton =
+  ((ClerkNext as Record<string, unknown>).SignInButton ??
+    (ClerkReact as Record<string, unknown>).SignInButton ??
+    renderChildren) as ComponentType<ButtonWrapperProps>;
+
+const SignUpButton =
+  ((ClerkNext as Record<string, unknown>).SignUpButton ??
+    (ClerkReact as Record<string, unknown>).SignUpButton ??
+    renderChildren) as ComponentType<ButtonWrapperProps>;
+
+const SignedIn =
+  ((ClerkNext as Record<string, unknown>).SignedIn ??
+    (ClerkReact as Record<string, unknown>).SignedIn ??
+    renderNothing) as ComponentType<VisibilityWrapperProps>;
+
+const SignedOut =
+  ((ClerkNext as Record<string, unknown>).SignedOut ??
+    (ClerkReact as Record<string, unknown>).SignedOut ??
+    renderChildren) as ComponentType<VisibilityWrapperProps>;
+
+const UserButton =
+  ((ClerkNext as Record<string, unknown>).UserButton ??
+    (ClerkReact as Record<string, unknown>).UserButton ??
+    renderNothing) as ComponentType;
 
 export function AuthButtons() {
   return (

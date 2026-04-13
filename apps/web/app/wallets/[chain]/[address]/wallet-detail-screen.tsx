@@ -46,6 +46,10 @@ import {
   trackWalletAlertRule,
 } from "../../../../lib/api-boundary";
 import { useClerkRequestHeaders } from "../../../../lib/clerk-client-auth";
+import {
+  defaultLocale,
+  getDictionary,
+} from "../../../../lib/i18n/dictionaries";
 import { useTranslation } from "../../../../lib/i18n/provider";
 import { persistClientForwardedAuthHeaders } from "../../../../lib/request-headers";
 import { LanguageSwitcher } from "../../../components/language-switcher";
@@ -275,6 +279,7 @@ export type WalletRelatedAddressSortKey =
 
 const MAX_GRAPH_NODE_BUDGET = 120;
 const DEFAULT_WALLET_GRAPH_DEPTH = 3;
+const MAX_GRAPH_EXPANSION_HOPS = 20;
 
 export type WalletGraphExpansionState = {
   canExpand: boolean;
@@ -300,6 +305,31 @@ export function buildWalletDetailViewModel({
   brief?: WalletBriefPreview;
   t: (key: string) => string;
 }): WalletDetailViewModel {
+  const dictionary = getDictionary(defaultLocale);
+  const indexingStatusLabel =
+    summary.indexing.status === "indexing"
+      ? resolveWalletDetailCopy(
+          t,
+          "walletDetail.labels.indexing",
+          dictionary.walletDetail.labels.indexing,
+        )
+      : resolveWalletDetailCopy(
+          t,
+          "walletDetail.labels.coverageReady",
+          dictionary.walletDetail.labels.coverageReady,
+        );
+  const indexingActionLabel =
+    summary.indexing.status === "indexing"
+      ? resolveWalletDetailCopy(
+          t,
+          "walletDetail.labels.continueIndexing",
+          dictionary.walletDetail.labels.continueIndexing,
+        )
+      : resolveWalletDetailCopy(
+          t,
+          "walletDetail.labels.expandCoverage",
+          dictionary.walletDetail.labels.expandCoverage,
+        );
   const summaryAvailability =
     buildWalletSummaryAvailabilityPresentation(summary);
   const graphAvailability = buildWalletGraphAvailabilityPresentation(graph);
@@ -343,14 +373,8 @@ export function buildWalletDetailViewModel({
     })),
     indexing: {
       status: summary.indexing.status,
-      statusLabel:
-        summary.indexing.status === "indexing"
-          ? t("walletDetail.labels.indexing")
-          : t("walletDetail.labels.coverageReady"),
-      actionLabel:
-        summary.indexing.status === "indexing"
-          ? t("walletDetail.labels.continueIndexing")
-          : t("walletDetail.labels.expandCoverage"),
+      statusLabel: indexingStatusLabel,
+      actionLabel: indexingActionLabel,
       helperCopy:
         summary.indexing.status === "indexing"
           ? "Fresh counterparties and flows are still being collected. This panel refreshes automatically."
@@ -444,7 +468,12 @@ function buildWalletBriefViewModel(
 ): WalletBriefViewModel {
   if (brief && brief.mode === "live") {
     const evidence = brief.keyFindings
-      .flatMap((finding) => finding.observedFacts)
+      .flatMap((finding) => [
+        ...finding.evidence
+          .map((item) => item.value?.trim() ?? "")
+          .filter(Boolean),
+        ...finding.observedFacts,
+      ])
       .filter(Boolean)
       .slice(0, 3);
     const nextWatch = brief.keyFindings
@@ -3438,7 +3467,7 @@ export function resolveGraphExpansionState({
       reason: "Select a wallet node to expand.",
       budgetLabel,
       hopsUsed,
-      hopBudget: hopsUsed,
+      hopBudget: MAX_GRAPH_EXPANSION_HOPS,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -3452,7 +3481,7 @@ export function resolveGraphExpansionState({
       reason: "This node cannot be expanded.",
       budgetLabel,
       hopsUsed,
-      hopBudget: hopsUsed,
+      hopBudget: MAX_GRAPH_EXPANSION_HOPS,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -3465,7 +3494,7 @@ export function resolveGraphExpansionState({
       reason: describeExpandedGraphNodeReason(selectedNode.kind),
       budgetLabel,
       hopsUsed,
-      hopBudget: hopsUsed,
+      hopBudget: MAX_GRAPH_EXPANSION_HOPS,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -3478,7 +3507,7 @@ export function resolveGraphExpansionState({
       reason: "Visible node budget reached.",
       budgetLabel,
       hopsUsed,
-      hopBudget: hopsUsed,
+      hopBudget: MAX_GRAPH_EXPANSION_HOPS,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -3498,7 +3527,7 @@ export function resolveGraphExpansionState({
       reason: "No additional indexed wallets are linked to this entity.",
       budgetLabel,
       hopsUsed,
-      hopBudget: hopsUsed,
+      hopBudget: MAX_GRAPH_EXPANSION_HOPS,
       nodeCount: graphNodeCount,
       nodeBudget: MAX_GRAPH_NODE_BUDGET,
     };
@@ -3507,10 +3536,14 @@ export function resolveGraphExpansionState({
   return {
     canExpand: true,
     expansionKey,
-    reason: describeGraphExpansionReason(selectedNode.kind),
+    reason:
+      selectedNode.kind === "wallet" &&
+      hopsUsed >= MAX_GRAPH_EXPANSION_HOPS
+        ? "Expand this wallet neighborhood."
+        : describeGraphExpansionReason(selectedNode.kind),
     budgetLabel,
     hopsUsed,
-    hopBudget: hopsUsed,
+    hopBudget: MAX_GRAPH_EXPANSION_HOPS,
     nodeCount: graphNodeCount,
     nodeBudget: MAX_GRAPH_NODE_BUDGET,
   };
@@ -3527,6 +3560,10 @@ export function resolveExpandableGraphNodeIds({
   graphNodeCount: number;
   relatedAddresses?: WalletRelatedAddressViewModel[];
 }): string[] {
+  if (expandedGraphNeighborhoodKeys.length >= MAX_GRAPH_EXPANSION_HOPS) {
+    return [];
+  }
+
   return graphNodes
     .filter(
       (node) =>
@@ -3926,6 +3963,15 @@ function describeGraphExpansionReason(
   }
 
   return "Expand the next hop from this wallet.";
+}
+
+function resolveWalletDetailCopy(
+  t: (key: string) => string,
+  key: string,
+  fallback: string,
+): string {
+  const translated = t(key);
+  return translated === key ? fallback : translated;
 }
 
 function describeExpandedGraphNodeReason(

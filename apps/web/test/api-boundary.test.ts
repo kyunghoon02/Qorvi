@@ -1465,7 +1465,7 @@ test("loadWalletGraphPreview falls back when the backend is unavailable", async 
 
   assert.equal(preview.mode, "unavailable");
   assert.equal(preview.source, fallback.source);
-  assert.equal(preview.depthRequested, 1);
+  assert.equal(preview.depthRequested, 2);
   assert.equal(preview.depthResolved, 0);
   assert.equal(preview.densityCapped, false);
   assert.equal(preview.nodes.length, 0);
@@ -1486,8 +1486,8 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
           data: {
             chain: "evm",
             address: "0x1234567890abcdef1234567890abcdef12345678",
-            depthRequested: 1,
-            depthResolved: 1,
+            depthRequested: 2,
+            depthResolved: 2,
             densityCapped: true,
             nodes: [
               { id: "wallet_root", kind: "wallet", label: "Live Whale" },
@@ -1519,11 +1519,11 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
     },
   });
 
-  assert.match(requestedUrl, /\/graph\?depth=1$/);
+  assert.match(requestedUrl, /\/graph\?depth=2$/);
   assert.equal(preview.mode, "live");
   assert.equal(preview.source, "live-api");
-  assert.equal(preview.depthRequested, 1);
-  assert.equal(preview.depthResolved, 1);
+  assert.equal(preview.depthRequested, 2);
+  assert.equal(preview.depthResolved, 2);
   assert.equal(preview.densityCapped, true);
   assert.equal(preview.nodes[0]?.id, "wallet_root");
   assert.equal(preview.edges[0]?.family, "derived");
