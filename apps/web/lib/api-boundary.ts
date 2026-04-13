@@ -1876,6 +1876,8 @@ const clusterDetailRequest: ClusterDetailRequest = {
   clusterId: "cluster_seed_whales",
 };
 
+const DEFAULT_QORVI_API_BASE_URL = "https://api.qorvi.app";
+
 function normalizeApiBaseUrl(value?: string): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -1891,7 +1893,10 @@ function getApiBaseUrl(apiBaseUrl?: string): string | undefined {
     return trimmed;
   }
 
-  return normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+  return (
+    normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL) ??
+    DEFAULT_QORVI_API_BASE_URL
+  );
 }
 
 export function buildWalletDetailHref(request: WalletDetailRequest): string {

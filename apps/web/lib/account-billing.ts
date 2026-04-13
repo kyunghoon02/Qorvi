@@ -381,6 +381,8 @@ export function isPlanAtLeast(
   return planRank[currentPlan] >= planRank[requiredPlan];
 }
 
+const DEFAULT_QORVI_API_BASE_URL = "https://api.qorvi.app";
+
 function getApiBaseUrl(apiBaseUrl?: string): string | undefined {
   const trimmed = apiBaseUrl?.trim();
   if (trimmed) {
@@ -388,7 +390,7 @@ function getApiBaseUrl(apiBaseUrl?: string): string | undefined {
   }
 
   const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  return envBaseUrl ? envBaseUrl : undefined;
+  return envBaseUrl ? envBaseUrl : DEFAULT_QORVI_API_BASE_URL;
 }
 
 function buildAccountEntitlementsUrl(apiBaseUrl?: string): string {
