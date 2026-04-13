@@ -47,7 +47,14 @@ const UserButton =
     (ClerkReact as Record<string, unknown>).UserButton ??
     renderNothing) as ComponentType;
 
+const clerkPublishableKey =
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "";
+
 export function AuthButtons() {
+  if (!clerkPublishableKey) {
+    return null;
+  }
+
   return (
     <div className="app-auth-container">
       <SignedOut>

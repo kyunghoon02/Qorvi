@@ -9,6 +9,13 @@ import { createForwardedAuthHeaders } from "./request-headers";
 export function useClerkRequestHeaders(): () => Promise<
   HeadersInit | undefined
 > {
+  const clerkPublishableKey =
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "";
+
+  if (!clerkPublishableKey) {
+    return useCallback(async () => undefined, []);
+  }
+
   const { userId, sessionId, sessionClaims, getToken } = useAuth();
   const { user } = useUser();
 

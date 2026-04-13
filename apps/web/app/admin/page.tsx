@@ -8,6 +8,10 @@ import { buildClerkRequestHeaders } from "../../lib/clerk-server-auth";
 import { AdminConsoleScreen } from "./admin-console-screen";
 
 export default async function AdminConsolePage() {
+  if (!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "")) {
+    notFound();
+  }
+
   const authState = await auth();
   const user = await currentUser();
   const role =

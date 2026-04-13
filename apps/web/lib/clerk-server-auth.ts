@@ -6,6 +6,10 @@ import { createForwardedAuthHeaders } from "./request-headers";
 export async function buildClerkRequestHeaders(): Promise<
   HeadersInit | undefined
 > {
+  if (!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "")) {
+    return undefined;
+  }
+
   const authState = await auth();
   const user = await currentUser();
   const token = await authState.getToken();
