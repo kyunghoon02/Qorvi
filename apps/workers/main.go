@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/qorvi/qorvi/packages/billing"
@@ -19,7 +21,8 @@ import (
 func main() {
 	mode := os.Getenv("QORVI_WORKER_MODE")
 	env := workerEnvFromOS()
-	appCtx := context.Background()
+	appCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	registry := providers.DefaultRegistry()
 	if requiresProviderRegistry(mode) {
 		providerEnv, err := providers.ParseProviderEnvFromOS()
@@ -317,6 +320,7 @@ func requiresProviderRegistry(mode string) bool {
 		mode == workerModeWalletBackfillDrain ||
 		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
+		mode == workerModeWalletBackfillDrainLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeMobulaSmartMoneyEnqueue ||
 		mode == workerModeSeedDiscoveryEnqueue ||
@@ -328,6 +332,7 @@ func requiresWorkerStorage(mode string) bool {
 		mode == workerModeWalletBackfillDrain ||
 		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
+		mode == workerModeWalletBackfillDrainLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeMobulaSmartMoneyEnqueue ||
 		mode == workerModeAdminCuratedWalletImport ||

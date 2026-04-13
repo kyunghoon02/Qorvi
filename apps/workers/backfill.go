@@ -25,6 +25,7 @@ const workerModeHistoricalBackfillIngest = "historical-backfill-ingest"
 const workerModeWalletBackfillDrain = "wallet-backfill-drain"
 const workerModeWalletBackfillDrainPriority = "wallet-backfill-drain-priority"
 const workerModeWalletBackfillDrainBatch = "wallet-backfill-drain-batch"
+const workerModeWalletBackfillDrainLoop = "wallet-backfill-drain-loop"
 
 type WalletEnsurer interface {
 	EnsureWallet(context.Context, db.WalletRef) (db.WalletSummaryIdentity, error)
@@ -101,6 +102,20 @@ type QueuedWalletBackfillBatchReport struct {
 	ExpansionEnqueued   int
 	ProvidersSeen       []string
 	RetriesScheduled    int
+}
+
+type QueuedWalletBackfillLoopReport struct {
+	Cycles              int
+	EmptyPolls          int
+	JobsProcessed       int
+	ActivitiesFetched   int
+	RawPayloadsStored   int
+	TransactionsWritten int
+	TransactionsDeduped int
+	ExpansionEnqueued   int
+	ProvidersSeen       []string
+	RetriesScheduled    int
+	StoppedByContext    bool
 }
 
 const (
@@ -328,6 +343,23 @@ func buildQueuedWalletBackfillBatchSummary(report QueuedWalletBackfillBatchRepor
 	)
 }
 
+func buildQueuedWalletBackfillLoopSummary(report QueuedWalletBackfillLoopReport) string {
+	return fmt.Sprintf(
+		"Wallet backfill queue loop stopped (cycles=%d, empty_polls=%d, jobs=%d, providers=%s, activities=%d, raw_payloads=%d, transactions=%d, duplicates=%d, expansions=%d, retries=%d, stopped_by_context=%t)",
+		report.Cycles,
+		report.EmptyPolls,
+		report.JobsProcessed,
+		strings.Join(report.ProvidersSeen, ","),
+		report.ActivitiesFetched,
+		report.RawPayloadsStored,
+		report.TransactionsWritten,
+		report.TransactionsDeduped,
+		report.ExpansionEnqueued,
+		report.RetriesScheduled,
+		report.StoppedByContext,
+	)
+}
+
 func buildWorkerOutput(
 	ctx context.Context,
 	mode string,
@@ -421,6 +453,13 @@ func buildWorkerOutput(
 			return "", err
 		}
 		return buildQueuedWalletBackfillBatchSummary(report), nil
+	}
+	if mode == workerModeWalletBackfillDrainLoop {
+		report, err := ingest.RunQueuedBackfillLoop(ctx, walletBackfillDrainLimit())
+		if err != nil {
+			return "", err
+		}
+		return buildQueuedWalletBackfillLoopSummary(report), nil
 	}
 	if mode == workerModeMoralisEnrichmentRefresh {
 		report, err := enrichmentRefresh.RunRefresh(ctx, walletEnrichmentRefreshTargetFromEnv())
@@ -732,6 +771,54 @@ func (s HistoricalBackfillIngestService) RunQueuedBackfillBatch(
 	return report, nil
 }
 
+func (s HistoricalBackfillIngestService) RunQueuedBackfillLoop(
+	ctx context.Context,
+	limit int,
+) (QueuedWalletBackfillLoopReport, error) {
+	report := QueuedWalletBackfillLoopReport{}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			report.StoppedByContext = true
+			return report, nil
+		}
+
+		batchReport, err := s.RunQueuedBackfillBatch(ctx, limit)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				report.StoppedByContext = true
+				return report, nil
+			}
+			return report, err
+		}
+
+		report.Cycles++
+		report.JobsProcessed += batchReport.JobsProcessed
+		report.ActivitiesFetched += batchReport.ActivitiesFetched
+		report.RawPayloadsStored += batchReport.RawPayloadsStored
+		report.TransactionsWritten += batchReport.TransactionsWritten
+		report.TransactionsDeduped += batchReport.TransactionsDeduped
+		report.ExpansionEnqueued += batchReport.ExpansionEnqueued
+		report.ProvidersSeen = append(report.ProvidersSeen, batchReport.ProvidersSeen...)
+		report.RetriesScheduled += batchReport.RetriesScheduled
+
+		log.Println(buildQueuedWalletBackfillBatchSummary(batchReport))
+
+		delay := walletBackfillLoopActiveDelay()
+		if batchReport.JobsProcessed == 0 {
+			report.EmptyPolls++
+			delay = walletBackfillLoopIdleDelay()
+		}
+		if err := sleepWithContext(ctx, delay); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				report.StoppedByContext = true
+				return report, nil
+			}
+			return report, err
+		}
+	}
+}
+
 func isRetryableWalletBackfillError(err error) bool {
 	if err == nil {
 		return false
@@ -844,6 +931,20 @@ func walletBackfillItemDelay() time.Duration {
 	return durationFromEnv(
 		[]string{"QORVI_WALLET_BACKFILL_ITEM_DELAY_SECONDS", "FLOWINTEL_WALLET_BACKFILL_ITEM_DELAY_SECONDS"},
 		5*time.Second,
+	)
+}
+
+func walletBackfillLoopIdleDelay() time.Duration {
+	return durationFromEnv(
+		[]string{"QORVI_WALLET_BACKFILL_LOOP_IDLE_SECONDS", "FLOWINTEL_WALLET_BACKFILL_LOOP_IDLE_SECONDS"},
+		5*time.Second,
+	)
+}
+
+func walletBackfillLoopActiveDelay() time.Duration {
+	return durationFromEnv(
+		[]string{"QORVI_WALLET_BACKFILL_LOOP_ACTIVE_SECONDS", "FLOWINTEL_WALLET_BACKFILL_LOOP_ACTIVE_SECONDS"},
+		0,
 	)
 }
 

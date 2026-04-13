@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -895,6 +896,44 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainBatchFlow(t *testing.T) {
 	}
 	if !strings.Contains(output, "jobs=2") {
 		t.Fatalf("expected 2 jobs in queue drain batch output, got %q", output)
+	}
+}
+
+func TestBuildWorkerOutputRunsWalletBackfillDrainLoopFlow(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	output, err := buildWorkerOutput(
+		ctx,
+		workerModeWalletBackfillDrainLoop,
+		config.WorkerEnv{
+			NodeEnv:     "development",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
+			RedisURL:    "redis://localhost:6379",
+		},
+		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
+		HistoricalBackfillIngestService{},
+		WalletEnrichmentRefreshService{},
+		SeedDiscoveryJobRunner{},
+		WatchlistBootstrapService{},
+		ClusterScoreSnapshotService{},
+		ShadowExitSnapshotService{},
+		FirstConnectionSnapshotService{},
+		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
+		BillingSubscriptionSyncService{},
+	)
+	if err != nil {
+		t.Fatalf("buildWorkerOutput returned error: %v", err)
+	}
+
+	if !strings.Contains(output, "Wallet backfill queue loop stopped") {
+		t.Fatalf("unexpected wallet backfill loop output %q", output)
+	}
+	if !strings.Contains(output, "stopped_by_context=true") {
+		t.Fatalf("expected loop output to include context stop flag, got %q", output)
 	}
 }
 
