@@ -29,26 +29,62 @@ type DiscoverWalletSeedReader interface {
 	ListAdminCuratedWalletSeeds(context.Context) ([]db.CuratedWalletSeed, error)
 }
 
-type DiscoverService struct {
-	Seeds DiscoverWalletSeedReader
+type DiscoverAutomaticWalletReader interface {
+	ListAutoDiscoverWallets(context.Context, int) ([]db.AutoDiscoverWallet, error)
 }
 
-func NewDiscoverService(seeds DiscoverWalletSeedReader) *DiscoverService {
-	return &DiscoverService{Seeds: seeds}
+type DiscoverService struct {
+	Seeds          DiscoverWalletSeedReader
+	AutoCandidates DiscoverAutomaticWalletReader
+}
+
+const discoverFeaturedWalletTargetCount = 12
+
+func NewDiscoverService(
+	seeds DiscoverWalletSeedReader,
+	autoCandidates ...DiscoverAutomaticWalletReader,
+) *DiscoverService {
+	var autoReader DiscoverAutomaticWalletReader
+	if len(autoCandidates) > 0 {
+		autoReader = autoCandidates[0]
+	}
+
+	return &DiscoverService{
+		Seeds:          seeds,
+		AutoCandidates: autoReader,
+	}
 }
 
 func (s *DiscoverService) ListFeaturedWallets(ctx context.Context) (DiscoverFeaturedWalletResponse, error) {
-	if s == nil || s.Seeds == nil {
+	if s == nil {
 		return DiscoverFeaturedWalletResponse{Items: []DiscoverFeaturedWallet{}}, nil
 	}
 
-	items, err := s.Seeds.ListAdminCuratedWalletSeeds(ctx)
-	if err != nil {
-		return DiscoverFeaturedWalletResponse{}, err
+	featured := make([]DiscoverFeaturedWallet, 0, discoverFeaturedWalletTargetCount)
+	seen := make(map[string]struct{}, discoverFeaturedWalletTargetCount)
+
+	if s.Seeds != nil {
+		items, err := s.Seeds.ListAdminCuratedWalletSeeds(ctx)
+		if err != nil {
+			return DiscoverFeaturedWalletResponse{}, err
+		}
+		featured = appendUniqueDiscoverWallets(featured, seen, mapAdminCuratedWalletSeeds(items))
+	}
+
+	if len(featured) < discoverFeaturedWalletTargetCount && s.AutoCandidates != nil {
+		items, err := s.AutoCandidates.ListAutoDiscoverWallets(ctx, discoverFeaturedWalletTargetCount*2)
+		if err != nil {
+			return DiscoverFeaturedWalletResponse{}, err
+		}
+		featured = appendUniqueDiscoverWallets(featured, seen, mapAutoDiscoverWallets(items))
+	}
+
+	if len(featured) > discoverFeaturedWalletTargetCount {
+		featured = featured[:discoverFeaturedWalletTargetCount]
 	}
 
 	return DiscoverFeaturedWalletResponse{
-		Items: mapAdminCuratedWalletSeeds(items),
+		Items: featured,
 	}, nil
 }
 
@@ -149,6 +185,134 @@ func mergeDiscoverTags(tagSets ...[]string) []string {
 		}
 	}
 	return merged
+}
+
+func appendUniqueDiscoverWallets(
+	base []DiscoverFeaturedWallet,
+	seen map[string]struct{},
+	items []DiscoverFeaturedWallet,
+) []DiscoverFeaturedWallet {
+	for _, item := range items {
+		chain := strings.TrimSpace(strings.ToLower(item.Chain))
+		address := strings.TrimSpace(strings.ToLower(item.Address))
+		if chain == "" || address == "" {
+			continue
+		}
+
+		key := chain + ":" + address
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		base = append(base, item)
+	}
+
+	return base
+}
+
+func mapAutoDiscoverWallets(items []db.AutoDiscoverWallet) []DiscoverFeaturedWallet {
+	if len(items) == 0 {
+		return []DiscoverFeaturedWallet{}
+	}
+
+	featured := make([]DiscoverFeaturedWallet, 0, len(items))
+	for _, item := range items {
+		chain := strings.TrimSpace(string(item.Chain))
+		address := strings.TrimSpace(item.Address)
+		if chain == "" || address == "" {
+			continue
+		}
+
+		featured = append(featured, DiscoverFeaturedWallet{
+			Chain:       chain,
+			Address:     address,
+			DisplayName: discoverAutoDisplayName(item),
+			Description: discoverAutoWalletDescription(item),
+			Category:    discoverAutoWalletCategory(item),
+			Tags:        discoverAutoWalletTags(item),
+			ObservedAt:  discoverAutoObservedAt(item),
+		})
+	}
+
+	return featured
+}
+
+func discoverAutoDisplayName(item db.AutoDiscoverWallet) string {
+	displayName := strings.TrimSpace(item.DisplayName)
+	if displayName != "" && !strings.EqualFold(displayName, item.Address) {
+		return displayName
+	}
+	return compactDiscoverAddress(strings.TrimSpace(item.Address))
+}
+
+func discoverAutoWalletDescription(item db.AutoDiscoverWallet) string {
+	status := strings.TrimSpace(strings.ToLower(item.Status))
+	source := strings.TrimSpace(strings.ToLower(item.SourceType))
+
+	switch source {
+	case "user_search":
+		return "Auto-discovered from repeated wallet searches and kept warm for deeper analysis."
+	case "watchlist", "seed_list":
+		return "Tracked automatically from an active seed/watchlist pipeline and ready for investigation."
+	case "hop_expansion":
+		return "Expanded automatically from nearby graph activity and promoted into discover coverage."
+	case "dune_candidate", "mobula_candidate":
+		return "Candidate wallet surfaced by automated ranking and promoted into discover coverage."
+	}
+
+	switch status {
+	case db.WalletTrackingStatusScored:
+		return "Auto-discovered wallet with enough activity to score and inspect immediately."
+	case db.WalletTrackingStatusLabeled:
+		return "Auto-discovered wallet with labeling signals already attached."
+	case db.WalletTrackingStatusTracked:
+		return "Auto-discovered wallet currently under active tracking."
+	default:
+		return "Auto-discovered wallet queued from recent indexing and ready for follow-up."
+	}
+}
+
+func discoverAutoWalletCategory(item db.AutoDiscoverWallet) string {
+	switch strings.TrimSpace(strings.ToLower(item.SourceType)) {
+	case "user_search":
+		return "searched"
+	case "watchlist", "seed_list":
+		return "tracked"
+	case "hop_expansion":
+		return "graph"
+	case "dune_candidate", "mobula_candidate":
+		return "candidate"
+	default:
+		return "auto"
+	}
+}
+
+func discoverAutoWalletTags(item db.AutoDiscoverWallet) []string {
+	tags := []string{"auto-discovered"}
+
+	status := strings.TrimSpace(strings.ToLower(item.Status))
+	if status != "" {
+		tags = append(tags, status)
+	}
+
+	source := strings.TrimSpace(strings.ToLower(item.SourceType))
+	if source != "" {
+		tags = append(tags, source)
+	}
+
+	return mergeDiscoverTags(tags)
+}
+
+func discoverAutoObservedAt(item db.AutoDiscoverWallet) string {
+	for _, value := range []*time.Time{item.LastActivityAt, item.LastRealtimeAt, item.FirstDiscoveredAt} {
+		if value != nil && !value.IsZero() {
+			return value.UTC().Format(time.RFC3339)
+		}
+	}
+	if !item.UpdatedAt.IsZero() {
+		return item.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return ""
 }
 
 func discoverTierRank(tags []string) int {

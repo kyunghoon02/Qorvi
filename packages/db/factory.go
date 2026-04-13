@@ -315,6 +315,14 @@ func NewWatchlistWalletSeedReaderFromClients(clients *StorageClients) *PostgresW
 	return NewPostgresWatchlistWalletSeedReaderFromPool(clients.Postgres)
 }
 
+func NewAutoDiscoverWalletReaderFromClients(clients *StorageClients) *PostgresAutoDiscoverWalletReader {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresAutoDiscoverWalletReaderFromPool(clients.Postgres)
+}
+
 func NewAlertStoreFromClients(clients *StorageClients) *PostgresAlertStore {
 	if clients == nil {
 		return nil

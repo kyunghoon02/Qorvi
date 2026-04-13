@@ -12,10 +12,6 @@ import {
   loadShadowExitFeedPreview,
 } from "../../lib/api-boundary";
 
-// ---------------------------------------------------------------------------
-// Discover wallet card — unified shape rendered by every section
-// ---------------------------------------------------------------------------
-
 export type DiscoverWalletCard = {
   id: string;
   address: string;
@@ -31,12 +27,8 @@ export type DiscoverWalletCard = {
   scoreTone: "teal" | "amber" | "violet" | "emerald";
   detailHref: string;
   observedAt: string | null;
-  sourceTier?: "verified" | "probable";
+  sourceTier?: "verified" | "probable" | "auto";
 };
-
-// ---------------------------------------------------------------------------
-// Featured wallets — live seed discovery watchlist
-// ---------------------------------------------------------------------------
 
 export async function loadFeaturedWalletCards(options: {
   requestHeaders?: HeadersInit;
@@ -46,7 +38,7 @@ export async function loadFeaturedWalletCards(options: {
     : {};
   const featured = await loadDiscoverFeaturedWalletSeedsPreview(headerOpts);
 
-  return featured.slice(0, 8).map(mapFeaturedSeedToCard);
+  return featured.slice(0, 12).map(mapFeaturedSeedToCard);
 }
 
 export async function loadVerifiedFeaturedWalletCards(options: {
@@ -63,10 +55,24 @@ export async function loadProbableFeaturedWalletCards(options: {
   return cards.filter((card) => card.sourceTier === "probable");
 }
 
-// ---------------------------------------------------------------------------
-// Tracked wallets — the user's watchlist items tagged "tracked-wallet"
-// Uses the findings feed (wallet subjects) for a lighter approach.
-// ---------------------------------------------------------------------------
+export async function loadAutoFeaturedWalletCards(options: {
+  requestHeaders?: HeadersInit;
+}): Promise<DiscoverWalletCard[]> {
+  const cards = await loadFeaturedWalletCards(options);
+  return cards.filter((card) => card.sourceTier === "auto");
+}
+
+export function splitFeaturedWalletCards(cards: DiscoverWalletCard[]): {
+  auto: DiscoverWalletCard[];
+  verified: DiscoverWalletCard[];
+  probable: DiscoverWalletCard[];
+} {
+  return {
+    auto: cards.filter((card) => card.sourceTier === "auto"),
+    verified: cards.filter((card) => card.sourceTier === "verified"),
+    probable: cards.filter((card) => card.sourceTier === "probable"),
+  };
+}
 
 export type TrackedWalletSeed = {
   chain: "evm" | "solana";
@@ -81,18 +87,12 @@ export async function loadTrackedWalletCards(options: {
     ? { requestHeaders: options.requestHeaders }
     : {};
 
-  // Re-use the findings feed — any finding whose subjectType is "wallet"
-  // effectively represents a wallet that Qorvi is already tracking/indexing.
   const feed = await loadAnalystFindingsPreview(headerOpts);
 
   return dedupeWalletFindings(feed.items)
     .slice(0, 8)
     .map((item) => mapFindingToCard(item, "tracked"));
 }
-
-// ---------------------------------------------------------------------------
-// Smart money / Seed whales — shadow exit + first connection feeds
-// ---------------------------------------------------------------------------
 
 export async function loadSmartMoneyCards(_options: {
   requestHeaders?: HeadersInit;
@@ -110,7 +110,6 @@ export async function loadSmartMoneyCards(_options: {
     .slice(0, 4)
     .map((item) => mapFirstConnectionToCard(item));
 
-  // Merge and de-dup by chain+address
   const merged: DiscoverWalletCard[] = [];
   const seen = new Set<string>();
   for (const card of [...shadowCards, ...connectionCards]) {
@@ -170,10 +169,6 @@ function mapFirstConnectionToCard(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Recently active high-priority wallets — findings feed (high importance)
-// ---------------------------------------------------------------------------
-
 export async function loadRecentHighPriorityCards(options: {
   requestHeaders?: HeadersInit;
 }): Promise<DiscoverWalletCard[]> {
@@ -192,7 +187,6 @@ export async function loadRecentHighPriorityCards(options: {
         item.importanceScore >= 0.6,
     )
     .sort((a, b) => {
-      // Sort by observedAt descending, then by importance descending
       const dateCompare = b.observedAt.localeCompare(a.observedAt);
       if (dateCompare !== 0) return dateCompare;
       return b.importanceScore - a.importanceScore;
@@ -202,10 +196,6 @@ export async function loadRecentHighPriorityCards(options: {
     .slice(0, 8)
     .map((item) => mapFindingToCard(item, "recent"));
 }
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
 
 function mapFindingToCard(
   item: FindingPreview,
@@ -242,6 +232,17 @@ export function mapFeaturedSeedToCard(
       ? Math.round(item.confidence * 100)
       : null;
 
+  let latestSignalLabel: string;
+  if (item.provider != null && item.provider.trim() !== "") {
+    latestSignalLabel = `Seed discovery - ${item.provider}`;
+  } else if (sourceTier === "auto") {
+    latestSignalLabel = `Auto-discovered - ${formatSeedCategory(item.category)}`;
+  } else if (sourceTier === "probable") {
+    latestSignalLabel = `Probable - ${formatSeedCategory(item.category)}`;
+  } else {
+    latestSignalLabel = `Verified - ${formatSeedCategory(item.category)}`;
+  }
+
   return {
     id: `featured-seed:${chain}:${item.address}`,
     address: item.address,
@@ -253,11 +254,7 @@ export function mapFeaturedSeedToCard(
       "Seed discovery candidate queued for automatic indexing.",
     categoryLabel: formatSeedCategory(item.category),
     categoryTone: toneForCategoryPill(item.category),
-    latestSignalLabel: item.provider
-      ? `Seed discovery · ${item.provider}`
-      : sourceTier === "probable"
-        ? `Probable · ${formatSeedCategory(item.category)}`
-        : `Verified · ${formatSeedCategory(item.category)}`,
+    latestSignalLabel,
     latestFindingLabel:
       typeof item.confidence === "number"
         ? `confidence ${Math.round(item.confidence * 100)}`
@@ -273,8 +270,19 @@ export function mapFeaturedSeedToCard(
   };
 }
 
-function classifyFeaturedSeedTier(tags: string[]): "verified" | "probable" {
+function classifyFeaturedSeedTier(
+  tags: string[],
+): "verified" | "probable" | "auto" {
   const normalized = tags.map((tag) => tag.trim().toLowerCase());
+  if (
+    normalized.includes("auto-discovered") ||
+    normalized.includes("user_search") ||
+    normalized.includes("dune_candidate") ||
+    normalized.includes("mobula_candidate") ||
+    normalized.includes("hop_expansion")
+  ) {
+    return "auto";
+  }
   if (normalized.includes("probable")) {
     return "probable";
   }
@@ -283,7 +291,7 @@ function classifyFeaturedSeedTier(tags: string[]): "verified" | "probable" {
 
 function compactAddress(value: string): string {
   if (value.length <= 18) return value;
-  return `${value.slice(0, 8)}…${value.slice(-6)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
 function isWalletFinding(

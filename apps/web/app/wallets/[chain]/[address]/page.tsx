@@ -16,7 +16,7 @@ import {
 } from "./wallet-detail-route";
 import { WalletDetailScreen } from "./wallet-detail-screen";
 
-const DEFAULT_WALLET_GRAPH_DEPTH = 3;
+const DEFAULT_WALLET_GRAPH_DEPTH = 1;
 
 function InvalidWalletRoute() {
   return (

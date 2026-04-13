@@ -64,6 +64,7 @@ func buildDiscoverService(clients *db.StorageClients) *service.DiscoverService {
 
 	return service.NewDiscoverService(
 		db.NewPostgresWatchlistWalletSeedReaderFromPool(clients.Postgres),
+		db.NewAutoDiscoverWalletReaderFromClients(clients),
 	)
 }
 

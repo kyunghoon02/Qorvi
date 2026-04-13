@@ -3,16 +3,44 @@ import { headers } from "next/headers";
 
 import { buildForwardedAuthHeaders } from "../../lib/request-headers";
 
+import {
+  loadFeaturedWalletCards,
+  loadRecentHighPriorityCards,
+  loadSmartMoneyCards,
+  loadTrackedWalletCards,
+  splitFeaturedWalletCards,
+} from "./discover-data";
 import { DiscoverScreen } from "./discover-screen";
 
 export const metadata: Metadata = {
-  title: "Discover · Qorvi",
+  title: "Discover - Qorvi",
   description:
     "Explore featured, tracked, and high-priority wallets that Qorvi is automatically indexing across EVM and Solana chains.",
 };
 
-export default function DiscoverPage() {
-  const requestHeaders = buildForwardedAuthHeaders(headers());
+export default async function DiscoverPage() {
+  const requestHeaders = buildForwardedAuthHeaders(await headers());
+  const headerOpts = requestHeaders ? { requestHeaders } : {};
 
-  return <DiscoverScreen {...(requestHeaders ? { requestHeaders } : {})} />;
+  const [featuredCards, tracked, smartMoney, recentActive] =
+    await Promise.all([
+      loadFeaturedWalletCards(headerOpts),
+      loadTrackedWalletCards(headerOpts),
+      loadSmartMoneyCards(headerOpts),
+      loadRecentHighPriorityCards(headerOpts),
+    ]);
+
+  const split = splitFeaturedWalletCards(featuredCards);
+
+  return (
+    <DiscoverScreen
+      {...(requestHeaders ? { requestHeaders } : {})}
+      initialAuto={split.auto}
+      initialVerified={split.verified}
+      initialProbable={split.probable}
+      initialTracked={tracked}
+      initialSmartMoney={smartMoney}
+      initialRecentActive={recentActive}
+    />
+  );
 }

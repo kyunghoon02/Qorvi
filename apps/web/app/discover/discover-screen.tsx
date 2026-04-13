@@ -11,18 +11,14 @@ import { NetworkBackground } from "../components/network-background";
 
 import type { DiscoverWalletCard } from "./discover-data";
 import {
-  loadProbableFeaturedWalletCards,
+  loadFeaturedWalletCards,
   loadRecentHighPriorityCards,
   loadSmartMoneyCards,
   loadTrackedWalletCards,
-  loadVerifiedFeaturedWalletCards,
+  splitFeaturedWalletCards,
 } from "./discover-data";
 
 const discoverSkeletonSlots = ["a", "b", "c", "d"] as const;
-
-// ---------------------------------------------------------------------------
-// Section component
-// ---------------------------------------------------------------------------
 
 function DiscoverSection({
   title,
@@ -73,16 +69,24 @@ function DiscoverSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Card component
-// ---------------------------------------------------------------------------
-
 function DiscoverCard({
   card,
 }: {
   card: DiscoverWalletCard;
 }) {
   const analystHref = buildDiscoverAnalystHref(card);
+  const tierTone =
+    card.sourceTier === "probable"
+      ? "amber"
+      : card.sourceTier === "auto"
+        ? "teal"
+        : "emerald";
+  const tierLabel =
+    card.sourceTier === "probable"
+      ? "Probable"
+      : card.sourceTier === "auto"
+        ? "Auto"
+        : "Verified";
 
   return (
     <article className="discover-card">
@@ -95,9 +99,7 @@ function DiscoverCard({
             </Pill>
           </span>
           <span className="discover-card-tier">
-            <Pill tone={card.sourceTier === "probable" ? "amber" : "emerald"}>
-              {card.sourceTier === "probable" ? "Probable" : "Verified"}
-            </Pill>
+            <Pill tone={tierTone}>{tierLabel}</Pill>
           </span>
           {card.categoryLabel && card.categoryTone ? (
             <span className="discover-card-category">
@@ -145,21 +147,39 @@ function DiscoverCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main screen
-// ---------------------------------------------------------------------------
-
 export function DiscoverScreen({
   requestHeaders,
+  initialAuto = [],
+  initialVerified = [],
+  initialProbable = [],
+  initialTracked = [],
+  initialSmartMoney = [],
+  initialRecentActive = [],
 }: {
   requestHeaders?: HeadersInit;
+  initialAuto?: DiscoverWalletCard[];
+  initialVerified?: DiscoverWalletCard[];
+  initialProbable?: DiscoverWalletCard[];
+  initialTracked?: DiscoverWalletCard[];
+  initialSmartMoney?: DiscoverWalletCard[];
+  initialRecentActive?: DiscoverWalletCard[];
 }) {
-  const [verified, setVerified] = useState<DiscoverWalletCard[]>([]);
-  const [probable, setProbable] = useState<DiscoverWalletCard[]>([]);
-  const [tracked, setTracked] = useState<DiscoverWalletCard[]>([]);
-  const [smartMoney, setSmartMoney] = useState<DiscoverWalletCard[]>([]);
-  const [recentActive, setRecentActive] = useState<DiscoverWalletCard[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [auto, setAuto] = useState<DiscoverWalletCard[]>(initialAuto);
+  const [verified, setVerified] = useState<DiscoverWalletCard[]>(initialVerified);
+  const [probable, setProbable] = useState<DiscoverWalletCard[]>(initialProbable);
+  const [tracked, setTracked] = useState<DiscoverWalletCard[]>(initialTracked);
+  const [smartMoney, setSmartMoney] =
+    useState<DiscoverWalletCard[]>(initialSmartMoney);
+  const [recentActive, setRecentActive] =
+    useState<DiscoverWalletCard[]>(initialRecentActive);
+  const [loading, setLoading] = useState(
+    initialAuto.length === 0 &&
+      initialVerified.length === 0 &&
+      initialProbable.length === 0 &&
+      initialTracked.length === 0 &&
+      initialSmartMoney.length === 0 &&
+      initialRecentActive.length === 0,
+  );
 
   useEffect(() => {
     persistClientForwardedAuthHeaders(requestHeaders);
@@ -171,34 +191,28 @@ export function DiscoverScreen({
     void (async () => {
       const headerOpts = requestHeaders ? { requestHeaders } : {};
 
-      const [
-        verifiedResult,
-        probableResult,
-        trackedResult,
-        smartResult,
-        recentResult,
-      ] = await Promise.allSettled([
-        loadVerifiedFeaturedWalletCards(headerOpts),
-        loadProbableFeaturedWalletCards(headerOpts),
-        loadTrackedWalletCards(headerOpts),
-        loadSmartMoneyCards(headerOpts),
-        loadRecentHighPriorityCards(headerOpts),
-      ]);
+      const [featuredResult, trackedResult, smartResult, recentResult] =
+        await Promise.allSettled([
+          loadFeaturedWalletCards(headerOpts),
+          loadTrackedWalletCards(headerOpts),
+          loadSmartMoneyCards(headerOpts),
+          loadRecentHighPriorityCards(headerOpts),
+        ]);
 
       if (!active) return;
 
-      setVerified(
-        verifiedResult.status === "fulfilled" ? verifiedResult.value : [],
-      );
-      setProbable(
-        probableResult.status === "fulfilled" ? probableResult.value : [],
-      );
-      setTracked(
-        trackedResult.status === "fulfilled" ? trackedResult.value : [],
-      );
-      setSmartMoney(
-        smartResult.status === "fulfilled" ? smartResult.value : [],
-      );
+      if (featuredResult.status === "fulfilled") {
+        const split = splitFeaturedWalletCards(featuredResult.value);
+        setAuto(split.auto);
+        setVerified(split.verified);
+        setProbable(split.probable);
+      } else {
+        setAuto([]);
+        setVerified([]);
+        setProbable([]);
+      }
+      setTracked(trackedResult.status === "fulfilled" ? trackedResult.value : []);
+      setSmartMoney(smartResult.status === "fulfilled" ? smartResult.value : []);
       setRecentActive(
         recentResult.status === "fulfilled" ? recentResult.value : [],
       );
@@ -269,6 +283,15 @@ export function DiscoverScreen({
 
         <div className="discover-sections">
           <DiscoverSection
+            title="Auto-discovered wallets"
+            subtitle="Warm candidates already surfaced by search, graph expansion, and ranking pipelines"
+            tone="teal"
+            cards={auto}
+            loading={loading}
+            emptyLabel="Auto-discovered wallets will appear once the background indexers promote new candidates."
+          />
+
+          <DiscoverSection
             title="Verified public wallets"
             subtitle="Public-labeled exchanges, bridges, and official treasuries kept warm before manual search"
             tone="emerald"
@@ -278,7 +301,7 @@ export function DiscoverScreen({
           />
 
           <DiscoverSection
-            title="Probable funds · smart money"
+            title="Probable funds - smart money"
             subtitle="Public-labeled or public-ENS fund and market-participant wallets separated from verified infrastructure"
             tone="amber"
             cards={probable}
@@ -296,7 +319,7 @@ export function DiscoverScreen({
           />
 
           <DiscoverSection
-            title="Smart money · Seed whales"
+            title="Smart money - Seed whales"
             subtitle="Automatically detected high-value or anomalous wallets from shadow exit and first-connection feeds"
             tone="amber"
             cards={smartMoney}
@@ -318,18 +341,20 @@ export function DiscoverScreen({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function compactAddress(value: string): string {
   if (value.length <= 18) return value;
-  return `${value.slice(0, 8)}…${value.slice(-6)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
 function buildDiscoverAnalystHref(card: DiscoverWalletCard): string {
+  const tierLabel =
+    card.sourceTier === "probable"
+      ? "probable"
+      : card.sourceTier === "auto"
+        ? "auto-discovered"
+        : "verified";
   const question = encodeURIComponent(
-    `Explain why this ${card.sourceTier === "probable" ? "probable" : "verified"} wallet matters right now.`,
+    `Explain why this ${tierLabel} wallet matters right now.`,
   );
   return `${card.detailHref}?ask=${question}`;
 }

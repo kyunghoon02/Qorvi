@@ -21,6 +21,18 @@ func (r *fakeDiscoverSeedReader) ListAdminCuratedWalletSeeds(_ context.Context) 
 	return append([]db.CuratedWalletSeed(nil), r.items...), nil
 }
 
+type fakeDiscoverAutoReader struct {
+	items []db.AutoDiscoverWallet
+	err   error
+}
+
+func (r *fakeDiscoverAutoReader) ListAutoDiscoverWallets(_ context.Context, _ int) ([]db.AutoDiscoverWallet, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return append([]db.AutoDiscoverWallet(nil), r.items...), nil
+}
+
 func TestDiscoverServiceListFeaturedWalletsUsesAdminCuratedSeeds(t *testing.T) {
 	t.Parallel()
 
@@ -76,5 +88,88 @@ func TestDiscoverServiceListFeaturedWalletsReturnsEmptyWithoutSeeds(t *testing.T
 	}
 	if len(response.Items) != 0 {
 		t.Fatalf("expected empty items, got %d", len(response.Items))
+	}
+}
+
+func TestDiscoverServiceListFeaturedWalletsFallsBackToAutoDiscoveredWallets(t *testing.T) {
+	t.Parallel()
+
+	lastActivityAt := time.Date(2026, time.April, 12, 9, 30, 0, 0, time.UTC)
+	svc := NewDiscoverService(nil, &fakeDiscoverAutoReader{
+		items: []db.AutoDiscoverWallet{
+			{
+				Chain:          domain.ChainEVM,
+				Address:        "0x3333333333333333333333333333333333333333",
+				DisplayName:    "Fresh search wallet",
+				Status:         db.WalletTrackingStatusTracked,
+				SourceType:     db.WalletTrackingSourceTypeUserSearch,
+				LastActivityAt: &lastActivityAt,
+				UpdatedAt:      lastActivityAt,
+			},
+		},
+	})
+
+	response, err := svc.ListFeaturedWallets(context.Background())
+	if err != nil {
+		t.Fatalf("ListFeaturedWallets returned error: %v", err)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 auto-discovered wallet, got %d", len(response.Items))
+	}
+	if response.Items[0].Category != "searched" {
+		t.Fatalf("unexpected category %q", response.Items[0].Category)
+	}
+	if response.Items[0].DisplayName != "Fresh search wallet" {
+		t.Fatalf("unexpected display name %q", response.Items[0].DisplayName)
+	}
+	if response.Items[0].ObservedAt != "2026-04-12T09:30:00Z" {
+		t.Fatalf("unexpected observed_at %q", response.Items[0].ObservedAt)
+	}
+}
+
+func TestDiscoverServiceListFeaturedWalletsAppendsAutoDiscoveredWalletsWithoutDuplicates(t *testing.T) {
+	t.Parallel()
+
+	svc := NewDiscoverService(
+		&fakeDiscoverSeedReader{
+			items: []db.CuratedWalletSeed{
+				{
+					Chain:    domain.ChainEVM,
+					Address:  "0x1111111111111111111111111111111111111111",
+					ListTags: []string{"featured"},
+				},
+			},
+		},
+		&fakeDiscoverAutoReader{
+			items: []db.AutoDiscoverWallet{
+				{
+					Chain:       domain.ChainEVM,
+					Address:     "0x1111111111111111111111111111111111111111",
+					DisplayName: "Duplicate wallet",
+					Status:      db.WalletTrackingStatusTracked,
+					SourceType:  db.WalletTrackingSourceTypeUserSearch,
+					UpdatedAt:   time.Date(2026, time.April, 12, 10, 0, 0, 0, time.UTC),
+				},
+				{
+					Chain:       domain.ChainSolana,
+					Address:     "GBrURzmtWujJRTA3Bkvo7ZgWuZYLMMwPCwre7BejJXnK",
+					DisplayName: "Solana candidate",
+					Status:      db.WalletTrackingStatusScored,
+					SourceType:  db.WalletTrackingSourceTypeHopExpansion,
+					UpdatedAt:   time.Date(2026, time.April, 12, 11, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	)
+
+	response, err := svc.ListFeaturedWallets(context.Background())
+	if err != nil {
+		t.Fatalf("ListFeaturedWallets returned error: %v", err)
+	}
+	if len(response.Items) != 2 {
+		t.Fatalf("expected 2 merged wallets, got %d", len(response.Items))
+	}
+	if response.Items[1].Category != "graph" {
+		t.Fatalf("unexpected auto-discovered category %q", response.Items[1].Category)
 	}
 }

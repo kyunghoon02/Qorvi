@@ -67,6 +67,7 @@ type ProviderWebhookAcceptancePayload struct {
 
 type Server struct {
 	mux                *http.ServeMux
+	handler            http.Handler
 	wallets            *service.WalletSummaryService
 	walletBriefs       *service.WalletBriefService
 	graphs             *service.WalletGraphService
@@ -259,6 +260,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 		webhookIngest:      deps.WebhookIngest,
 		adminAllowlist:     loadAdminPrincipalAllowlistFromEnv(),
 	}
+	s.handler = withCORS(mux, loadCORSAllowedOriginsFromEnv())
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
@@ -378,6 +380,12 @@ func NewWithDependencies(deps Dependencies) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
+	if s == nil {
+		return http.NewServeMux()
+	}
+	if s.handler != nil {
+		return s.handler
+	}
 	return s.mux
 }
 
