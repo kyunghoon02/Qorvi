@@ -200,6 +200,31 @@ func (s *Server) handleAdminObservability(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (s *Server) handleAdminDomesticPrelistingCandidates(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		writeJSON(w, http.StatusUnauthorized, errorEnvelope("UNAUTHORIZED", "clerk session is required", "", "free"))
+		return
+	}
+	if !s.ensureAdminPrincipalAccess(w, principal) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope("METHOD_NOT_ALLOWED", "unsupported method", "", "admin"))
+		return
+	}
+	page, err := s.adminConsole.ListDomesticPrelistingCandidates(r.Context(), principal.Role, 12)
+	if err != nil {
+		writeAdminConsoleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, Envelope[service.AdminDomesticPrelistingCollection]{
+		Success: true,
+		Data:    page,
+		Meta:    newMeta("", "admin", freshness("snapshot", 300)),
+	})
+}
+
 func (s *Server) handleAdminCuratedLists(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || strings.TrimSpace(principal.UserID) == "" {

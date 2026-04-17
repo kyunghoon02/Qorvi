@@ -338,6 +338,10 @@ func NewWithDependencies(deps Dependencies) *Server {
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminObservability)),
 	)
 	mux.Handle(
+		"GET /v1/admin/domestic-prelisting-candidates",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminDomesticPrelistingCandidates)),
+	)
+	mux.Handle(
 		"GET /v1/admin/backtests",
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin")(http.HandlerFunc(s.handleAdminBacktests)),
 	)

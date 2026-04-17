@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -65,6 +66,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillFixtureFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -104,6 +106,7 @@ func TestBuildWorkerOutputRunsHistoricalBackfillIngestFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -139,6 +142,7 @@ func TestBuildWorkerOutputRunsAnalysisBenchmarkFixtureFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -150,6 +154,85 @@ func TestBuildWorkerOutputRunsAnalysisBenchmarkFixtureFlow(t *testing.T) {
 	}
 	if !strings.Contains(output, "precision_at_high=1.00") {
 		t.Fatalf("expected precision summary in output, got %q", output)
+	}
+}
+
+type fakeExchangeListingRegistryStore struct {
+	entries []db.ExchangeListingRegistryEntry
+}
+
+func (f *fakeExchangeListingRegistryStore) UpsertExchangeListings(_ context.Context, entries []db.ExchangeListingRegistryEntry) error {
+	f.entries = append(f.entries, entries...)
+	return nil
+}
+
+func (f *fakeExchangeListingRegistryStore) ListExchangeListings(_ context.Context, _ string) ([]db.ExchangeListingRegistryEntry, error) {
+	return append([]db.ExchangeListingRegistryEntry(nil), f.entries...), nil
+}
+
+type fakeUpbitExchangeListingClient struct{}
+
+func (f fakeUpbitExchangeListingClient) FetchUpbitListings(context.Context) ([]providers.ExchangeListing, error) {
+	return []providers.ExchangeListing{{
+		Exchange:           providers.ExchangeUpbit,
+		Market:             "KRW-BTC",
+		BaseSymbol:         "BTC",
+		QuoteSymbol:        "KRW",
+		DisplayName:        "Bitcoin",
+		NormalizedAssetKey: "btc",
+	}}, nil
+}
+
+type fakeBithumbExchangeListingClient struct{}
+
+func (f fakeBithumbExchangeListingClient) FetchBithumbListings(context.Context) ([]providers.ExchangeListing, error) {
+	return []providers.ExchangeListing{{
+		Exchange:           providers.ExchangeBithumb,
+		Market:             "KRW-ETH",
+		BaseSymbol:         "ETH",
+		QuoteSymbol:        "KRW",
+		DisplayName:        "Ethereum",
+		NormalizedAssetKey: "eth",
+	}}, nil
+}
+
+func TestBuildWorkerOutputRunsExchangeListingRegistrySyncFlow(t *testing.T) {
+	t.Parallel()
+
+	output, err := buildWorkerOutput(
+		t.Context(),
+		workerModeExchangeListingRegistrySync,
+		config.WorkerEnv{
+			NodeEnv:     "development",
+			PostgresURL: "postgres://postgres:postgres@localhost:5432/qorvi",
+			RedisURL:    "redis://localhost:6379",
+		},
+		NewHistoricalBackfillJobRunner(providers.DefaultRegistry()),
+		HistoricalBackfillIngestService{},
+		WalletEnrichmentRefreshService{},
+		SeedDiscoveryJobRunner{},
+		WatchlistBootstrapService{},
+		ClusterScoreSnapshotService{},
+		ShadowExitSnapshotService{},
+		FirstConnectionSnapshotService{},
+		AlertDeliveryRetryService{},
+		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{
+			Store:   &fakeExchangeListingRegistryStore{},
+			Upbit:   fakeUpbitExchangeListingClient{},
+			Bithumb: fakeBithumbExchangeListingClient{},
+		},
+		BillingSubscriptionSyncService{},
+	)
+	if err != nil {
+		t.Fatalf("buildWorkerOutput returned error: %v", err)
+	}
+
+	if !strings.Contains(output, "Exchange listing registry sync complete") {
+		t.Fatalf("unexpected exchange listing sync output %q", output)
+	}
+	if !strings.Contains(output, "upbit=1") || !strings.Contains(output, "bithumb=1") {
+		t.Fatalf("expected per-exchange counts in output, got %q", output)
 	}
 }
 
@@ -183,6 +266,7 @@ func TestBuildWorkerOutputRunsBacktestManifestValidationFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -252,6 +336,7 @@ func TestBuildWorkerOutputRunsDuneBacktestNormalizeFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -296,6 +381,7 @@ func TestBuildWorkerOutputRunsDuneBacktestCandidateValidateFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -339,6 +425,7 @@ func TestBuildWorkerOutputRunsDuneBacktestPromoteFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -407,6 +494,7 @@ func TestBuildWorkerOutputRunsDuneBacktestPresetValidateFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -438,6 +526,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryFixtureFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -637,6 +726,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryEnqueueFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -677,6 +767,7 @@ func TestBuildWorkerOutputRunsMobulaSmartMoneyEnqueueFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -716,6 +807,7 @@ func TestBuildWorkerOutputRunsSeedDiscoveryWatchlistFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -771,6 +863,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -824,6 +917,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainPriorityFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -884,6 +978,7 @@ func TestBuildWorkerOutputRunsWalletBackfillDrainBatchFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -928,6 +1023,7 @@ func TestBuildWorkerOutputRunsWatchlistBootstrapEnqueueFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -978,6 +1074,7 @@ func TestBuildWorkerOutputRunsAlertDeliveryRetryBatchFlow(t *testing.T) {
 			JobRuns: &fakeJobRunStore{},
 		},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -1015,6 +1112,7 @@ func TestBuildWorkerOutputRunsMoralisEnrichmentRefreshFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -1066,6 +1164,7 @@ func TestBuildWorkerOutputRunsWalletTrackingSubscriptionSyncFlow(t *testing.T) {
 			},
 			Tracking: &fakeWalletTrackingStateStore{},
 		},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {
@@ -1101,6 +1200,7 @@ func TestBuildWorkerOutputRunsBillingSubscriptionSyncFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{
 			Accounts: fakeBillingAccountSyncReader{
 				accounts: []db.BillingAccountRecord{{

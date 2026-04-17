@@ -261,6 +261,7 @@ func buildAdminConsoleService(clients *db.StorageClients) *service.AdminConsoleS
 			db.NewPostgresWatchlistStoreFromPool(clients.Postgres),
 			db.NewPostgresAuditLogStoreFromPool(clients.Postgres),
 			db.NewCuratedEntityIndexStoreFromClients(clients),
+			db.NewDomesticPrelistingStoreFromClients(clients),
 		),
 	)
 }

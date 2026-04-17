@@ -42,6 +42,7 @@ export type AdminConsoleViewModel = {
   suppressionsRoute: string;
   quotasRoute: string;
   observabilityRoute: string;
+  domesticPrelistingRoute: string;
   curatedListsRoute: string;
   auditLogsRoute: string;
   labels: AdminConsolePreview["labels"];
@@ -112,6 +113,14 @@ export type AdminConsoleViewModel = {
       }
     >;
   };
+  domesticPrelisting: Array<
+    AdminConsolePreview["domesticPrelisting"][number] & {
+      listingLabel: string;
+      activityLabel: string;
+      amountLabel: string;
+      recencyLabel: string;
+    }
+  >;
   curatedLists: Array<
     AdminConsolePreview["curatedLists"][number] & {
       tagLabel: string;
@@ -135,12 +144,13 @@ export function buildAdminConsoleViewModel({
   return {
     title: "운영 대시보드",
     explanation:
-      "운영자는 이 화면에서 라벨, 억제 규칙, 프로바이더 상태, 전송 실패, 큐 상태, 큐레이션 목록, 감사 로그를 한 번에 점검할 수 있습니다.",
+      "운영자는 이 화면에서 라벨, 억제 규칙, 프로바이더 상태, 전송 실패, 큐 상태, 국내 미상장 후보, 큐레이션 목록, 감사 로그를 한 번에 점검할 수 있습니다.",
     statusMessage: preview.statusMessage,
     labelsRoute: preview.labelsRoute,
     suppressionsRoute: preview.suppressionsRoute,
     quotasRoute: preview.quotasRoute,
     observabilityRoute: preview.observabilityRoute,
+    domesticPrelistingRoute: preview.domesticPrelistingRoute,
     curatedListsRoute: preview.curatedListsRoute,
     auditLogsRoute: preview.auditLogsRoute,
     labels: preview.labels,
@@ -288,6 +298,13 @@ export function buildAdminConsoleViewModel({
         title: `${item.source} · ${item.kind}`,
       })),
     },
+    domesticPrelisting: preview.domesticPrelisting.map((item) => ({
+      ...item,
+      listingLabel: buildDomesticListingLabel(item),
+      activityLabel: `${item.activeWalletCount}개 지갑 · 추적 ${item.trackedWalletCount}개 · 24시간 ${item.transferCount24h}건`,
+      amountLabel: `7일 누적 ${formatTokenAmount(item.totalAmount)} ${item.tokenSymbol} · 최대 단일 이동 ${formatTokenAmount(item.largestTransferAmount)} ${item.tokenSymbol}`,
+      recencyLabel: formatRelativeTimestamp(item.latestObservedAt),
+    })),
     curatedLists: preview.curatedLists.map((item) => ({
       ...item,
       tagLabel: item.tags.length > 0 ? item.tags.join(", ") : "untagged",
@@ -356,6 +373,7 @@ export function AdminConsoleScreen({
     0,
     4,
   );
+  const domesticPrelistingPreview = viewModel.domesticPrelisting.slice(0, 6);
   const curatedListsPreview = viewModel.curatedLists.slice(0, 4);
   const auditLogsPreview = viewModel.auditLogs.slice(0, 5);
   const backtestChecksPreview = currentPreview.backtestOps.checks.slice(0, 5);
@@ -734,6 +752,58 @@ export function AdminConsoleScreen({
                     "실패 항목",
                   )}
                 </div>
+              </div>
+            </article>
+
+            <article className="preview-card detail-card">
+              <div className="preview-header">
+                <div>
+                  <span className="preview-kicker">국내 미상장 모니터</span>
+                  <h2>{viewModel.domesticPrelistingRoute}</h2>
+                </div>
+                <div className="preview-state">
+                  <Badge tone="amber">
+                    {viewModel.domesticPrelisting.length}개 후보
+                  </Badge>
+                </div>
+              </div>
+              <div className="preview-status">
+                <span className="preview-kicker">후보 기준</span>
+                <p>
+                  업비트와 빗썸 상장 레지스트리에는 없지만 최근 7일 내 온체인
+                  이동이 잡힌 토큰을 추적 지갑 관여도와 활동량 기준으로 정렬합니다.
+                </p>
+              </div>
+              <div className="alert-inbox-list">
+                {domesticPrelistingPreview.map((item) => (
+                  <article
+                    key={`${item.chain}:${item.tokenAddress}`}
+                    className="alert-inbox-item"
+                  >
+                    <div className="alert-inbox-topline">
+                      <strong>
+                        {item.tokenSymbol} · {item.chain}
+                      </strong>
+                      <Badge tone="amber">{item.listingLabel}</Badge>
+                    </div>
+                    <p>{item.activityLabel}</p>
+                    <p>{item.amountLabel}</p>
+                    <div className="cluster-member-meta">
+                      <span>{item.recencyLabel}</span>
+                      <span>{item.tokenAddress}</span>
+                    </div>
+                  </article>
+                ))}
+                {viewModel.domesticPrelisting.length === 0 ? (
+                  <p className="admin-console-preview-note">
+                    아직 조건에 맞는 국내 미상장 후보가 없습니다.
+                  </p>
+                ) : null}
+                {renderPreviewOverflowNote(
+                  viewModel.domesticPrelisting.length,
+                  domesticPrelistingPreview.length,
+                  "후보",
+                )}
               </div>
             </article>
 
@@ -1244,6 +1314,31 @@ function buildCompactStaleRefreshRate(
     (staleRefresh.productive24h / staleRefresh.attempts24h) * 100,
   );
   return `${hitRate}%`;
+}
+
+function buildDomesticListingLabel(
+  item: AdminConsolePreview["domesticPrelisting"][number],
+): string {
+  if (!item.listedOnUpbit && !item.listedOnBithumb) {
+    return "업비트/빗썸 미상장";
+  }
+  if (!item.listedOnUpbit) {
+    return "업비트 미상장";
+  }
+  if (!item.listedOnBithumb) {
+    return "빗썸 미상장";
+  }
+  return "상장 확인 필요";
+}
+
+function formatTokenAmount(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: parsed >= 1000 ? 0 : 2,
+  }).format(parsed);
 }
 
 function renderPreviewOverflowNote(

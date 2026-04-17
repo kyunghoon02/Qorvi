@@ -41,6 +41,10 @@ func main() {
 	alertDeliveryRetry := AlertDeliveryRetryService{}
 	trackingSubscriptionSync := TrackingSubscriptionSyncService{}
 	billingSubscriptionSync := BillingSubscriptionSyncService{}
+	exchangeListingRegistrySync := ExchangeListingRegistrySyncService{
+		Upbit:   providers.NewUpbitExchangeListingClient("", nil),
+		Bithumb: providers.NewBithumbExchangeListingClient("", nil),
+	}
 
 	var clients *db.StorageClients
 	if requiresWorkerStorage(mode) {
@@ -162,6 +166,8 @@ func main() {
 				CancelURL:      strings.TrimSpace(os.Getenv("STRIPE_CANCEL_URL")),
 			},
 		}
+		exchangeListingRegistrySync.Store = db.NewExchangeListingRegistryStoreFromClients(clients)
+		exchangeListingRegistrySync.JobRuns = db.NewJobRunStoreFromClients(clients)
 	}
 
 	output, err := buildWorkerOutput(
@@ -178,6 +184,7 @@ func main() {
 		firstConnection,
 		alertDeliveryRetry,
 		trackingSubscriptionSync,
+		exchangeListingRegistrySync,
 		billingSubscriptionSync,
 	)
 	if err != nil {
@@ -340,5 +347,6 @@ func requiresWorkerStorage(mode string) bool {
 		mode == workerModeFirstConnectionSnapshot ||
 		mode == workerModeAlertDeliveryRetryBatch ||
 		mode == workerModeWalletTrackingSubscriptionSync ||
+		mode == workerModeExchangeListingRegistrySync ||
 		mode == workerModeBillingSubscriptionSync
 }

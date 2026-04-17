@@ -225,6 +225,7 @@ func TestBuildWorkerOutputRunsClusterScoreSnapshotFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
