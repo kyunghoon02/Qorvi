@@ -1082,13 +1082,44 @@ export type DiscoverFeaturedWalletSeedPreview = {
   observedAt?: string;
 };
 
+export type DiscoverDomesticPrelistingCandidatePreview = {
+  chain: "evm" | "solana";
+  tokenAddress: string;
+  tokenSymbol: string;
+  normalizedAssetKey: string;
+  transferCount7d: number;
+  transferCount24h: number;
+  activeWalletCount: number;
+  trackedWalletCount: number;
+  distinctCounterpartyCount: number;
+  totalAmount: string;
+  largestTransferAmount: string;
+  latestObservedAt: string;
+  representativeWalletChain?: "evm" | "solana";
+  representativeWallet?: string;
+  representativeLabel?: string;
+};
+
 type DiscoverFeaturedWalletApiResponse = {
   items: DiscoverFeaturedWalletSeedPreview[];
+};
+
+type DiscoverDomesticPrelistingApiResponse = {
+  items: DiscoverDomesticPrelistingCandidatePreview[];
 };
 
 type DiscoverFeaturedWalletEnvelope = {
   success: boolean;
   data: DiscoverFeaturedWalletApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type DiscoverDomesticPrelistingEnvelope = {
+  success: boolean;
+  data: DiscoverDomesticPrelistingApiResponse | null;
   error?: {
     code: string;
     message: string;
@@ -1878,6 +1909,8 @@ export const walletGraphRoute = "GET /v1/wallets/:chain/:address/graph";
 export const clusterDetailRoute = "GET /v1/clusters/:clusterId";
 export const findingsFeedRoute = "GET /v1/findings";
 export const discoverFeaturedWalletsRoute = "GET /v1/discover/featured-wallets";
+export const discoverDomesticPrelistingRoute =
+  "GET /v1/discover/domestic-prelisting-candidates";
 export const entityInterpretationRoute = "GET /v1/entity/:id";
 export const analystWalletBriefRoute =
   "GET /v1/analyst/wallets/:chain/:address/brief";
@@ -2237,6 +2270,17 @@ function buildShadowExitFeedUrl(apiBaseUrl?: string): string {
 
 function buildDiscoverFeaturedWalletsUrl(apiBaseUrl?: string): string {
   const path = "/v1/discover/featured-wallets";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildDiscoverDomesticPrelistingUrl(apiBaseUrl?: string): string {
+  const path = "/v1/discover/domestic-prelisting-candidates";
   const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
 
   if (!resolvedBaseUrl) {
@@ -4678,6 +4722,42 @@ export async function loadDiscoverFeaturedWalletSeedsPreview({
     }
 
     const payload = (await response.json()) as DiscoverFeaturedWalletEnvelope;
+    if (!payload.success || !payload.data) {
+      return [];
+    }
+
+    return Array.isArray(payload.data.items) ? payload.data.items : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function loadDiscoverDomesticPrelistingPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  requestHeaders,
+}: {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  requestHeaders?: HeadersInit;
+} = {}): Promise<DiscoverDomesticPrelistingCandidatePreview[]> {
+  const endpoint = buildDiscoverDomesticPrelistingUrl(apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as DiscoverDomesticPrelistingEnvelope;
     if (!payload.success || !payload.data) {
       return [];
     }

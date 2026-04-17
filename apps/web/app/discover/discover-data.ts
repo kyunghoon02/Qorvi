@@ -1,4 +1,5 @@
 import type {
+  DiscoverDomesticPrelistingCandidatePreview,
   DiscoverFeaturedWalletSeedPreview,
   FindingPreview,
   FirstConnectionFeedPreviewItem,
@@ -7,6 +8,7 @@ import type {
 import {
   buildWalletDetailHref,
   loadAnalystFindingsPreview,
+  loadDiscoverDomesticPrelistingPreview,
   loadDiscoverFeaturedWalletSeedsPreview,
   loadFirstConnectionFeedPreview,
   loadShadowExitFeedPreview,
@@ -32,6 +34,22 @@ export type DiscoverWalletCard = {
   detailHref: string;
   observedAt: string | null;
   sourceTier?: "verified" | "probable";
+};
+
+export type DiscoverTokenCard = {
+  id: string;
+  chain: "evm" | "solana";
+  chainLabel: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  description: string;
+  marketLabel: string;
+  activityLabel: string;
+  flowLabel: string;
+  counterpartyLabel: string;
+  observedAt: string | null;
+  representativeWalletHref: string | null;
+  representativeWalletLabel: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -61,6 +79,17 @@ export async function loadProbableFeaturedWalletCards(options: {
 }): Promise<DiscoverWalletCard[]> {
   const cards = await loadFeaturedWalletCards(options);
   return cards.filter((card) => card.sourceTier === "probable");
+}
+
+export async function loadDomesticPrelistingTokenCards(options: {
+  requestHeaders?: HeadersInit;
+}): Promise<DiscoverTokenCard[]> {
+  const headerOpts = options.requestHeaders
+    ? { requestHeaders: options.requestHeaders }
+    : {};
+  const items = await loadDiscoverDomesticPrelistingPreview(headerOpts);
+
+  return items.slice(0, 8).map(mapDomesticPrelistingCandidateToCard);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +302,44 @@ export function mapFeaturedSeedToCard(
   };
 }
 
+export function mapDomesticPrelistingCandidateToCard(
+  item: DiscoverDomesticPrelistingCandidatePreview,
+): DiscoverTokenCard {
+  const chain = item.chain === "solana" ? "solana" : "evm";
+  const representativeWallet =
+    item.representativeWallet && item.representativeWallet.trim() !== ""
+      ? item.representativeWallet.trim()
+      : null;
+  const representativeChain =
+    item.representativeWalletChain === "solana" ? "solana" : chain;
+
+  return {
+    id: `domestic-prelisting:${chain}:${item.tokenAddress}`,
+    chain,
+    chainLabel: chain === "evm" ? "EVM" : "Solana",
+    tokenAddress: item.tokenAddress,
+    tokenSymbol: item.tokenSymbol?.trim() || compactAddress(item.tokenAddress),
+    description:
+      representativeWallet && item.representativeLabel?.trim()
+        ? `${item.representativeLabel.trim()} is the strongest tracked route into this token flow.`
+        : "Unlisted on Upbit and Bithumb, but already seeing concentrated on-chain movement.",
+    marketLabel: "Upbit/Bithumb unlisted",
+    activityLabel: `${item.activeWalletCount} active wallets · tracked ${item.trackedWalletCount} · 24h ${item.transferCount24h}`,
+    flowLabel: `7d volume ${formatAmount(item.totalAmount)} · max ${formatAmount(item.largestTransferAmount)}`,
+    counterpartyLabel: `${item.distinctCounterpartyCount} distinct counterparties · ${item.transferCount7d} transfers / 7d`,
+    observedAt: item.latestObservedAt ?? null,
+    representativeWalletHref: representativeWallet
+      ? buildWalletDetailHref({
+          chain: representativeChain,
+          address: representativeWallet,
+        })
+      : null,
+    representativeWalletLabel:
+      item.representativeLabel?.trim() ||
+      (representativeWallet ? compactAddress(representativeWallet) : null),
+  };
+}
+
 function classifyFeaturedSeedTier(tags: string[]): "verified" | "probable" {
   const normalized = tags.map((tag) => tag.trim().toLowerCase());
   if (normalized.includes("probable")) {
@@ -284,6 +351,25 @@ function classifyFeaturedSeedTier(tags: string[]): "verified" | "probable" {
 function compactAddress(value: string): string {
   if (value.length <= 18) return value;
   return `${value.slice(0, 8)}…${value.slice(-6)}`;
+}
+
+function formatAmount(value: string): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  if (Math.abs(numeric) >= 1_000_000_000) {
+    return `${trimTrailingZeroes((numeric / 1_000_000_000).toFixed(1))}B`;
+  }
+  if (Math.abs(numeric) >= 1_000_000) {
+    return `${trimTrailingZeroes((numeric / 1_000_000).toFixed(1))}M`;
+  }
+  if (Math.abs(numeric) >= 1_000) {
+    return `${trimTrailingZeroes((numeric / 1_000).toFixed(1))}K`;
+  }
+  return trimTrailingZeroes(numeric.toFixed(2));
+}
+
+function trimTrailingZeroes(value: string): string {
+  return value.replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
 }
 
 function isWalletFinding(

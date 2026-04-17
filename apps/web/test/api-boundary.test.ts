@@ -28,6 +28,7 @@ import {
   createAdminSuppression,
   deleteAdminSuppression,
   deriveWalletGraphPreviewFromSummary,
+  discoverDomesticPrelistingRoute,
   discoverFeaturedWalletsRoute,
   explainAnalystWallet,
   entityInterpretationRoute,
@@ -53,6 +54,7 @@ import {
   loadAnalystWalletBriefPreview,
   loadClusterDetailPreview,
   loadDiscoverFeaturedWalletSeedsPreview,
+  loadDiscoverDomesticPrelistingPreview,
   loadEntityInterpretationPreview,
   loadFirstConnectionFeedPreview,
   loadFindingsFeedPreview,
@@ -159,6 +161,10 @@ test("findings, wallet brief, and entity interpretation routes stay aligned with
     discoverFeaturedWalletsRoute,
     "GET /v1/discover/featured-wallets",
   );
+  assert.equal(
+    discoverDomesticPrelistingRoute,
+    "GET /v1/discover/domestic-prelisting-candidates",
+  );
   assert.equal(walletBriefRoute, "GET /v1/wallets/:chain/:address/brief");
   assert.equal(entityInterpretationRoute, "GET /v1/entity/:id");
 });
@@ -195,6 +201,57 @@ test("loadDiscoverFeaturedWalletSeedsPreview maps live backend data when availab
   );
   assert.equal(items.length, 1);
   assert.equal(items[0]?.displayName, "Binance Hot Wallet");
+});
+
+test("loadDiscoverDomesticPrelistingPreview maps live backend data when available", async () => {
+  let requestedUrl = "";
+  const items = await loadDiscoverDomesticPrelistingPreview({
+    apiBaseUrl: "http://localhost:4000",
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [
+              {
+                chain: "evm",
+                tokenAddress: "0x3333333333333333333333333333333333333333",
+                tokenSymbol: "NEWT",
+                normalizedAssetKey: "newt",
+                transferCount7d: 42,
+                transferCount24h: 11,
+                activeWalletCount: 7,
+                trackedWalletCount: 3,
+                distinctCounterpartyCount: 9,
+                totalAmount: "123456.78",
+                largestTransferAmount: "50000",
+                latestObservedAt: "2026-04-18T02:00:00Z",
+                representativeWalletChain: "evm",
+                representativeWallet: "0x1111111111111111111111111111111111111111",
+                representativeLabel: "Tracked whale",
+              },
+            ],
+          },
+        }),
+      );
+    },
+  });
+
+  assert.equal(
+    requestedUrl,
+    "http://localhost:4000/v1/discover/domestic-prelisting-candidates",
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.tokenSymbol, "NEWT");
+});
+
+test("loadDiscoverDomesticPrelistingPreview falls back to an empty array on invalid responses", async () => {
+  const items = await loadDiscoverDomesticPrelistingPreview({
+    fetchImpl: async () => new Response(null, { status: 503 }),
+  });
+
+  assert.deepEqual(items, []);
 });
 
 test("loadDiscoverFeaturedWalletSeedsPreview falls back to an empty array on invalid responses", async () => {

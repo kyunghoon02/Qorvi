@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  loadDomesticPrelistingTokenCards,
   loadFeaturedWalletCards,
   loadProbableFeaturedWalletCards,
   loadVerifiedFeaturedWalletCards,
+  mapDomesticPrelistingCandidateToCard,
   mapFeaturedSeedToCard,
 } from "../app/discover/discover-data";
 
@@ -61,6 +63,76 @@ test("loadFeaturedWalletCards uses the discover featured-wallets endpoint", asyn
     assert.equal(cards[0]?.categoryLabel, "Smart Money");
     assert.equal(cards[0]?.latestSignalLabel, "Probable · Smart Money");
     assert.equal(cards[0]?.sourceTier, "probable");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("mapDomesticPrelistingCandidateToCard converts candidate payload into a discover token card", () => {
+  const card = mapDomesticPrelistingCandidateToCard({
+    chain: "evm",
+    tokenAddress: "0x3333333333333333333333333333333333333333",
+    tokenSymbol: "NEWT",
+    normalizedAssetKey: "newt",
+    transferCount7d: 42,
+    transferCount24h: 11,
+    activeWalletCount: 7,
+    trackedWalletCount: 3,
+    distinctCounterpartyCount: 9,
+    totalAmount: "123456.78",
+    largestTransferAmount: "50000",
+    latestObservedAt: "2026-04-18T02:00:00Z",
+    representativeWalletChain: "evm",
+    representativeWallet: "0x1111111111111111111111111111111111111111",
+    representativeLabel: "Tracked whale",
+  });
+
+  assert.equal(card.tokenSymbol, "NEWT");
+  assert.equal(card.marketLabel, "Upbit/Bithumb unlisted");
+  assert.equal(card.activityLabel, "7 active wallets · tracked 3 · 24h 11");
+  assert.equal(card.representativeWalletHref, "/wallets/evm/0x1111111111111111111111111111111111111111");
+});
+
+test("loadDomesticPrelistingTokenCards uses the discover domestic-prelisting endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("/v1/discover/domestic-prelisting-candidates")) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [
+              {
+                chain: "evm",
+                tokenAddress: "0x3333333333333333333333333333333333333333",
+                tokenSymbol: "NEWT",
+                normalizedAssetKey: "newt",
+                transferCount7d: 42,
+                transferCount24h: 11,
+                activeWalletCount: 7,
+                trackedWalletCount: 3,
+                distinctCounterpartyCount: 9,
+                totalAmount: "123456.78",
+                largestTransferAmount: "50000",
+                latestObservedAt: "2026-04-18T02:00:00Z",
+                representativeWalletChain: "evm",
+                representativeWallet: "0x1111111111111111111111111111111111111111",
+                representativeLabel: "Tracked whale",
+              },
+            ],
+          },
+        }),
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const cards = await loadDomesticPrelistingTokenCards({});
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.tokenSymbol, "NEWT");
+    assert.equal(cards[0]?.representativeWalletLabel, "Tracked whale");
   } finally {
     globalThis.fetch = originalFetch;
   }

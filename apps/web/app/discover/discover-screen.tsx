@@ -9,8 +9,9 @@ import { AuthButtons } from "../components/auth-buttons";
 import { LanguageSwitcher } from "../components/language-switcher";
 import { NetworkBackground } from "../components/network-background";
 
-import type { DiscoverWalletCard } from "./discover-data";
+import type { DiscoverTokenCard, DiscoverWalletCard } from "./discover-data";
 import {
+  loadDomesticPrelistingTokenCards,
   loadProbableFeaturedWalletCards,
   loadRecentHighPriorityCards,
   loadSmartMoneyCards,
@@ -66,6 +67,53 @@ function DiscoverSection({
         <div className="discover-card-grid">
           {cards.map((card) => (
             <DiscoverCard key={card.id} card={card} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DiscoverTokenSection({
+  title,
+  subtitle,
+  cards,
+  loading,
+  emptyLabel,
+}: {
+  title: string;
+  subtitle: string;
+  cards: DiscoverTokenCard[];
+  loading: boolean;
+  emptyLabel: string;
+}) {
+  return (
+    <section className="discover-section">
+      <div className="discover-section-header">
+        <div>
+          <h2 className="discover-section-title">{title}</h2>
+          <p className="discover-section-subtitle">{subtitle}</p>
+        </div>
+        <Pill tone="amber">{cards.length} tokens</Pill>
+      </div>
+
+      {loading ? (
+        <div className="discover-skeleton-grid">
+          {discoverSkeletonSlots.map((slot) => (
+            <div
+              key={`discover-token-skeleton-${title}-${slot}`}
+              className="discover-skeleton-card"
+            />
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
+        <div className="discover-empty">
+          <p>{emptyLabel}</p>
+        </div>
+      ) : (
+        <div className="discover-card-grid">
+          {cards.map((card) => (
+            <DiscoverTokenCardView key={card.id} card={card} />
           ))}
         </div>
       )}
@@ -145,6 +193,66 @@ function DiscoverCard({
   );
 }
 
+function DiscoverTokenCardView({
+  card,
+}: {
+  card: DiscoverTokenCard;
+}) {
+  return (
+    <article className="discover-card">
+      <div className="discover-card-top">
+        <div className="discover-card-identity">
+          <strong className="discover-card-name">{card.tokenSymbol}</strong>
+          <span className="discover-card-chain">
+            <Pill tone={card.chain === "solana" ? "violet" : "teal"}>
+              {card.chainLabel}
+            </Pill>
+          </span>
+          <span className="discover-card-category">
+            <Pill tone="amber">{card.marketLabel}</Pill>
+          </span>
+        </div>
+      </div>
+
+      <p className="discover-card-address">{compactAddress(card.tokenAddress)}</p>
+      <p className="discover-card-desc">{card.description}</p>
+
+      <div className="discover-card-signals">
+        <span className="discover-card-signal">
+          <span className="discover-signal-dot discover-signal-dot--signal" />
+          {card.activityLabel}
+        </span>
+        <span className="discover-card-signal">
+          <span className="discover-signal-dot discover-signal-dot--finding" />
+          {card.flowLabel}
+        </span>
+        <span className="discover-card-signal">{card.counterpartyLabel}</span>
+        {card.observedAt ? (
+          <span className="discover-card-observed">
+            {formatRelativeTime(card.observedAt)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="discover-card-actions">
+        {card.representativeWalletHref ? (
+          <a className="search-cta discover-card-cta" href={card.representativeWalletHref}>
+            {card.representativeWalletLabel
+              ? `Analyze ${card.representativeWalletLabel}`
+              : "Representative wallet"}
+          </a>
+        ) : null}
+        <a
+          className="search-cta discover-card-cta"
+          href={`/?q=${encodeURIComponent(card.tokenAddress)}`}
+        >
+          Search token
+        </a>
+      </div>
+    </article>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
@@ -154,6 +262,7 @@ export function DiscoverScreen({
 }: {
   requestHeaders?: HeadersInit;
 }) {
+  const [prelisting, setPrelisting] = useState<DiscoverTokenCard[]>([]);
   const [verified, setVerified] = useState<DiscoverWalletCard[]>([]);
   const [probable, setProbable] = useState<DiscoverWalletCard[]>([]);
   const [tracked, setTracked] = useState<DiscoverWalletCard[]>([]);
@@ -172,12 +281,14 @@ export function DiscoverScreen({
       const headerOpts = requestHeaders ? { requestHeaders } : {};
 
       const [
+        prelistingResult,
         verifiedResult,
         probableResult,
         trackedResult,
         smartResult,
         recentResult,
       ] = await Promise.allSettled([
+        loadDomesticPrelistingTokenCards(headerOpts),
         loadVerifiedFeaturedWalletCards(headerOpts),
         loadProbableFeaturedWalletCards(headerOpts),
         loadTrackedWalletCards(headerOpts),
@@ -187,6 +298,9 @@ export function DiscoverScreen({
 
       if (!active) return;
 
+      setPrelisting(
+        prelistingResult.status === "fulfilled" ? prelistingResult.value : [],
+      );
       setVerified(
         verifiedResult.status === "fulfilled" ? verifiedResult.value : [],
       );
@@ -268,6 +382,14 @@ export function DiscoverScreen({
         </div>
 
         <div className="discover-sections">
+          <DiscoverTokenSection
+            title="Domestic prelisting radar"
+            subtitle="Tokens not listed on Upbit or Bithumb yet, but already showing concentrated on-chain movement through tracked wallets"
+            cards={prelisting}
+            loading={loading}
+            emptyLabel="Domestic prelisting candidates will appear once listing sync and token-flow aggregation have enough live data."
+          />
+
           <DiscoverSection
             title="Verified public wallets"
             subtitle="Public-labeled exchanges, bridges, and official treasuries kept warm before manual search"
