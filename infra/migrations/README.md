@@ -20,4 +20,4 @@
 1. `docker compose -f infra/docker/docker-compose.yml up -d`
 2. Postgres bootstrap 실행
 3. Neo4j bootstrap 실행
-4. 애플리케이션의 `packages/db` 연결 문자열을 `.env.example`에 맞춘다
+4. 애플리케이션의 `packages/db` 연결 문자열을 로컬 `.env` 값에 맞춘다

@@ -4,8 +4,8 @@
 
 env 기준:
 
-- 로컬 개발 템플릿: [/.env.example](.env.example)
-- beta 배포 템플릿: [/.env.beta.example](.env.beta.example)
+- 필요한 값은 로컬 `.env` 또는 beta 배포 provider의 secret store에만 둔다.
+- env example 파일은 public repository에 포함하지 않는다.
 
 현재 로컬 runtime 검증 결과:
 

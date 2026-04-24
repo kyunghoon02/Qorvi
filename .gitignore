@@ -18,9 +18,6 @@ go.work.sum
 .DS_Store
 .env
 .env.*
-!.env.example
-!.env.beta.example
-!.env.production.example
 .env*.seeded*
 AGENTS.md
 agent.md
