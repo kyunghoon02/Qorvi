@@ -266,6 +266,7 @@ func NewWithDependencies(deps Dependencies) *Server {
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/findings", s.handleFindingsFeed)
 	mux.HandleFunc("GET /v1/discover/featured-wallets", s.handleDiscoverFeaturedWallets)
+	mux.HandleFunc("GET /v1/discover/domestic-prelisting-candidates", s.handleDiscoverDomesticPrelistingCandidates)
 	mux.HandleFunc("GET /v1/analyst/findings", s.handleAnalystFindingsFeed)
 	mux.HandleFunc("GET /v1/analyst/findings/", s.handleAnalystFindingRoute)
 	mux.Handle("POST /v1/analyst/findings/", auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "user", "admin", "operator")(http.HandlerFunc(s.handleAuthorizedAnalystFindingRoute)))
@@ -338,6 +339,10 @@ func NewWithDependencies(deps Dependencies) *Server {
 	mux.Handle(
 		"GET /v1/admin/observability",
 		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminObservability)),
+	)
+	mux.Handle(
+		"GET /v1/admin/domestic-prelisting-candidates",
+		auth.RequireClerkRole(deps.ClerkVerifier, apiAuthResponder{}, "admin", "operator")(http.HandlerFunc(s.handleAdminDomesticPrelistingCandidates)),
 	)
 	mux.Handle(
 		"GET /v1/admin/backtests",
@@ -504,6 +509,20 @@ func (s *Server) handleDiscoverFeaturedWallets(w http.ResponseWriter, r *http.Re
 	}
 
 	writeJSON(w, http.StatusOK, Envelope[service.DiscoverFeaturedWalletResponse]{
+		Success: true,
+		Data:    items,
+		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),
+	})
+}
+
+func (s *Server) handleDiscoverDomesticPrelistingCandidates(w http.ResponseWriter, r *http.Request) {
+	items, err := s.discover.ListDomesticPrelistingCandidates(r.Context(), 12)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorEnvelope("INTERNAL", "discover domestic prelisting lookup failed", "", tierFromHeader(r)))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Envelope[service.DiscoverDomesticPrelistingResponse]{
 		Success: true,
 		Data:    items,
 		Meta:    newMeta("", tierFromHeader(r), freshness("snapshot", 300)),

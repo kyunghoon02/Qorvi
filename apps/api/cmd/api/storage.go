@@ -65,6 +65,7 @@ func buildDiscoverService(clients *db.StorageClients) *service.DiscoverService {
 	return service.NewDiscoverService(
 		db.NewPostgresWatchlistWalletSeedReaderFromPool(clients.Postgres),
 		db.NewAutoDiscoverWalletReaderFromClients(clients),
+		db.NewDomesticPrelistingStoreFromClients(clients),
 	)
 }
 
@@ -262,6 +263,7 @@ func buildAdminConsoleService(clients *db.StorageClients) *service.AdminConsoleS
 			db.NewPostgresWatchlistStoreFromPool(clients.Postgres),
 			db.NewPostgresAuditLogStoreFromPool(clients.Postgres),
 			db.NewCuratedEntityIndexStoreFromClients(clients),
+			db.NewDomesticPrelistingStoreFromClients(clients),
 		),
 	)
 }

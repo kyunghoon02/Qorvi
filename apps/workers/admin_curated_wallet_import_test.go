@@ -112,10 +112,10 @@ func TestAdminCuratedWalletImportServiceRunImport(t *testing.T) {
 	watchlists := &fakeAdminCuratedImportWatchlistStore{}
 	entityIndex := &fakeAdminCuratedEntityIndex{}
 	service := AdminCuratedWalletImportService{
-		Watchlists: watchlists,
+		Watchlists:  watchlists,
 		EntityIndex: entityIndex,
-		JobRuns: &fakeJobRunStore{},
-		SeedPath: path,
+		JobRuns:     &fakeJobRunStore{},
+		SeedPath:    path,
 		Now: func() time.Time {
 			return time.Date(2026, time.March, 31, 10, 11, 12, 0, time.UTC)
 		},
@@ -180,6 +180,7 @@ func TestBuildWorkerOutputRunsAdminCuratedWalletImportFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {

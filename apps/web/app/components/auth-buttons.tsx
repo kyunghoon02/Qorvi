@@ -22,30 +22,25 @@ function renderNothing() {
   return null;
 }
 
-const SignInButton =
-  ((ClerkNext as Record<string, unknown>).SignInButton ??
-    (ClerkReact as Record<string, unknown>).SignInButton ??
-    renderChildren) as ComponentType<ButtonWrapperProps>;
+const SignInButton = ((ClerkNext as Record<string, unknown>).SignInButton ??
+  (ClerkReact as Record<string, unknown>).SignInButton ??
+  renderChildren) as ComponentType<ButtonWrapperProps>;
 
-const SignUpButton =
-  ((ClerkNext as Record<string, unknown>).SignUpButton ??
-    (ClerkReact as Record<string, unknown>).SignUpButton ??
-    renderChildren) as ComponentType<ButtonWrapperProps>;
+const SignUpButton = ((ClerkNext as Record<string, unknown>).SignUpButton ??
+  (ClerkReact as Record<string, unknown>).SignUpButton ??
+  renderChildren) as ComponentType<ButtonWrapperProps>;
 
-const SignedIn =
-  ((ClerkNext as Record<string, unknown>).SignedIn ??
-    (ClerkReact as Record<string, unknown>).SignedIn ??
-    renderNothing) as ComponentType<VisibilityWrapperProps>;
+const SignedIn = ((ClerkNext as Record<string, unknown>).SignedIn ??
+  (ClerkReact as Record<string, unknown>).SignedIn ??
+  renderNothing) as ComponentType<VisibilityWrapperProps>;
 
-const SignedOut =
-  ((ClerkNext as Record<string, unknown>).SignedOut ??
-    (ClerkReact as Record<string, unknown>).SignedOut ??
-    renderChildren) as ComponentType<VisibilityWrapperProps>;
+const SignedOut = ((ClerkNext as Record<string, unknown>).SignedOut ??
+  (ClerkReact as Record<string, unknown>).SignedOut ??
+  renderChildren) as ComponentType<VisibilityWrapperProps>;
 
-const UserButton =
-  ((ClerkNext as Record<string, unknown>).UserButton ??
-    (ClerkReact as Record<string, unknown>).UserButton ??
-    renderNothing) as ComponentType;
+const UserButton = ((ClerkNext as Record<string, unknown>).UserButton ??
+  (ClerkReact as Record<string, unknown>).UserButton ??
+  renderNothing) as ComponentType;
 
 const clerkPublishableKey =
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? "";

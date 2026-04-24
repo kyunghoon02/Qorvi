@@ -374,6 +374,7 @@ func buildWorkerOutput(
 	firstConnection FirstConnectionSnapshotService,
 	alertDeliveryRetry AlertDeliveryRetryService,
 	trackingSubscriptionSync TrackingSubscriptionSyncService,
+	exchangeListingRegistrySync ExchangeListingRegistrySyncService,
 	billingSubscriptionSync ...BillingSubscriptionSyncService,
 ) (string, error) {
 	var resolvedBillingSubscriptionSync BillingSubscriptionSyncService
@@ -597,6 +598,13 @@ func buildWorkerOutput(
 			return "", err
 		}
 		return buildTrackingSubscriptionSyncSummary(report), nil
+	}
+	if mode == workerModeExchangeListingRegistrySync {
+		report, err := exchangeListingRegistrySync.RunSync(ctx)
+		if err != nil {
+			return "", err
+		}
+		return buildExchangeListingRegistrySyncSummary(report), nil
 	}
 	if mode == workerModeBillingSubscriptionSync {
 		report, err := resolvedBillingSubscriptionSync.RunBatch(ctx, billingSubscriptionSyncLimitFromEnv())

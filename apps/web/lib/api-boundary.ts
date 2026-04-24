@@ -678,6 +678,23 @@ export type AdminConsoleObservabilityFailurePreview = {
   details: Record<string, unknown>;
 };
 
+export type AdminConsoleDomesticPrelistingCandidatePreview = {
+  chain: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  normalizedAssetKey: string;
+  transferCount7d: number;
+  transferCount24h: number;
+  activeWalletCount: number;
+  trackedWalletCount: number;
+  distinctCounterpartyCount: number;
+  totalAmount: string;
+  largestTransferAmount: string;
+  latestObservedAt: string;
+  listedOnUpbit: boolean;
+  listedOnBithumb: boolean;
+};
+
 export type AdminConsoleObservabilityPreview = {
   providerUsage: AdminConsoleObservabilityProviderPreview[];
   ingest: AdminConsoleObservabilityIngestPreview;
@@ -750,6 +767,7 @@ export type AdminConsolePreview = {
   quotasRoute: string;
   curatedListsRoute: string;
   auditLogsRoute: string;
+  domesticPrelistingRoute: string;
   statusMessage: string;
   observabilityRoute: string;
   labels: AdminConsoleLabelPreview[];
@@ -757,6 +775,7 @@ export type AdminConsolePreview = {
   quotas: AdminConsoleQuotaPreview[];
   curatedLists: AdminConsoleCuratedListPreview[];
   auditLogs: AdminConsoleAuditEntryPreview[];
+  domesticPrelisting: AdminConsoleDomesticPrelistingCandidatePreview[];
   observability: AdminConsoleObservabilityPreview;
   backtestOps: AdminBacktestOpsPreview;
 };
@@ -1065,13 +1084,44 @@ export type DiscoverFeaturedWalletSeedPreview = {
   observedAt?: string;
 };
 
+export type DiscoverDomesticPrelistingCandidatePreview = {
+  chain: "evm" | "solana";
+  tokenAddress: string;
+  tokenSymbol: string;
+  normalizedAssetKey: string;
+  transferCount7d: number;
+  transferCount24h: number;
+  activeWalletCount: number;
+  trackedWalletCount: number;
+  distinctCounterpartyCount: number;
+  totalAmount: string;
+  largestTransferAmount: string;
+  latestObservedAt: string;
+  representativeWalletChain?: "evm" | "solana";
+  representativeWallet?: string;
+  representativeLabel?: string;
+};
+
 type DiscoverFeaturedWalletApiResponse = {
   items: DiscoverFeaturedWalletSeedPreview[];
+};
+
+type DiscoverDomesticPrelistingApiResponse = {
+  items: DiscoverDomesticPrelistingCandidatePreview[];
 };
 
 type DiscoverFeaturedWalletEnvelope = {
   success: boolean;
   data: DiscoverFeaturedWalletApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type DiscoverDomesticPrelistingEnvelope = {
+  success: boolean;
+  data: DiscoverDomesticPrelistingApiResponse | null;
   error?: {
     code: string;
     message: string;
@@ -1504,6 +1554,27 @@ type AdminObservabilityApiResponse = {
   }>;
 };
 
+type AdminDomesticPrelistingApiItem = {
+  chain: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  normalizedAssetKey: string;
+  transferCount7d: number;
+  transferCount24h: number;
+  activeWalletCount: number;
+  trackedWalletCount: number;
+  distinctCounterpartyCount: number;
+  totalAmount: string;
+  largestTransferAmount: string;
+  latestObservedAt: string;
+  listedOnUpbit: boolean;
+  listedOnBithumb: boolean;
+};
+
+type AdminDomesticPrelistingCollectionApiResponse = {
+  items: AdminDomesticPrelistingApiItem[];
+};
+
 type AdminCuratedListCollectionApiResponse = {
   items: AdminCuratedListApiItem[];
 };
@@ -1551,6 +1622,15 @@ type AdminQuotaCollectionEnvelope = {
 type AdminObservabilityEnvelope = {
   success: boolean;
   data: AdminObservabilityApiResponse | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+};
+
+type AdminDomesticPrelistingEnvelope = {
+  success: boolean;
+  data: AdminDomesticPrelistingCollectionApiResponse | null;
   error?: {
     code: string;
     message: string;
@@ -1831,6 +1911,8 @@ export const walletGraphRoute = "GET /v1/wallets/:chain/:address/graph";
 export const clusterDetailRoute = "GET /v1/clusters/:clusterId";
 export const findingsFeedRoute = "GET /v1/findings";
 export const discoverFeaturedWalletsRoute = "GET /v1/discover/featured-wallets";
+export const discoverDomesticPrelistingRoute =
+  "GET /v1/discover/domestic-prelisting-candidates";
 export const entityInterpretationRoute = "GET /v1/entity/:id";
 export const analystWalletBriefRoute =
   "GET /v1/analyst/wallets/:chain/:address/brief";
@@ -1847,6 +1929,8 @@ export const adminLabelsRoute = "GET /v1/admin/labels";
 export const adminSuppressionsRoute = "GET /v1/admin/suppressions";
 export const adminProviderQuotasRoute = "GET /v1/admin/provider-quotas";
 export const adminObservabilityRoute = "GET /v1/admin/observability";
+export const adminDomesticPrelistingRoute =
+  "GET /v1/admin/domestic-prelisting-candidates";
 export const adminCuratedListsRoute = "GET /v1/admin/curated-lists";
 export const adminAuditLogsRoute = "GET /v1/admin/audit-logs";
 export const adminBacktestsRoute = "GET /v1/admin/backtests";
@@ -2206,6 +2290,17 @@ function buildDiscoverFeaturedWalletsUrl(apiBaseUrl?: string): string {
   return new URL(path, resolvedBaseUrl).toString();
 }
 
+function buildDiscoverDomesticPrelistingUrl(apiBaseUrl?: string): string {
+  const path = "/v1/discover/domestic-prelisting-candidates";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
 function buildFirstConnectionFeedUrl(
   sort: "latest" | "score" = "latest",
   apiBaseUrl?: string,
@@ -2358,6 +2453,15 @@ function buildAdminProviderQuotasUrl(apiBaseUrl?: string): string {
 
 function buildAdminObservabilityUrl(apiBaseUrl?: string): string {
   const path = "/v1/admin/observability";
+  const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
+  if (!resolvedBaseUrl) {
+    return path;
+  }
+  return new URL(path, resolvedBaseUrl).toString();
+}
+
+function buildAdminDomesticPrelistingUrl(apiBaseUrl?: string): string {
+  const path = "/v1/admin/domestic-prelisting-candidates";
   const resolvedBaseUrl = getApiBaseUrl(apiBaseUrl);
   if (!resolvedBaseUrl) {
     return path;
@@ -3262,6 +3366,7 @@ function mapAdminConsoleResponse(input: {
   suppressions: AdminSuppressionCollectionApiResponse;
   quotas: AdminQuotaCollectionApiResponse;
   observability: AdminObservabilityApiResponse;
+  domesticPrelisting: AdminDomesticPrelistingCollectionApiResponse;
   curatedLists: AdminCuratedListCollectionApiResponse;
   auditLogs: AdminAuditLogCollectionApiResponse;
   backtests: {
@@ -3283,6 +3388,7 @@ function mapAdminConsoleResponse(input: {
     suppressionsRoute: adminSuppressionsRoute,
     quotasRoute: adminProviderQuotasRoute,
     observabilityRoute: adminObservabilityRoute,
+    domesticPrelistingRoute: adminDomesticPrelistingRoute,
     curatedListsRoute: adminCuratedListsRoute,
     auditLogsRoute: adminAuditLogsRoute,
     backtestOps: {
@@ -3298,7 +3404,7 @@ function mapAdminConsoleResponse(input: {
       })),
     },
     statusMessage:
-      "Admin console is using live backend data for labels, suppressions, quota pressure, observability health, curated lists, audit logs, and backtest operations.",
+      "Admin console is using live backend data for labels, suppressions, quota pressure, observability health, domestic prelisting candidates, curated lists, audit logs, and backtest operations.",
     labels: (input.labels.items ?? []).map((item) => ({
       id: item.id,
       name: item.name,
@@ -3308,6 +3414,22 @@ function mapAdminConsoleResponse(input: {
       updatedAt: item.updatedAt,
     })),
     suppressions: (input.suppressions.items ?? []).map(mapAdminSuppressionItem),
+    domesticPrelisting: (input.domesticPrelisting.items ?? []).map((item) => ({
+      chain: item.chain,
+      tokenAddress: item.tokenAddress,
+      tokenSymbol: item.tokenSymbol,
+      normalizedAssetKey: item.normalizedAssetKey,
+      transferCount7d: item.transferCount7d,
+      transferCount24h: item.transferCount24h,
+      activeWalletCount: item.activeWalletCount,
+      trackedWalletCount: item.trackedWalletCount,
+      distinctCounterpartyCount: item.distinctCounterpartyCount,
+      totalAmount: item.totalAmount,
+      largestTransferAmount: item.largestTransferAmount,
+      latestObservedAt: item.latestObservedAt,
+      listedOnUpbit: item.listedOnUpbit,
+      listedOnBithumb: item.listedOnBithumb,
+    })),
     quotas: (input.quotas.items ?? []).map((item) => ({
       provider: item.provider,
       status: item.status,
@@ -3789,6 +3911,7 @@ function createUnavailableAdminConsolePreview(): AdminConsolePreview {
     suppressionsRoute: adminSuppressionsRoute,
     quotasRoute: adminProviderQuotasRoute,
     observabilityRoute: adminObservabilityRoute,
+    domesticPrelistingRoute: adminDomesticPrelistingRoute,
     curatedListsRoute: adminCuratedListsRoute,
     auditLogsRoute: adminAuditLogsRoute,
     backtestOps: {
@@ -3802,6 +3925,7 @@ function createUnavailableAdminConsolePreview(): AdminConsolePreview {
     labels: [],
     suppressions: [],
     quotas: [],
+    domesticPrelisting: [],
     curatedLists: [],
     auditLogs: [],
     observability: {
@@ -3923,7 +4047,10 @@ export function deriveWalletGraphPreviewFromSummary({
   fallback?: WalletGraphPreview;
 }): WalletGraphPreview {
   const clusterNodeId = summary.clusterId ? `cluster:${summary.clusterId}` : "";
-  const rootNodeId = buildWalletGraphWalletNodeId(request.chain, request.address);
+  const rootNodeId = buildWalletGraphWalletNodeId(
+    request.chain,
+    request.address,
+  );
   const nodes: WalletGraphPreviewNode[] = [
     {
       id: rootNodeId,
@@ -4073,16 +4200,11 @@ export function deriveWalletGraphPreviewFromSummary({
   };
 }
 
-function buildWalletGraphWalletNodeId(
-  chain: string,
-  address: string,
-): string {
+function buildWalletGraphWalletNodeId(chain: string, address: string): string {
   return `wallet:${chain.toLowerCase()}:${address.toLowerCase()}`;
 }
 
-function normalizeWalletGraphNodeId(
-  node: WalletGraphApiNode,
-): string {
+function normalizeWalletGraphNodeId(node: WalletGraphApiNode): string {
   if (node.kind !== "wallet" || !node.chain || !node.address) {
     return node.id;
   }
@@ -4638,6 +4760,43 @@ export async function loadDiscoverFeaturedWalletSeedsPreview({
     }
 
     const payload = (await response.json()) as DiscoverFeaturedWalletEnvelope;
+    if (!payload.success || !payload.data) {
+      return [];
+    }
+
+    return Array.isArray(payload.data.items) ? payload.data.items : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function loadDiscoverDomesticPrelistingPreview({
+  apiBaseUrl,
+  fetchImpl = fetch,
+  requestHeaders,
+}: {
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  requestHeaders?: HeadersInit;
+} = {}): Promise<DiscoverDomesticPrelistingCandidatePreview[]> {
+  const endpoint = buildDiscoverDomesticPrelistingUrl(apiBaseUrl);
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      headers: mergeRequestHeaders(
+        {
+          Accept: "application/json",
+        },
+        requestHeaders,
+      ),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload =
+      (await response.json()) as DiscoverDomesticPrelistingEnvelope;
     if (!payload.success || !payload.data) {
       return [];
     }
@@ -5338,6 +5497,8 @@ export async function loadAdminConsolePreview({
   const suppressionsEndpoint = buildAdminSuppressionsUrl(apiBaseUrl);
   const quotasEndpoint = buildAdminProviderQuotasUrl(apiBaseUrl);
   const observabilityEndpoint = buildAdminObservabilityUrl(apiBaseUrl);
+  const domesticPrelistingEndpoint =
+    buildAdminDomesticPrelistingUrl(apiBaseUrl);
   const curatedListsEndpoint = buildAdminCuratedListsUrl(apiBaseUrl);
   const auditLogsEndpoint = buildAdminAuditLogsUrl(apiBaseUrl);
   const backtestsEndpoint = buildAdminBacktestsUrl(apiBaseUrl);
@@ -5348,6 +5509,7 @@ export async function loadAdminConsolePreview({
       suppressionsResponse,
       quotasResponse,
       observabilityResponse,
+      domesticPrelistingResponse,
       curatedListsResponse,
       auditLogsResponse,
       backtestsResponse,
@@ -5368,6 +5530,11 @@ export async function loadAdminConsolePreview({
         headers: mergeRequestHeaders({}, requestHeaders),
       }),
       fetchImpl(observabilityEndpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: mergeRequestHeaders({}, requestHeaders),
+      }),
+      fetchImpl(domesticPrelistingEndpoint, {
         method: "GET",
         cache: "no-store",
         headers: mergeRequestHeaders({}, requestHeaders),
@@ -5394,6 +5561,7 @@ export async function loadAdminConsolePreview({
       !suppressionsResponse.ok ||
       !quotasResponse.ok ||
       !observabilityResponse.ok ||
+      !domesticPrelistingResponse.ok ||
       !curatedListsResponse.ok ||
       !auditLogsResponse.ok ||
       !backtestsResponse.ok
@@ -5406,6 +5574,7 @@ export async function loadAdminConsolePreview({
       suppressionsEnvelope,
       quotasEnvelope,
       observabilityEnvelope,
+      domesticPrelistingEnvelope,
       curatedListsEnvelope,
       auditLogsEnvelope,
       backtestsEnvelope,
@@ -5414,6 +5583,7 @@ export async function loadAdminConsolePreview({
       suppressionsResponse.json(),
       quotasResponse.json(),
       observabilityResponse.json(),
+      domesticPrelistingResponse.json(),
       curatedListsResponse.json(),
       auditLogsResponse.json(),
       backtestsResponse.json(),
@@ -5422,6 +5592,7 @@ export async function loadAdminConsolePreview({
       AdminSuppressionCollectionEnvelope,
       AdminQuotaCollectionEnvelope,
       AdminObservabilityEnvelope,
+      AdminDomesticPrelistingEnvelope,
       AdminCuratedListCollectionEnvelope,
       AdminAuditLogCollectionEnvelope,
       AdminBacktestOpsEnvelope,
@@ -5436,6 +5607,8 @@ export async function loadAdminConsolePreview({
       !quotasEnvelope.data ||
       !observabilityEnvelope.success ||
       !observabilityEnvelope.data ||
+      !domesticPrelistingEnvelope.success ||
+      !domesticPrelistingEnvelope.data ||
       !curatedListsEnvelope.success ||
       !curatedListsEnvelope.data ||
       !auditLogsEnvelope.success ||
@@ -5451,6 +5624,7 @@ export async function loadAdminConsolePreview({
       suppressions: suppressionsEnvelope.data,
       quotas: quotasEnvelope.data,
       observability: observabilityEnvelope.data,
+      domesticPrelisting: domesticPrelistingEnvelope.data,
       curatedLists: curatedListsEnvelope.data,
       auditLogs: auditLogsEnvelope.data,
       backtests: backtestsEnvelope.data,

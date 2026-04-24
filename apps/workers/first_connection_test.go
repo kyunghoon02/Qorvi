@@ -427,6 +427,7 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotFlow(t *testing.T) {
 		},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)
@@ -482,6 +483,7 @@ func TestBuildWorkerOutputRunsFirstConnectionSnapshotAutoDetectFlow(t *testing.T
 		},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 	)
 	if err != nil {
 		t.Fatalf("buildWorkerOutput returned error: %v", err)

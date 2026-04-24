@@ -42,6 +42,7 @@ export type AdminConsoleViewModel = {
   suppressionsRoute: string;
   quotasRoute: string;
   observabilityRoute: string;
+  domesticPrelistingRoute: string;
   curatedListsRoute: string;
   auditLogsRoute: string;
   labels: AdminConsolePreview["labels"];
@@ -112,6 +113,14 @@ export type AdminConsoleViewModel = {
       }
     >;
   };
+  domesticPrelisting: Array<
+    AdminConsolePreview["domesticPrelisting"][number] & {
+      listingLabel: string;
+      activityLabel: string;
+      amountLabel: string;
+      recencyLabel: string;
+    }
+  >;
   curatedLists: Array<
     AdminConsolePreview["curatedLists"][number] & {
       tagLabel: string;
@@ -133,14 +142,15 @@ export function buildAdminConsoleViewModel({
   preview: AdminConsolePreview;
 }): AdminConsoleViewModel {
   return {
-    title: "Admin console",
+    title: "운영 대시보드",
     explanation:
-      "Operators can review labels, suppressions, provider health, delivery failures, curated lists, and audit history without reaching into the database directly.",
+      "운영자는 이 화면에서 라벨, 억제 규칙, 프로바이더 상태, 전송 실패, 큐 상태, 국내 미상장 후보, 큐레이션 목록, 감사 로그를 한 번에 점검할 수 있습니다.",
     statusMessage: preview.statusMessage,
     labelsRoute: preview.labelsRoute,
     suppressionsRoute: preview.suppressionsRoute,
     quotasRoute: preview.quotasRoute,
     observabilityRoute: preview.observabilityRoute,
+    domesticPrelistingRoute: preview.domesticPrelistingRoute,
     curatedListsRoute: preview.curatedListsRoute,
     auditLogsRoute: preview.auditLogsRoute,
     labels: preview.labels,
@@ -156,28 +166,28 @@ export function buildAdminConsoleViewModel({
         item.limit > 0 ? Math.min((item.reserved / item.limit) * 100, 100) : 0,
       headroomLabel:
         item.limit > 0
-          ? `${Math.max(item.limit - item.used, 0)} remaining`
-          : "No quota limit",
+          ? `${Math.max(item.limit - item.used, 0)} 남음`
+          : "제한 없음",
     })),
     observability: {
       providerUsage: preview.observability.providerUsage.map((item) => ({
         ...item,
         tone: toneByObservabilityStatus[item.status],
         lastSeenLabel: item.lastSeenAt
-          ? `Last seen ${formatRelativeTimestamp(item.lastSeenAt)}`
-          : "No recent provider activity",
+          ? `마지막 호출 ${formatRelativeTimestamp(item.lastSeenAt)}`
+          : "최근 프로바이더 활동 없음",
         errorRateLabel:
           item.used24h > 0
-            ? `${Math.round((item.error24h / item.used24h) * 100)}% error rate`
-            : "No recent calls",
+            ? `에러율 ${Math.round((item.error24h / item.used24h) * 100)}%`
+            : "최근 호출 없음",
       })),
       ingest: {
         ...preview.observability.ingest,
         tone: toneByObservabilityStatus[preview.observability.ingest.lagStatus],
         freshnessLabel:
           preview.observability.ingest.lagStatus === "unavailable"
-            ? "No ingest heartbeat yet"
-            : `${Math.max(preview.observability.ingest.freshnessSeconds, 0)}s freshness`,
+            ? "수집 heartbeat 없음"
+            : `신선도 ${Math.max(preview.observability.ingest.freshnessSeconds, 0)}초`,
         activityLabel: buildIngestActivityLabel(preview.observability.ingest),
       },
       alertDelivery: {
@@ -193,11 +203,11 @@ export function buildAdminConsoleViewModel({
                 (preview.observability.alertDelivery.delivered24h /
                   preview.observability.alertDelivery.attempts24h) *
                   100,
-              )}% delivered`
-            : "No recent delivery attempts",
+              )}% 전달 성공`
+            : "최근 전송 시도 없음",
         lastFailureLabel: preview.observability.alertDelivery.lastFailureAt
-          ? `Last failure ${formatRelativeTimestamp(preview.observability.alertDelivery.lastFailureAt)}`
-          : "No recent delivery failures",
+          ? `마지막 실패 ${formatRelativeTimestamp(preview.observability.alertDelivery.lastFailureAt)}`
+          : "최근 전송 실패 없음",
       },
       walletTracking: {
         ...preview.observability.walletTracking,
@@ -209,8 +219,8 @@ export function buildAdminConsoleViewModel({
         ),
         suppressedLabel:
           preview.observability.walletTracking.suppressedCount > 0
-            ? `${preview.observability.walletTracking.suppressedCount} currently suppressed`
-            : "No active tracking suppressions",
+            ? `${preview.observability.walletTracking.suppressedCount}개 억제 적용 중`
+            : "활성 추적 억제 없음",
       },
       trackingSubscriptions: {
         ...preview.observability.trackingSubscriptions,
@@ -227,8 +237,8 @@ export function buildAdminConsoleViewModel({
           preview.observability.trackingSubscriptions,
         ),
         lastEventLabel: preview.observability.trackingSubscriptions.lastEventAt
-          ? `Last subscription event ${formatRelativeTimestamp(preview.observability.trackingSubscriptions.lastEventAt)}`
-          : "No recent subscription events",
+          ? `마지막 구독 이벤트 ${formatRelativeTimestamp(preview.observability.trackingSubscriptions.lastEventAt)}`
+          : "최근 구독 이벤트 없음",
       },
       queueDepth: {
         ...preview.observability.queueDepth,
@@ -252,8 +262,8 @@ export function buildAdminConsoleViewModel({
           preview.observability.backfillHealth,
         ),
         lastSuccessLabel: preview.observability.backfillHealth.lastSuccessAt
-          ? `Last successful drain ${formatRelativeTimestamp(preview.observability.backfillHealth.lastSuccessAt)}`
-          : "No successful backfill drain recorded yet",
+          ? `마지막 성공 drain ${formatRelativeTimestamp(preview.observability.backfillHealth.lastSuccessAt)}`
+          : "성공한 backfill drain 기록 없음",
       },
       staleRefresh: {
         ...preview.observability.staleRefresh,
@@ -268,8 +278,8 @@ export function buildAdminConsoleViewModel({
           preview.observability.staleRefresh,
         ),
         lastHitLabel: preview.observability.staleRefresh.lastHitAt
-          ? `Last productive stale refresh ${formatRelativeTimestamp(preview.observability.staleRefresh.lastHitAt)}`
-          : "No productive stale refresh recorded yet",
+          ? `마지막 유효 stale refresh ${formatRelativeTimestamp(preview.observability.staleRefresh.lastHitAt)}`
+          : "유효 stale refresh 기록 없음",
       },
       recentRuns: preview.observability.recentRuns.map((item) => ({
         ...item,
@@ -280,14 +290,21 @@ export function buildAdminConsoleViewModel({
               ? "violet"
               : "amber",
         successLabel: item.lastSuccessAt
-          ? `${item.minutesSinceSuccess}m since success`
-          : "No successful run yet",
+          ? `${item.minutesSinceSuccess}분 전 성공`
+          : "성공한 실행 없음",
       })),
       recentFailures: preview.observability.recentFailures.map((item) => ({
         ...item,
         title: `${item.source} · ${item.kind}`,
       })),
     },
+    domesticPrelisting: preview.domesticPrelisting.map((item) => ({
+      ...item,
+      listingLabel: buildDomesticListingLabel(item),
+      activityLabel: `${item.activeWalletCount}개 지갑 · 추적 ${item.trackedWalletCount}개 · 24시간 ${item.transferCount24h}건`,
+      amountLabel: `7일 누적 ${formatTokenAmount(item.totalAmount)} ${item.tokenSymbol} · 최대 단일 이동 ${formatTokenAmount(item.largestTransferAmount)} ${item.tokenSymbol}`,
+      recencyLabel: formatRelativeTimestamp(item.latestObservedAt),
+    })),
     curatedLists: preview.curatedLists.map((item) => ({
       ...item,
       tagLabel: item.tags.length > 0 ? item.tags.join(", ") : "untagged",
@@ -356,6 +373,7 @@ export function AdminConsoleScreen({
     0,
     4,
   );
+  const domesticPrelistingPreview = viewModel.domesticPrelisting.slice(0, 6);
   const curatedListsPreview = viewModel.curatedLists.slice(0, 4);
   const auditLogsPreview = viewModel.auditLogs.slice(0, 5);
   const backtestChecksPreview = currentPreview.backtestOps.checks.slice(0, 5);
@@ -436,21 +454,21 @@ export function AdminConsoleScreen({
 
           <div className="detail-identity">
             <div>
-              <span>Tracked wallets</span>
+              <span>추적 지갑</span>
               <strong>
                 {viewModel.observability.walletTracking.trackedCount}
               </strong>
             </div>
             <div>
-              <span>Queue backlog</span>
+              <span>큐 적체</span>
               <strong>{totalQueueDepth}</strong>
             </div>
             <div>
-              <span>Subscriptions</span>
+              <span>구독 수</span>
               <strong>{totalSubscriptions}</strong>
             </div>
             <div>
-              <span>Stale refresh hit rate</span>
+              <span>Stale refresh 적중률</span>
               <strong>
                 {buildCompactStaleRefreshRate(
                   viewModel.observability.staleRefresh,
@@ -458,22 +476,22 @@ export function AdminConsoleScreen({
               </strong>
             </div>
             <div>
-              <span>Configured checks</span>
+              <span>설정된 점검</span>
               <strong>{configuredCheckCount}</strong>
             </div>
             <div>
-              <span>Active suppressions</span>
+              <span>활성 억제</span>
               <strong>{activeSuppressionCount}</strong>
             </div>
             <div>
-              <span>Recent failures</span>
+              <span>최근 실패</span>
               <strong>{viewModel.observability.recentFailures.length}</strong>
             </div>
           </div>
 
           <div className="detail-actions">
             <a className="search-cta" href="/">
-              Back to home
+              홈으로
             </a>
             <span className="detail-route-copy">{viewModel.labelsRoute}</span>
           </div>
@@ -486,24 +504,24 @@ export function AdminConsoleScreen({
 
         <section className="admin-console-snapshot-grid">
           <article className="preview-card detail-card admin-console-stat-card">
-            <span className="preview-kicker">Core health</span>
+            <span className="preview-kicker">핵심 상태</span>
             <strong>{viewModel.observability.ingest.freshnessLabel}</strong>
             <p>{viewModel.observability.ingest.activityLabel}</p>
           </article>
           <article className="preview-card detail-card admin-console-stat-card">
-            <span className="preview-kicker">Queue</span>
-            <strong>{totalQueueDepth} jobs queued</strong>
+            <span className="preview-kicker">큐</span>
+            <strong>{totalQueueDepth}건 대기 중</strong>
             <p>{viewModel.observability.queueDepth.priorityLabel}</p>
           </article>
           <article className="preview-card detail-card admin-console-stat-card">
-            <span className="preview-kicker">Backfill throughput</span>
+            <span className="preview-kicker">Backfill 처리량</span>
             <strong>
-              {viewModel.observability.backfillHealth.jobs24h} jobs / 24h
+              {viewModel.observability.backfillHealth.jobs24h}건 / 24시간
             </strong>
             <p>{viewModel.observability.backfillHealth.throughputLabel}</p>
           </article>
           <article className="preview-card detail-card admin-console-stat-card">
-            <span className="preview-kicker">Subscriptions</span>
+            <span className="preview-kicker">구독</span>
             <strong>
               {viewModel.observability.trackingSubscriptions.activeRatioLabel}
             </strong>
@@ -516,7 +534,7 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Observability</span>
+                  <span className="preview-kicker">관측 지표</span>
                   <h2>{viewModel.observabilityRoute}</h2>
                 </div>
                 <div className="preview-state">
@@ -526,17 +544,17 @@ export function AdminConsoleScreen({
                 </div>
               </div>
               <div className="preview-status">
-                <span className="preview-kicker">Operator snapshot</span>
+                <span className="preview-kicker">운영 스냅샷</span>
                 <p>{viewModel.observability.ingest.activityLabel}</p>
                 <p>{viewModel.observability.ingest.freshnessLabel}</p>
               </div>
               <div className="admin-console-observability-grid">
                 <article className="alert-inbox-item">
                   <div className="alert-inbox-topline">
-                    <strong>Wallet tracking</strong>
+                    <strong>지갑 추적</strong>
                     <Badge tone="teal">
-                      {viewModel.observability.walletTracking.trackedCount}{" "}
-                      tracked
+                      {viewModel.observability.walletTracking.trackedCount}개
+                      추적 중
                     </Badge>
                   </div>
                   <p>
@@ -552,7 +570,7 @@ export function AdminConsoleScreen({
                 </article>
                 <article className="alert-inbox-item">
                   <div className="alert-inbox-topline">
-                    <strong>Tracking subscriptions</strong>
+                    <strong>추적 구독</strong>
                     <Badge
                       tone={
                         viewModel.observability.trackingSubscriptions.healthTone
@@ -562,7 +580,7 @@ export function AdminConsoleScreen({
                         viewModel.observability.trackingSubscriptions
                           .activeCount
                       }{" "}
-                      active
+                      활성
                     </Badge>
                   </div>
                   <p>
@@ -583,11 +601,11 @@ export function AdminConsoleScreen({
                 </article>
                 <article className="alert-inbox-item">
                   <div className="alert-inbox-topline">
-                    <strong>Queue depth</strong>
+                    <strong>큐 깊이</strong>
                     <Badge
                       tone={viewModel.observability.queueDepth.backlogTone}
                     >
-                      {totalQueueDepth} queued
+                      {totalQueueDepth}건 대기
                     </Badge>
                   </div>
                   <p>{viewModel.observability.queueDepth.backlogLabel}</p>
@@ -595,10 +613,10 @@ export function AdminConsoleScreen({
                 </article>
                 <article className="alert-inbox-item">
                   <div className="alert-inbox-topline">
-                    <strong>Backfill throughput</strong>
+                    <strong>Backfill 처리량</strong>
                     <Badge tone="teal">
-                      {viewModel.observability.backfillHealth.jobs24h} jobs /
-                      24h
+                      {viewModel.observability.backfillHealth.jobs24h}건 /
+                      24시간
                     </Badge>
                   </div>
                   <p>
@@ -615,8 +633,8 @@ export function AdminConsoleScreen({
                     <Badge
                       tone={viewModel.observability.staleRefresh.healthTone}
                     >
-                      {viewModel.observability.staleRefresh.productive24h}{" "}
-                      productive
+                      {viewModel.observability.staleRefresh.productive24h}건
+                      유효
                     </Badge>
                   </div>
                   <p>{viewModel.observability.staleRefresh.hitRateLabel}</p>
@@ -624,12 +642,12 @@ export function AdminConsoleScreen({
                 </article>
                 <article className="alert-inbox-item">
                   <div className="alert-inbox-topline">
-                    <strong>Alert delivery</strong>
+                    <strong>알림 전송</strong>
                     <Badge
                       tone={viewModel.observability.alertDelivery.healthTone}
                     >
-                      {viewModel.observability.alertDelivery.retryableCount}{" "}
-                      retryable
+                      {viewModel.observability.alertDelivery.retryableCount}건
+                      재시도 가능
                     </Badge>
                   </div>
                   <p>
@@ -645,11 +663,11 @@ export function AdminConsoleScreen({
                 <div className="admin-console-subsection">
                   <div className="section-header">
                     <div>
-                      <span className="preview-kicker">Provider health</span>
-                      <h2>Provider usage</h2>
+                      <span className="preview-kicker">프로바이더 상태</span>
+                      <h2>프로바이더 사용량</h2>
                     </div>
                     <Badge tone="teal">
-                      {viewModel.observability.providerUsage.length} providers
+                      {viewModel.observability.providerUsage.length}개
                     </Badge>
                   </div>
                   <div className="alert-inbox-list">
@@ -660,8 +678,7 @@ export function AdminConsoleScreen({
                           <Badge tone={item.tone}>{item.status}</Badge>
                         </div>
                         <p>
-                          {item.used24h} calls · {item.avgLatencyMs}ms avg
-                          latency
+                          호출 {item.used24h}회 · 평균 {item.avgLatencyMs}ms
                         </p>
                         <p>{item.errorRateLabel}</p>
                         <p>{item.lastSeenLabel}</p>
@@ -670,7 +687,7 @@ export function AdminConsoleScreen({
                     {renderPreviewOverflowNote(
                       viewModel.observability.providerUsage.length,
                       providerUsagePreview.length,
-                      "provider entries",
+                      "프로바이더 항목",
                     )}
                   </div>
                 </div>
@@ -678,11 +695,11 @@ export function AdminConsoleScreen({
                 <div className="admin-console-subsection">
                   <div className="section-header">
                     <div>
-                      <span className="preview-kicker">Execution health</span>
-                      <h2>Recent runs</h2>
+                      <span className="preview-kicker">실행 상태</span>
+                      <h2>최근 실행</h2>
                     </div>
                     <Badge tone="amber">
-                      {viewModel.observability.recentRuns.length} recent
+                      최근 {viewModel.observability.recentRuns.length}건
                     </Badge>
                   </div>
                   <div className="alert-inbox-list">
@@ -702,7 +719,7 @@ export function AdminConsoleScreen({
                     {renderPreviewOverflowNote(
                       viewModel.observability.recentRuns.length,
                       recentRunsPreview.length,
-                      "run entries",
+                      "실행 항목",
                     )}
                   </div>
                 </div>
@@ -711,11 +728,11 @@ export function AdminConsoleScreen({
               <div className="admin-console-subsection">
                 <div className="section-header">
                   <div>
-                    <span className="preview-kicker">Attention queue</span>
-                    <h2>Recent failures</h2>
+                    <span className="preview-kicker">주의 필요</span>
+                    <h2>최근 실패</h2>
                   </div>
                   <Badge tone="violet">
-                    {viewModel.observability.recentFailures.length} failures
+                    실패 {viewModel.observability.recentFailures.length}건
                   </Badge>
                 </div>
                 <div className="alert-inbox-list">
@@ -736,7 +753,7 @@ export function AdminConsoleScreen({
                   {renderPreviewOverflowNote(
                     viewModel.observability.recentFailures.length,
                     recentFailuresPreview.length,
-                    "failure entries",
+                    "실패 항목",
                   )}
                 </div>
               </div>
@@ -745,15 +762,68 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Backtest Ops</span>
-                  <h2>{currentPreview.backtestOps.route}</h2>
+                  <span className="preview-kicker">국내 미상장 모니터</span>
+                  <h2>{viewModel.domesticPrelistingRoute}</h2>
                 </div>
                 <div className="preview-state">
-                  <Badge tone="amber">{configuredCheckCount} configured</Badge>
+                  <Badge tone="amber">
+                    {viewModel.domesticPrelisting.length}개 후보
+                  </Badge>
                 </div>
               </div>
               <div className="preview-status">
-                <span className="preview-kicker">Manual validation</span>
+                <span className="preview-kicker">후보 기준</span>
+                <p>
+                  업비트와 빗썸 상장 레지스트리에는 없지만 최근 7일 내 온체인
+                  이동이 잡힌 토큰을 추적 지갑 관여도와 활동량 기준으로
+                  정렬합니다.
+                </p>
+              </div>
+              <div className="alert-inbox-list">
+                {domesticPrelistingPreview.map((item) => (
+                  <article
+                    key={`${item.chain}:${item.tokenAddress}`}
+                    className="alert-inbox-item"
+                  >
+                    <div className="alert-inbox-topline">
+                      <strong>
+                        {item.tokenSymbol} · {item.chain}
+                      </strong>
+                      <Badge tone="amber">{item.listingLabel}</Badge>
+                    </div>
+                    <p>{item.activityLabel}</p>
+                    <p>{item.amountLabel}</p>
+                    <div className="cluster-member-meta">
+                      <span>{item.recencyLabel}</span>
+                      <span>{item.tokenAddress}</span>
+                    </div>
+                  </article>
+                ))}
+                {viewModel.domesticPrelisting.length === 0 ? (
+                  <p className="admin-console-preview-note">
+                    아직 조건에 맞는 국내 미상장 후보가 없습니다.
+                  </p>
+                ) : null}
+                {renderPreviewOverflowNote(
+                  viewModel.domesticPrelisting.length,
+                  domesticPrelistingPreview.length,
+                  "후보",
+                )}
+              </div>
+            </article>
+
+            <article className="preview-card detail-card">
+              <div className="preview-header">
+                <div>
+                  <span className="preview-kicker">백테스트 작업</span>
+                  <h2>{currentPreview.backtestOps.route}</h2>
+                </div>
+                <div className="preview-state">
+                  <Badge tone="amber">{configuredCheckCount}개 설정됨</Badge>
+                </div>
+              </div>
+              <div className="preview-status">
+                <span className="preview-kicker">수동 검증</span>
                 <p>{currentPreview.backtestOps.statusMessage}</p>
               </div>
               <div className="alert-inbox-list">
@@ -788,8 +858,8 @@ export function AdminConsoleScreen({
                         type="button"
                       >
                         {pendingKey === `backtest:${item.key}`
-                          ? "Running..."
-                          : "Run check"}
+                          ? "실행 중..."
+                          : "점검 실행"}
                       </button>
                     </div>
                   </article>
@@ -797,7 +867,7 @@ export function AdminConsoleScreen({
                 {renderPreviewOverflowNote(
                   currentPreview.backtestOps.checks.length,
                   backtestChecksPreview.length,
-                  "checks",
+                  "점검",
                 )}
                 {latestBacktestResult ? (
                   <article className="alert-inbox-item">
@@ -827,59 +897,59 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Suppressions</span>
+                  <span className="preview-kicker">억제 규칙</span>
                   <h2>{viewModel.suppressionsRoute}</h2>
                 </div>
                 <div className="preview-state">
-                  <Badge tone="amber">{activeSuppressionCount} active</Badge>
+                  <Badge tone="amber">{activeSuppressionCount}개 활성</Badge>
                 </div>
               </div>
               <div className="preview-status">
-                <span className="preview-kicker">Human override</span>
+                <span className="preview-kicker">수동 오버라이드</span>
                 <p>
-                  Add a suppression to override downstream alerts or temporarily
-                  mute a target without touching the database.
+                  데이터베이스를 직접 건드리지 않고도 특정 대상의 후속 알림을
+                  억제하거나 잠시 음소거할 수 있습니다.
                 </p>
               </div>
               <div className="cluster-action-list">
                 <label className="detail-route-copy">
-                  Scope
+                  범위
                   <select
                     value={suppressionScope}
                     onChange={(event) =>
                       setSuppressionScope(event.target.value)
                     }
                   >
-                    <option value="wallet">wallet</option>
-                    <option value="cluster">cluster</option>
-                    <option value="entity">entity</option>
-                    <option value="alert_rule">alert_rule</option>
+                    <option value="wallet">지갑</option>
+                    <option value="cluster">클러스터</option>
+                    <option value="entity">엔티티</option>
+                    <option value="alert_rule">알림 규칙</option>
                   </select>
                 </label>
                 <label className="detail-route-copy">
-                  Target
+                  대상
                   <input
                     value={suppressionTarget}
                     onChange={(event) =>
                       setSuppressionTarget(event.target.value)
                     }
-                    placeholder="wallet address, cluster id, entity key..."
+                    placeholder="지갑 주소, 클러스터 ID, 엔티티 키..."
                     type="text"
                   />
                 </label>
                 <label className="detail-route-copy">
-                  Reason
+                  사유
                   <input
                     value={suppressionReason}
                     onChange={(event) =>
                       setSuppressionReason(event.target.value)
                     }
-                    placeholder="Explain why this override is needed"
+                    placeholder="왜 이 오버라이드가 필요한지 입력하세요"
                     type="text"
                   />
                 </label>
                 <label className="detail-route-copy">
-                  Expires at
+                  만료 시각
                   <input
                     value={suppressionExpiresAt}
                     onChange={(event) =>
@@ -900,8 +970,8 @@ export function AdminConsoleScreen({
                   type="button"
                 >
                   {pendingKey === "suppression:create"
-                    ? "Saving..."
-                    : "Add suppression"}
+                    ? "저장 중..."
+                    : "억제 추가"}
                 </button>
               </div>
               <div className="alert-inbox-list">
@@ -910,7 +980,7 @@ export function AdminConsoleScreen({
                     <div className="alert-inbox-topline">
                       <strong>{item.scope}</strong>
                       <Badge tone={item.active ? "amber" : "teal"}>
-                        {item.active ? "Active" : "Inactive"}
+                        {item.active ? "활성" : "비활성"}
                       </Badge>
                     </div>
                     <p>{item.target}</p>
@@ -930,8 +1000,8 @@ export function AdminConsoleScreen({
                         type="button"
                       >
                         {pendingKey === `suppression:${item.id}:delete`
-                          ? "Removing..."
-                          : "Remove"}
+                          ? "삭제 중..."
+                          : "삭제"}
                       </button>
                     </div>
                   </article>
@@ -939,7 +1009,7 @@ export function AdminConsoleScreen({
                 {renderPreviewOverflowNote(
                   viewModel.suppressions.length,
                   suppressionsPreview.length,
-                  "suppressions",
+                  "억제 규칙",
                 )}
               </div>
             </article>
@@ -947,7 +1017,7 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Provider quota</span>
+                  <span className="preview-kicker">프로바이더 한도</span>
                   <h2>{viewModel.quotasRoute}</h2>
                 </div>
               </div>
@@ -960,18 +1030,18 @@ export function AdminConsoleScreen({
                     </div>
                     <p>{item.usageLabel}</p>
                     <p>
-                      {item.usagePercent.toFixed(0)}% used ·{" "}
-                      {item.reservedPercent.toFixed(0)}% reserved
+                      사용 {item.usagePercent.toFixed(0)}% · 예약{" "}
+                      {item.reservedPercent.toFixed(0)}%
                     </p>
                     <p>{item.headroomLabel}</p>
                     <p>{item.windowLabel}</p>
-                    <p>Last checked {item.lastCheckedAt}</p>
+                    <p>마지막 확인 {item.lastCheckedAt}</p>
                   </article>
                 ))}
                 {renderPreviewOverflowNote(
                   viewModel.quotas.length,
                   quotasPreview.length,
-                  "quota entries",
+                  "쿼터 항목",
                 )}
               </div>
             </article>
@@ -979,15 +1049,15 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Labels</span>
+                  <span className="preview-kicker">라벨</span>
                   <h2>{viewModel.labelsRoute}</h2>
                 </div>
                 <div className="preview-state">
-                  <Badge tone="teal">{viewModel.labels.length} labels</Badge>
+                  <Badge tone="teal">{viewModel.labels.length}개</Badge>
                 </div>
               </div>
               <div className="preview-status">
-                <span className="preview-kicker">Data status</span>
+                <span className="preview-kicker">데이터 상태</span>
                 <p>{viewModel.statusMessage}</p>
               </div>
               <div className="alert-inbox-list">
@@ -1003,7 +1073,7 @@ export function AdminConsoleScreen({
                 {renderPreviewOverflowNote(
                   viewModel.labels.length,
                   labelsPreview.length,
-                  "labels",
+                  "라벨",
                 )}
               </div>
             </article>
@@ -1011,13 +1081,11 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Curated lists</span>
+                  <span className="preview-kicker">큐레이션 목록</span>
                   <h2>{viewModel.curatedListsRoute}</h2>
                 </div>
                 <div className="preview-state">
-                  <Badge tone="teal">
-                    {viewModel.curatedLists.length} lists
-                  </Badge>
+                  <Badge tone="teal">{viewModel.curatedLists.length}개</Badge>
                 </div>
               </div>
               <div className="alert-inbox-list">
@@ -1027,9 +1095,9 @@ export function AdminConsoleScreen({
                       <strong>{item.name}</strong>
                       <Badge tone="teal">{item.tagLabel}</Badge>
                     </div>
-                    <p>{item.notes || "No notes attached yet."}</p>
+                    <p>{item.notes || "아직 메모가 없습니다."}</p>
                     <div className="cluster-member-meta">
-                      <Pill tone="amber">{item.itemCount} items</Pill>
+                      <Pill tone="amber">{item.itemCount}개 항목</Pill>
                       <span>{item.firstItemLabel}</span>
                       <span>{item.updatedAt}</span>
                     </div>
@@ -1038,7 +1106,7 @@ export function AdminConsoleScreen({
                 {renderPreviewOverflowNote(
                   viewModel.curatedLists.length,
                   curatedListsPreview.length,
-                  "curated lists",
+                  "큐레이션 목록",
                 )}
               </div>
             </article>
@@ -1046,13 +1114,11 @@ export function AdminConsoleScreen({
             <article className="preview-card detail-card">
               <div className="preview-header">
                 <div>
-                  <span className="preview-kicker">Audit logs</span>
+                  <span className="preview-kicker">감사 로그</span>
                   <h2>{viewModel.auditLogsRoute}</h2>
                 </div>
                 <div className="preview-state">
-                  <Badge tone="violet">
-                    {viewModel.auditLogs.length} entries
-                  </Badge>
+                  <Badge tone="violet">{viewModel.auditLogs.length}건</Badge>
                 </div>
               </div>
               <div className="alert-inbox-list">
@@ -1065,7 +1131,7 @@ export function AdminConsoleScreen({
                       <strong>{item.targetLabel}</strong>
                       <Badge tone={item.actionTone}>{item.actionLabel}</Badge>
                     </div>
-                    <p>{item.note || "No audit note attached."}</p>
+                    <p>{item.note || "감사 메모가 없습니다."}</p>
                     <div className="cluster-member-meta">
                       <span>{item.actor}</span>
                       <span>{item.createdAt}</span>
@@ -1075,7 +1141,7 @@ export function AdminConsoleScreen({
                 {renderPreviewOverflowNote(
                   viewModel.auditLogs.length,
                   auditLogsPreview.length,
-                  "audit entries",
+                  "감사 로그",
                 )}
               </div>
             </article>
@@ -1137,7 +1203,7 @@ function buildIngestActivityLabel(
     parts.push(`Webhook ${formatRelativeTimestamp(ingest.lastWebhookAt)}`);
   }
   if (parts.length === 0) {
-    return "No recent ingest activity";
+    return "최근 수집 활동 없음";
   }
   return parts.join(" · ");
 }
@@ -1151,20 +1217,20 @@ function buildTrackedCoverageLabel(
     walletTracking.labeledCount +
     walletTracking.scoredCount;
   if (totalTrackedSurface === 0) {
-    return "No tracked wallet workload yet";
+    return "아직 추적 지갑 워크로드가 없습니다";
   }
   const matureTracked =
     walletTracking.labeledCount + walletTracking.scoredCount;
-  return `${matureTracked}/${totalTrackedSurface} wallets are labeled or scored`;
+  return `${matureTracked}/${totalTrackedSurface}개 지갑이 라벨링 또는 점수화되었습니다`;
 }
 
 function buildStaleTrackingLabel(
   walletTracking: AdminConsolePreview["observability"]["walletTracking"],
 ): string {
   if (walletTracking.staleCount <= 0) {
-    return "No stale tracked wallets queued for refresh";
+    return "새로고침 대기 중인 stale 추적 지갑이 없습니다";
   }
-  return `${walletTracking.staleCount} tracked wallets are stale and should refresh soon`;
+  return `${walletTracking.staleCount}개 추적 지갑이 stale 상태로 곧 새로고침 대상입니다`;
 }
 
 function buildTrackingSubscriptionRatioLabel(
@@ -1176,81 +1242,106 @@ function buildTrackingSubscriptionRatioLabel(
     subscriptions.erroredCount +
     subscriptions.pausedCount;
   if (total <= 0) {
-    return "No tracking subscriptions registered yet";
+    return "등록된 추적 구독이 없습니다";
   }
-  return `${subscriptions.activeCount}/${total} subscriptions are active`;
+  return `${subscriptions.activeCount}/${total}개 구독이 활성 상태입니다`;
 }
 
 function buildTrackingSubscriptionPendingLabel(
   subscriptions: AdminConsolePreview["observability"]["trackingSubscriptions"],
 ): string {
   if (subscriptions.erroredCount > 0) {
-    return `${subscriptions.erroredCount} subscriptions need repair`;
+    return `${subscriptions.erroredCount}개 구독이 복구 필요 상태입니다`;
   }
   if (subscriptions.pendingCount > 0) {
-    return `${subscriptions.pendingCount} subscriptions still pending activation`;
+    return `${subscriptions.pendingCount}개 구독이 아직 활성 대기 중입니다`;
   }
   if (subscriptions.pausedCount > 0) {
-    return `${subscriptions.pausedCount} subscriptions are paused`;
+    return `${subscriptions.pausedCount}개 구독이 일시중지 상태입니다`;
   }
-  return "No pending subscription backlog";
+  return "대기 중인 구독 적체가 없습니다";
 }
 
 function buildQueueBacklogLabel(
   queueDepth: AdminConsolePreview["observability"]["queueDepth"],
 ): string {
-  return `${queueDepth.defaultDepth} jobs in default queue`;
+  return `기본 큐에 ${queueDepth.defaultDepth}건이 대기 중입니다`;
 }
 
 function buildPriorityQueueLabel(
   queueDepth: AdminConsolePreview["observability"]["queueDepth"],
 ): string {
   if (queueDepth.priorityDepth > 0) {
-    return `${queueDepth.priorityDepth} jobs waiting in priority queue`;
+    return `우선순위 큐에 ${queueDepth.priorityDepth}건이 대기 중입니다`;
   }
-  return "No priority queue backlog";
+  return "우선순위 큐 적체가 없습니다";
 }
 
 function buildBackfillThroughputLabel(
   backfillHealth: AdminConsolePreview["observability"]["backfillHealth"],
 ): string {
   if (backfillHealth.jobs24h <= 0) {
-    return "No successful backfill drain jobs in the last 24 hours";
+    return "지난 24시간 동안 성공한 backfill drain 작업이 없습니다";
   }
-  return `${backfillHealth.transactions24h} transactions and ${backfillHealth.activities24h} activities processed in the last 24 hours`;
+  return `지난 24시간 동안 트랜잭션 ${backfillHealth.transactions24h}건, 액티비티 ${backfillHealth.activities24h}건을 처리했습니다`;
 }
 
 function buildBackfillExpansionLabel(
   backfillHealth: AdminConsolePreview["observability"]["backfillHealth"],
 ): string {
   if (backfillHealth.expansions24h <= 0) {
-    return "No expansion jobs were enqueued from backfill in the last 24 hours";
+    return "지난 24시간 동안 backfill에서 파생된 확장 작업이 없습니다";
   }
-  return `${backfillHealth.expansions24h} expansion jobs were enqueued from successful drains`;
+  return `성공한 drain에서 ${backfillHealth.expansions24h}건의 확장 작업이 추가되었습니다`;
 }
 
 function buildStaleRefreshHitRateLabel(
   staleRefresh: AdminConsolePreview["observability"]["staleRefresh"],
 ): string {
   if (staleRefresh.attempts24h <= 0) {
-    return "No stale refresh attempts recorded in the last 24 hours";
+    return "지난 24시간 동안 stale refresh 시도가 없었습니다";
   }
   const hitRate = Math.round(
     (staleRefresh.productive24h / staleRefresh.attempts24h) * 100,
   );
-  return `${staleRefresh.productive24h}/${staleRefresh.attempts24h} stale refresh attempts were productive (${hitRate}% hit rate)`;
+  return `${staleRefresh.attempts24h}건 중 ${staleRefresh.productive24h}건이 유효했습니다 (${hitRate}% 적중률)`;
 }
 
 function buildCompactStaleRefreshRate(
   staleRefresh: AdminConsolePreview["observability"]["staleRefresh"],
 ): string {
   if (staleRefresh.attempts24h <= 0) {
-    return "No runs";
+    return "기록 없음";
   }
   const hitRate = Math.round(
     (staleRefresh.productive24h / staleRefresh.attempts24h) * 100,
   );
   return `${hitRate}%`;
+}
+
+function buildDomesticListingLabel(
+  item: AdminConsolePreview["domesticPrelisting"][number],
+): string {
+  if (!item.listedOnUpbit && !item.listedOnBithumb) {
+    return "업비트/빗썸 미상장";
+  }
+  if (!item.listedOnUpbit) {
+    return "업비트 미상장";
+  }
+  if (!item.listedOnBithumb) {
+    return "빗썸 미상장";
+  }
+  return "상장 확인 필요";
+}
+
+function formatTokenAmount(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: parsed >= 1000 ? 0 : 2,
+  }).format(parsed);
 }
 
 function renderPreviewOverflowNote(
@@ -1264,7 +1355,7 @@ function renderPreviewOverflowNote(
 
   return (
     <p className="admin-console-preview-note">
-      Showing {previewCount} of {totalCount} {label}.
+      총 {totalCount}개 {label} 중 {previewCount}개만 미리 보여주고 있습니다.
     </p>
   );
 }
@@ -1277,14 +1368,14 @@ function formatRelativeTimestamp(value: string): string {
   const deltaMs = Date.now() - date.getTime();
   const deltaMinutes = Math.max(Math.round(deltaMs / 60000), 0);
   if (deltaMinutes < 1) {
-    return "just now";
+    return "방금 전";
   }
   if (deltaMinutes < 60) {
-    return `${deltaMinutes}m ago`;
+    return `${deltaMinutes}분 전`;
   }
   const deltaHours = Math.round(deltaMinutes / 60);
   if (deltaHours < 24) {
-    return `${deltaHours}h ago`;
+    return `${deltaHours}시간 전`;
   }
-  return `${Math.round(deltaHours / 24)}d ago`;
+  return `${Math.round(deltaHours / 24)}일 전`;
 }

@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { buildForwardedAuthHeaders } from "../../lib/request-headers";
 
 import {
+  loadDomesticPrelistingTokenCards,
   loadFeaturedWalletCards,
   loadRecentHighPriorityCards,
   loadSmartMoneyCards,
@@ -22,8 +23,9 @@ export default async function DiscoverPage() {
   const requestHeaders = buildForwardedAuthHeaders(await headers());
   const headerOpts = requestHeaders ? { requestHeaders } : {};
 
-  const [featuredCards, tracked, smartMoney, recentActive] =
+  const [prelisting, featuredCards, tracked, smartMoney, recentActive] =
     await Promise.all([
+      loadDomesticPrelistingTokenCards(headerOpts),
       loadFeaturedWalletCards(headerOpts),
       loadTrackedWalletCards(headerOpts),
       loadSmartMoneyCards(headerOpts),
@@ -35,6 +37,7 @@ export default async function DiscoverPage() {
   return (
     <DiscoverScreen
       {...(requestHeaders ? { requestHeaders } : {})}
+      initialPrelisting={prelisting}
       initialAuto={split.auto}
       initialVerified={split.verified}
       initialProbable={split.probable}

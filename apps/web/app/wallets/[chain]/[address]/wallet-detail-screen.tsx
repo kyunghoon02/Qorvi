@@ -595,7 +595,9 @@ function formatGraphKind(kind: string): string {
 }
 
 function formatFlowLensDirectionLabel(direction: string | undefined): string {
-  const normalized = String(direction ?? "").trim().toLowerCase();
+  const normalized = String(direction ?? "")
+    .trim()
+    .toLowerCase();
   if (!normalized) {
     return "";
   }
@@ -665,7 +667,9 @@ function buildFlowLensContextSummary(
   }
 
   const segments: string[] = [];
-  const directionLabel = formatFlowLensDirectionLabel(flowLensContext.direction);
+  const directionLabel = formatFlowLensDirectionLabel(
+    flowLensContext.direction,
+  );
   const observedAt = formatFlowLensObservedAt(flowLensContext.flowMinute);
   const amount = formatFlowLensNumeric(flowLensContext.amount);
   const approxUsd = formatFlowLensUsd(flowLensContext.approxUsd);
@@ -2097,7 +2101,9 @@ export function WalletDetailScreen({
             <div className="preview-header">
               <div>
                 <h2>Interactive analyst</h2>
-                <span className="preview-kicker">AI-powered wallet intelligence</span>
+                <span className="preview-kicker">
+                  AI-powered wallet intelligence
+                </span>
               </div>
               <div className="preview-state">
                 <Badge tone="violet">
@@ -2114,15 +2120,27 @@ export function WalletDetailScreen({
                     <Fragment key={`${turn.question}:${index}`}>
                       <div className="analyst-message-user">
                         <strong>You</strong>
-                        <div className="analyst-message-content">{turn.question}</div>
+                        <div className="analyst-message-content">
+                          {turn.question}
+                        </div>
                       </div>
 
                       <div className="analyst-message-ai">
                         <strong>Analyst</strong>
                         <div className="analyst-message-content">
-                          <p style={{ fontWeight: 600, fontSize: "1.05rem", marginBottom: "8px" }}>{turn.headline}</p>
+                          <p
+                            style={{
+                              fontWeight: 600,
+                              fontSize: "1.05rem",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            {turn.headline}
+                          </p>
                           {turn.conclusion.length > 0 && (
-                            <p style={{ marginBottom: "12px" }}>{turn.conclusion.join(" ")}</p>
+                            <p style={{ marginBottom: "12px" }}>
+                              {turn.conclusion.join(" ")}
+                            </p>
                           )}
 
                           <div className="analyst-message-findings">
@@ -2135,13 +2153,17 @@ export function WalletDetailScreen({
                             {turn.alternativeExplanations.length > 0 && (
                               <div className="analyst-finding-row">
                                 <span>Alternatives</span>
-                                <div>{turn.alternativeExplanations.join(" · ")}</div>
+                                <div>
+                                  {turn.alternativeExplanations.join(" · ")}
+                                </div>
                               </div>
                             )}
                             {turn.toolTrace.length > 0 && (
                               <div className="analyst-finding-row">
                                 <span>Analysis</span>
-                                <div style={{ opacity: 0.7, fontSize: "0.8rem" }}>
+                                <div
+                                  style={{ opacity: 0.7, fontSize: "0.8rem" }}
+                                >
                                   Used: {turn.toolTrace.join(", ")}
                                 </div>
                               </div>
@@ -2192,7 +2214,9 @@ export function WalletDetailScreen({
               <div className="analyst-input-wrapper">
                 <input
                   className="analyst-chat-input"
-                  onChange={(event) => setAnalystQuestion(event.currentTarget.value)}
+                  onChange={(event) =>
+                    setAnalystQuestion(event.currentTarget.value)
+                  }
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -2210,15 +2234,29 @@ export function WalletDetailScreen({
                   type="button"
                   aria-label="Send question"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"></line>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  <svg
+                    aria-hidden="true"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
                 </button>
               </div>
 
               {walletAnalysisError && (
-                <p className="detail-route-copy" style={{ color: "var(--amber)", marginTop: "-10px" }} aria-live="polite">
+                <p
+                  className="detail-route-copy"
+                  style={{ color: "var(--amber)", marginTop: "-10px" }}
+                  aria-live="polite"
+                >
                   {walletAnalysisError}
                 </p>
               )}
@@ -3537,8 +3575,7 @@ export function resolveGraphExpansionState({
     canExpand: true,
     expansionKey,
     reason:
-      selectedNode.kind === "wallet" &&
-      hopsUsed >= MAX_GRAPH_EXPANSION_HOPS
+      selectedNode.kind === "wallet" && hopsUsed >= MAX_GRAPH_EXPANSION_HOPS
         ? "Expand this wallet neighborhood."
         : describeGraphExpansionReason(selectedNode.kind),
     budgetLabel,

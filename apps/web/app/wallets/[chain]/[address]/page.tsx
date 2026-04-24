@@ -69,17 +69,16 @@ export default async function WalletDetailPage({
   ]);
   const shouldDeriveGraphFromSummary =
     loadedGraph.mode === "unavailable" && summary.mode === "live";
-  const graph =
-    shouldDeriveGraphFromSummary
-      ? deriveWalletGraphPreviewFromSummary({
-          request: {
-            ...request,
-            depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
-          },
-          summary,
-          fallback: loadedGraph,
-        })
-      : loadedGraph;
+  const graph = shouldDeriveGraphFromSummary
+    ? deriveWalletGraphPreviewFromSummary({
+        request: {
+          ...request,
+          depthRequested: DEFAULT_WALLET_GRAPH_DEPTH,
+        },
+        summary,
+        fallback: loadedGraph,
+      })
+    : loadedGraph;
 
   if (
     summary.mode === "unavailable" ||

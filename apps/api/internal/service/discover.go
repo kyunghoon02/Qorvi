@@ -25,6 +25,28 @@ type DiscoverFeaturedWalletResponse struct {
 	Items []DiscoverFeaturedWallet `json:"items"`
 }
 
+type DiscoverDomesticPrelistingCandidate struct {
+	Chain                     string `json:"chain"`
+	TokenAddress              string `json:"tokenAddress"`
+	TokenSymbol               string `json:"tokenSymbol"`
+	NormalizedAssetKey        string `json:"normalizedAssetKey"`
+	TransferCount7d           int    `json:"transferCount7d"`
+	TransferCount24h          int    `json:"transferCount24h"`
+	ActiveWalletCount         int    `json:"activeWalletCount"`
+	TrackedWalletCount        int    `json:"trackedWalletCount"`
+	DistinctCounterpartyCount int    `json:"distinctCounterpartyCount"`
+	TotalAmount               string `json:"totalAmount"`
+	LargestTransferAmount     string `json:"largestTransferAmount"`
+	LatestObservedAt          string `json:"latestObservedAt"`
+	RepresentativeWalletChain string `json:"representativeWalletChain,omitempty"`
+	RepresentativeWallet      string `json:"representativeWallet,omitempty"`
+	RepresentativeLabel       string `json:"representativeLabel,omitempty"`
+}
+
+type DiscoverDomesticPrelistingResponse struct {
+	Items []DiscoverDomesticPrelistingCandidate `json:"items"`
+}
+
 type DiscoverWalletSeedReader interface {
 	ListAdminCuratedWalletSeeds(context.Context) ([]db.CuratedWalletSeed, error)
 }
@@ -33,26 +55,35 @@ type DiscoverAutomaticWalletReader interface {
 	ListAutoDiscoverWallets(context.Context, int) ([]db.AutoDiscoverWallet, error)
 }
 
+type DiscoverDomesticPrelistingReader interface {
+	ListDomesticPrelistingCandidates(context.Context, time.Time, time.Time, int) ([]db.DomesticPrelistingCandidateRecord, error)
+}
+
 type DiscoverService struct {
-	Seeds          DiscoverWalletSeedReader
-	AutoCandidates DiscoverAutomaticWalletReader
+	Seeds              DiscoverWalletSeedReader
+	AutoCandidates     DiscoverAutomaticWalletReader
+	DomesticPrelisting DiscoverDomesticPrelistingReader
+	Now                func() time.Time
 }
 
 const discoverFeaturedWalletTargetCount = 12
 
-func NewDiscoverService(
-	seeds DiscoverWalletSeedReader,
-	autoCandidates ...DiscoverAutomaticWalletReader,
-) *DiscoverService {
-	var autoReader DiscoverAutomaticWalletReader
-	if len(autoCandidates) > 0 {
-		autoReader = autoCandidates[0]
+func NewDiscoverService(seeds DiscoverWalletSeedReader, readers ...any) *DiscoverService {
+	service := &DiscoverService{
+		Seeds: seeds,
+		Now:   time.Now,
 	}
 
-	return &DiscoverService{
-		Seeds:          seeds,
-		AutoCandidates: autoReader,
+	for _, reader := range readers {
+		switch typed := reader.(type) {
+		case DiscoverAutomaticWalletReader:
+			service.AutoCandidates = typed
+		case DiscoverDomesticPrelistingReader:
+			service.DomesticPrelisting = typed
+		}
 	}
+
+	return service
 }
 
 func (s *DiscoverService) ListFeaturedWallets(ctx context.Context) (DiscoverFeaturedWalletResponse, error) {
@@ -86,6 +117,59 @@ func (s *DiscoverService) ListFeaturedWallets(ctx context.Context) (DiscoverFeat
 	return DiscoverFeaturedWalletResponse{
 		Items: featured,
 	}, nil
+}
+
+func (s *DiscoverService) ListDomesticPrelistingCandidates(
+	ctx context.Context,
+	limit int,
+) (DiscoverDomesticPrelistingResponse, error) {
+	if s == nil || s.DomesticPrelisting == nil {
+		return DiscoverDomesticPrelistingResponse{
+			Items: []DiscoverDomesticPrelistingCandidate{},
+		}, nil
+	}
+
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+
+	items, err := s.DomesticPrelisting.ListDomesticPrelistingCandidates(
+		ctx,
+		now().UTC().Add(-7*24*time.Hour),
+		now().UTC().Add(-24*time.Hour),
+		limit,
+	)
+	if err != nil {
+		return DiscoverDomesticPrelistingResponse{}, err
+	}
+
+	result := DiscoverDomesticPrelistingResponse{
+		Items: make([]DiscoverDomesticPrelistingCandidate, 0, len(items)),
+	}
+	for _, item := range items {
+		candidate := DiscoverDomesticPrelistingCandidate{
+			Chain:                     strings.ToLower(strings.TrimSpace(item.Chain)),
+			TokenAddress:              strings.TrimSpace(item.TokenAddress),
+			TokenSymbol:               strings.TrimSpace(item.TokenSymbol),
+			NormalizedAssetKey:        strings.TrimSpace(item.NormalizedAssetKey),
+			TransferCount7d:           item.TransferCount7d,
+			TransferCount24h:          item.TransferCount24h,
+			ActiveWalletCount:         item.ActiveWalletCount,
+			TrackedWalletCount:        item.TrackedWalletCount,
+			DistinctCounterpartyCount: item.DistinctCounterpartyCount,
+			TotalAmount:               strings.TrimSpace(item.TotalAmount),
+			LargestTransferAmount:     strings.TrimSpace(item.LargestTransferAmount),
+			RepresentativeWalletChain: strings.ToLower(strings.TrimSpace(item.RepresentativeWalletChain)),
+			RepresentativeWallet:      strings.TrimSpace(item.RepresentativeWallet),
+			RepresentativeLabel:       strings.TrimSpace(item.RepresentativeLabel),
+		}
+		if !item.LatestObservedAt.IsZero() {
+			candidate.LatestObservedAt = item.LatestObservedAt.UTC().Format(time.RFC3339)
+		}
+		result.Items = append(result.Items, candidate)
+	}
+	return result, nil
 }
 
 func mapAdminCuratedWalletSeeds(items []db.CuratedWalletSeed) []DiscoverFeaturedWallet {

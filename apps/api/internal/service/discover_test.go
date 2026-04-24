@@ -33,6 +33,18 @@ func (r *fakeDiscoverAutoReader) ListAutoDiscoverWallets(_ context.Context, _ in
 	return append([]db.AutoDiscoverWallet(nil), r.items...), nil
 }
 
+type fakeDiscoverDomesticReader struct {
+	items []db.DomesticPrelistingCandidateRecord
+	err   error
+}
+
+func (r *fakeDiscoverDomesticReader) ListDomesticPrelistingCandidates(_ context.Context, _, _ time.Time, _ int) ([]db.DomesticPrelistingCandidateRecord, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return append([]db.DomesticPrelistingCandidateRecord(nil), r.items...), nil
+}
+
 func TestDiscoverServiceListFeaturedWalletsUsesAdminCuratedSeeds(t *testing.T) {
 	t.Parallel()
 
@@ -171,5 +183,51 @@ func TestDiscoverServiceListFeaturedWalletsAppendsAutoDiscoveredWalletsWithoutDu
 	}
 	if response.Items[1].Category != "graph" {
 		t.Fatalf("unexpected auto-discovered category %q", response.Items[1].Category)
+	}
+}
+
+func TestDiscoverServiceListDomesticPrelistingCandidatesReturnsRepresentativeWallet(t *testing.T) {
+	t.Parallel()
+
+	svc := NewDiscoverService(
+		nil,
+		&fakeDiscoverDomesticReader{
+			items: []db.DomesticPrelistingCandidateRecord{
+				{
+					Chain:                     "EVM",
+					TokenAddress:              "0x3333333333333333333333333333333333333333",
+					TokenSymbol:               "NEWT",
+					NormalizedAssetKey:        "newt",
+					TransferCount7d:           42,
+					TransferCount24h:          11,
+					ActiveWalletCount:         7,
+					TrackedWalletCount:        3,
+					DistinctCounterpartyCount: 9,
+					TotalAmount:               "123456.78",
+					LargestTransferAmount:     "50000",
+					LatestObservedAt:          time.Date(2026, time.April, 18, 2, 0, 0, 0, time.UTC),
+					RepresentativeWalletChain: "evm",
+					RepresentativeWallet:      "0x1111111111111111111111111111111111111111",
+					RepresentativeLabel:       "Tracked whale",
+				},
+			},
+		},
+	)
+	svc.Now = func() time.Time {
+		return time.Date(2026, time.April, 18, 12, 0, 0, 0, time.UTC)
+	}
+
+	response, err := svc.ListDomesticPrelistingCandidates(context.Background(), 12)
+	if err != nil {
+		t.Fatalf("ListDomesticPrelistingCandidates returned error: %v", err)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(response.Items))
+	}
+	if response.Items[0].RepresentativeWallet != "0x1111111111111111111111111111111111111111" {
+		t.Fatalf("unexpected representative wallet %q", response.Items[0].RepresentativeWallet)
+	}
+	if response.Items[0].LatestObservedAt != "2026-04-18T02:00:00Z" {
+		t.Fatalf("unexpected observed_at %q", response.Items[0].LatestObservedAt)
 	}
 }

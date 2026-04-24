@@ -9,8 +9,9 @@ import { AuthButtons } from "../components/auth-buttons";
 import { LanguageSwitcher } from "../components/language-switcher";
 import { NetworkBackground } from "../components/network-background";
 
-import type { DiscoverWalletCard } from "./discover-data";
+import type { DiscoverTokenCard, DiscoverWalletCard } from "./discover-data";
 import {
+  loadDomesticPrelistingTokenCards,
   loadFeaturedWalletCards,
   loadRecentHighPriorityCards,
   loadSmartMoneyCards,
@@ -68,6 +69,57 @@ function DiscoverSection({
     </section>
   );
 }
+
+function DiscoverTokenSection({
+  title,
+  subtitle,
+  cards,
+  loading,
+  emptyLabel,
+}: {
+  title: string;
+  subtitle: string;
+  cards: DiscoverTokenCard[];
+  loading: boolean;
+  emptyLabel: string;
+}) {
+  return (
+    <section className="discover-section">
+      <div className="discover-section-header">
+        <div>
+          <h2 className="discover-section-title">{title}</h2>
+          <p className="discover-section-subtitle">{subtitle}</p>
+        </div>
+        <Pill tone="amber">{cards.length} tokens</Pill>
+      </div>
+
+      {loading ? (
+        <div className="discover-skeleton-grid">
+          {discoverSkeletonSlots.map((slot) => (
+            <div
+              key={`discover-token-skeleton-${title}-${slot}`}
+              className="discover-skeleton-card"
+            />
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
+        <div className="discover-empty">
+          <p>{emptyLabel}</p>
+        </div>
+      ) : (
+        <div className="discover-card-grid">
+          {cards.map((card) => (
+            <DiscoverTokenCardView key={card.id} card={card} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Card component
+// ---------------------------------------------------------------------------
 
 function DiscoverCard({
   card,
@@ -147,8 +199,78 @@ function DiscoverCard({
   );
 }
 
+function DiscoverTokenCardView({
+  card,
+}: {
+  card: DiscoverTokenCard;
+}) {
+  return (
+    <article className="discover-card">
+      <div className="discover-card-top">
+        <div className="discover-card-identity">
+          <strong className="discover-card-name">{card.tokenSymbol}</strong>
+          <span className="discover-card-chain">
+            <Pill tone={card.chain === "solana" ? "violet" : "teal"}>
+              {card.chainLabel}
+            </Pill>
+          </span>
+          <span className="discover-card-category">
+            <Pill tone="amber">{card.marketLabel}</Pill>
+          </span>
+        </div>
+      </div>
+
+      <p className="discover-card-address">
+        {compactAddress(card.tokenAddress)}
+      </p>
+      <p className="discover-card-desc">{card.description}</p>
+
+      <div className="discover-card-signals">
+        <span className="discover-card-signal">
+          <span className="discover-signal-dot discover-signal-dot--signal" />
+          {card.activityLabel}
+        </span>
+        <span className="discover-card-signal">
+          <span className="discover-signal-dot discover-signal-dot--finding" />
+          {card.flowLabel}
+        </span>
+        <span className="discover-card-signal">{card.counterpartyLabel}</span>
+        {card.observedAt ? (
+          <span className="discover-card-observed">
+            {formatRelativeTime(card.observedAt)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="discover-card-actions">
+        {card.representativeWalletHref ? (
+          <a
+            className="search-cta discover-card-cta"
+            href={card.representativeWalletHref}
+          >
+            {card.representativeWalletLabel
+              ? `Analyze ${card.representativeWalletLabel}`
+              : "Representative wallet"}
+          </a>
+        ) : null}
+        <a
+          className="search-cta discover-card-cta"
+          href={`/?q=${encodeURIComponent(card.tokenAddress)}`}
+        >
+          Search token
+        </a>
+      </div>
+    </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
+
 export function DiscoverScreen({
   requestHeaders,
+  initialPrelisting = [],
   initialAuto = [],
   initialVerified = [],
   initialProbable = [],
@@ -157,6 +279,7 @@ export function DiscoverScreen({
   initialRecentActive = [],
 }: {
   requestHeaders?: HeadersInit;
+  initialPrelisting?: DiscoverTokenCard[];
   initialAuto?: DiscoverWalletCard[];
   initialVerified?: DiscoverWalletCard[];
   initialProbable?: DiscoverWalletCard[];
@@ -164,16 +287,21 @@ export function DiscoverScreen({
   initialSmartMoney?: DiscoverWalletCard[];
   initialRecentActive?: DiscoverWalletCard[];
 }) {
+  const [prelisting, setPrelisting] =
+    useState<DiscoverTokenCard[]>(initialPrelisting);
   const [auto, setAuto] = useState<DiscoverWalletCard[]>(initialAuto);
-  const [verified, setVerified] = useState<DiscoverWalletCard[]>(initialVerified);
-  const [probable, setProbable] = useState<DiscoverWalletCard[]>(initialProbable);
+  const [verified, setVerified] =
+    useState<DiscoverWalletCard[]>(initialVerified);
+  const [probable, setProbable] =
+    useState<DiscoverWalletCard[]>(initialProbable);
   const [tracked, setTracked] = useState<DiscoverWalletCard[]>(initialTracked);
   const [smartMoney, setSmartMoney] =
     useState<DiscoverWalletCard[]>(initialSmartMoney);
   const [recentActive, setRecentActive] =
     useState<DiscoverWalletCard[]>(initialRecentActive);
   const [loading, setLoading] = useState(
-    initialAuto.length === 0 &&
+    initialPrelisting.length === 0 &&
+      initialAuto.length === 0 &&
       initialVerified.length === 0 &&
       initialProbable.length === 0 &&
       initialTracked.length === 0 &&
@@ -191,16 +319,25 @@ export function DiscoverScreen({
     void (async () => {
       const headerOpts = requestHeaders ? { requestHeaders } : {};
 
-      const [featuredResult, trackedResult, smartResult, recentResult] =
-        await Promise.allSettled([
-          loadFeaturedWalletCards(headerOpts),
-          loadTrackedWalletCards(headerOpts),
-          loadSmartMoneyCards(headerOpts),
-          loadRecentHighPriorityCards(headerOpts),
-        ]);
+      const [
+        prelistingResult,
+        featuredResult,
+        trackedResult,
+        smartResult,
+        recentResult,
+      ] = await Promise.allSettled([
+        loadDomesticPrelistingTokenCards(headerOpts),
+        loadFeaturedWalletCards(headerOpts),
+        loadTrackedWalletCards(headerOpts),
+        loadSmartMoneyCards(headerOpts),
+        loadRecentHighPriorityCards(headerOpts),
+      ]);
 
       if (!active) return;
 
+      setPrelisting(
+        prelistingResult.status === "fulfilled" ? prelistingResult.value : [],
+      );
       if (featuredResult.status === "fulfilled") {
         const split = splitFeaturedWalletCards(featuredResult.value);
         setAuto(split.auto);
@@ -211,8 +348,12 @@ export function DiscoverScreen({
         setVerified([]);
         setProbable([]);
       }
-      setTracked(trackedResult.status === "fulfilled" ? trackedResult.value : []);
-      setSmartMoney(smartResult.status === "fulfilled" ? smartResult.value : []);
+      setTracked(
+        trackedResult.status === "fulfilled" ? trackedResult.value : [],
+      );
+      setSmartMoney(
+        smartResult.status === "fulfilled" ? smartResult.value : [],
+      );
       setRecentActive(
         recentResult.status === "fulfilled" ? recentResult.value : [],
       );
@@ -282,6 +423,14 @@ export function DiscoverScreen({
         </div>
 
         <div className="discover-sections">
+          <DiscoverTokenSection
+            title="Domestic prelisting radar"
+            subtitle="Tokens not listed on Upbit or Bithumb yet, but already showing concentrated on-chain movement through tracked wallets"
+            cards={prelisting}
+            loading={loading}
+            emptyLabel="Domestic prelisting candidates will appear once listing sync and token-flow aggregation have enough live data."
+          />
+
           <DiscoverSection
             title="Auto-discovered wallets"
             subtitle="Warm candidates already surfaced by search, graph expansion, and ranking pipelines"

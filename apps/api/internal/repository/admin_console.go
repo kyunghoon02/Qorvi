@@ -131,6 +131,23 @@ type AdminFailureSnapshot struct {
 	Details    map[string]any
 }
 
+type AdminDomesticPrelistingCandidate struct {
+	Chain                     string
+	TokenAddress              string
+	TokenSymbol               string
+	NormalizedAssetKey        string
+	TransferCount7d           int
+	TransferCount24h          int
+	ActiveWalletCount         int
+	TrackedWalletCount        int
+	DistinctCounterpartyCount int
+	TotalAmount               string
+	LargestTransferAmount     string
+	LatestObservedAt          time.Time
+	ListedOnUpbit             bool
+	ListedOnBithumb           bool
+}
+
 type AdminObservabilitySnapshot struct {
 	ProviderUsage         []AdminProviderUsageSnapshot
 	Ingest                AdminIngestSnapshot
@@ -190,6 +207,7 @@ type AdminConsoleRepository interface {
 	ListAuditEntries(context.Context, int) ([]AdminAuditEntry, error)
 	RecordAuditEntry(context.Context, AdminAuditEntry) error
 	GetObservabilitySnapshot(context.Context) (AdminObservabilitySnapshot, error)
+	ListDomesticPrelistingCandidates(context.Context, int) ([]AdminDomesticPrelistingCandidate, error)
 }
 
 type InMemoryAdminConsoleRepository struct {
@@ -198,6 +216,7 @@ type InMemoryAdminConsoleRepository struct {
 	suppressions  map[string]AdminSuppression
 	quotas        []AdminQuotaSnapshot
 	observability AdminObservabilitySnapshot
+	domestic      []AdminDomesticPrelistingCandidate
 	curated       map[string]AdminCuratedList
 	audits        []AdminAuditEntry
 }
@@ -222,6 +241,12 @@ func (r *InMemoryAdminConsoleRepository) SeedObservabilitySnapshot(item AdminObs
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.observability = item
+}
+
+func (r *InMemoryAdminConsoleRepository) SeedDomesticPrelistingCandidates(items []AdminDomesticPrelistingCandidate) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.domestic = append([]AdminDomesticPrelistingCandidate(nil), items...)
 }
 
 func (r *InMemoryAdminConsoleRepository) ListLabels(_ context.Context) ([]AdminLabel, error) {
@@ -392,8 +417,18 @@ func (r *InMemoryAdminConsoleRepository) GetObservabilitySnapshot(_ context.Cont
 	return r.observability, nil
 }
 
+func (r *InMemoryAdminConsoleRepository) ListDomesticPrelistingCandidates(_ context.Context, limit int) ([]AdminDomesticPrelistingCandidate, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if limit <= 0 || limit > len(r.domestic) {
+		limit = len(r.domestic)
+	}
+	return append([]AdminDomesticPrelistingCandidate(nil), r.domestic[:limit]...), nil
+}
+
 type PostgresAdminConsoleRepository struct {
 	store          *db.PostgresAdminConsoleStore
+	domestic       *db.PostgresDomesticPrelistingStore
 	queueStats     *db.RedisAdminQueueStatsStore
 	watchlistStore *db.PostgresWatchlistStore
 	auditStore     *db.PostgresAuditLogStore
@@ -405,7 +440,7 @@ func NewPostgresAdminConsoleRepository(
 	queueStats *db.RedisAdminQueueStatsStore,
 	watchlistStore *db.PostgresWatchlistStore,
 	auditStore *db.PostgresAuditLogStore,
-	entityIndex ...*db.PostgresCuratedEntityIndexStore,
+	extras ...interface{},
 ) *PostgresAdminConsoleRepository {
 	repo := &PostgresAdminConsoleRepository{
 		store:          store,
@@ -413,8 +448,13 @@ func NewPostgresAdminConsoleRepository(
 		watchlistStore: watchlistStore,
 		auditStore:     auditStore,
 	}
-	if len(entityIndex) > 0 {
-		repo.entityIndex = entityIndex[0]
+	for _, extra := range extras {
+		switch typed := extra.(type) {
+		case *db.PostgresCuratedEntityIndexStore:
+			repo.entityIndex = typed
+		case *db.PostgresDomesticPrelistingStore:
+			repo.domestic = typed
+		}
 	}
 	return repo
 }
@@ -829,6 +869,44 @@ func (r *PostgresAdminConsoleRepository) GetObservabilitySnapshot(ctx context.Co
 		RecentRuns:            recentRuns,
 		RecentFailures:        recentFailures,
 	}, nil
+}
+
+func (r *PostgresAdminConsoleRepository) ListDomesticPrelistingCandidates(
+	ctx context.Context,
+	limit int,
+) ([]AdminDomesticPrelistingCandidate, error) {
+	if r == nil || r.domestic == nil {
+		return []AdminDomesticPrelistingCandidate{}, nil
+	}
+	items, err := r.domestic.ListDomesticPrelistingCandidates(
+		ctx,
+		time.Now().UTC().Add(-7*24*time.Hour),
+		time.Now().UTC().Add(-24*time.Hour),
+		limit,
+	)
+	if err != nil {
+		return nil, translateAdminConsoleError(err)
+	}
+	result := make([]AdminDomesticPrelistingCandidate, 0, len(items))
+	for _, item := range items {
+		result = append(result, AdminDomesticPrelistingCandidate{
+			Chain:                     item.Chain,
+			TokenAddress:              item.TokenAddress,
+			TokenSymbol:               item.TokenSymbol,
+			NormalizedAssetKey:        item.NormalizedAssetKey,
+			TransferCount7d:           item.TransferCount7d,
+			TransferCount24h:          item.TransferCount24h,
+			ActiveWalletCount:         item.ActiveWalletCount,
+			TrackedWalletCount:        item.TrackedWalletCount,
+			DistinctCounterpartyCount: item.DistinctCounterpartyCount,
+			TotalAmount:               item.TotalAmount,
+			LargestTransferAmount:     item.LargestTransferAmount,
+			LatestObservedAt:          item.LatestObservedAt,
+			ListedOnUpbit:             item.ListedOnUpbit,
+			ListedOnBithumb:           item.ListedOnBithumb,
+		})
+	}
+	return result, nil
 }
 
 func translateAdminConsoleError(err error) error {

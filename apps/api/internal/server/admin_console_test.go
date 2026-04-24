@@ -37,6 +37,19 @@ func TestAdminConsoleRoutesRequireAdminRole(t *testing.T) {
 			LagStatus:        "healthy",
 		},
 	})
+	repo.SeedDomesticPrelistingCandidates([]repository.AdminDomesticPrelistingCandidate{{
+		Chain:                 "EVM",
+		TokenAddress:          "0xabc",
+		TokenSymbol:           "TEST",
+		NormalizedAssetKey:    "test",
+		TransferCount7d:       8,
+		TransferCount24h:      3,
+		ActiveWalletCount:     4,
+		TrackedWalletCount:    2,
+		TotalAmount:           "1000000",
+		LargestTransferAmount: "250000",
+		LatestObservedAt:      time.Date(2026, time.March, 21, 4, 0, 0, 0, time.UTC),
+	}})
 	srv := NewWithDependencies(Dependencies{
 		AdminConsole:  service.NewAdminConsoleService(repo),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
@@ -60,6 +73,16 @@ func TestAdminConsoleRoutesRequireAdminRole(t *testing.T) {
 	srv.Handler().ServeHTTP(observability, req)
 	if observability.Code != http.StatusOK {
 		t.Fatalf("expected operator observability status 200, got %d", observability.Code)
+	}
+
+	domestic := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/v1/admin/domestic-prelisting-candidates", nil)
+	req.Header.Set("X-Clerk-User-Id", "operator_1")
+	req.Header.Set("X-Clerk-Session-Id", "session_1")
+	req.Header.Set("X-Clerk-Role", "operator")
+	srv.Handler().ServeHTTP(domestic, req)
+	if domestic.Code != http.StatusOK {
+		t.Fatalf("expected operator domestic prelisting status 200, got %d", domestic.Code)
 	}
 
 	create := httptest.NewRecorder()
@@ -108,6 +131,20 @@ func TestAdminConsoleRoutesSupportAdminCrud(t *testing.T) {
 			RetryableCount: 1,
 		},
 	})
+	repo.SeedDomesticPrelistingCandidates([]repository.AdminDomesticPrelistingCandidate{{
+		Chain:                     "EVM",
+		TokenAddress:              "0xtoken",
+		TokenSymbol:               "ALPHA",
+		NormalizedAssetKey:        "alpha",
+		TransferCount7d:           12,
+		TransferCount24h:          5,
+		ActiveWalletCount:         6,
+		TrackedWalletCount:        3,
+		DistinctCounterpartyCount: 9,
+		TotalAmount:               "4200000",
+		LargestTransferAmount:     "900000",
+		LatestObservedAt:          time.Date(2026, time.March, 21, 5, 0, 0, 0, time.UTC),
+	}})
 	srv := NewWithDependencies(Dependencies{
 		AdminConsole:  service.NewAdminConsoleService(repo),
 		ClerkVerifier: auth.NewHeaderClerkVerifier(),
@@ -214,5 +251,15 @@ func TestAdminConsoleRoutesSupportAdminCrud(t *testing.T) {
 	srv.Handler().ServeHTTP(listObservability, req)
 	if listObservability.Code != http.StatusOK {
 		t.Fatalf("expected observability status 200, got %d", listObservability.Code)
+	}
+
+	listDomestic := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/v1/admin/domestic-prelisting-candidates", nil)
+	req.Header.Set("X-Clerk-User-Id", "admin_1")
+	req.Header.Set("X-Clerk-Session-Id", "session_1")
+	req.Header.Set("X-Clerk-Role", "admin")
+	srv.Handler().ServeHTTP(listDomestic, req)
+	if listDomestic.Code != http.StatusOK {
+		t.Fatalf("expected domestic prelisting status 200, got %d", listDomestic.Code)
 	}
 }

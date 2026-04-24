@@ -116,6 +116,7 @@ func TestBuildWorkerOutputRunsCuratedWalletSeedEnqueueFlow(t *testing.T) {
 		FirstConnectionSnapshotService{},
 		AlertDeliveryRetryService{},
 		TrackingSubscriptionSyncService{},
+		ExchangeListingRegistrySyncService{},
 		BillingSubscriptionSyncService{},
 	)
 	if err != nil {

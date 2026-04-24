@@ -133,6 +133,27 @@ type AdminFailureSummary struct {
 	Details    map[string]any `json:"details"`
 }
 
+type AdminDomesticPrelistingCandidateSummary struct {
+	Chain                     string `json:"chain"`
+	TokenAddress              string `json:"tokenAddress"`
+	TokenSymbol               string `json:"tokenSymbol"`
+	NormalizedAssetKey        string `json:"normalizedAssetKey"`
+	TransferCount7d           int    `json:"transferCount7d"`
+	TransferCount24h          int    `json:"transferCount24h"`
+	ActiveWalletCount         int    `json:"activeWalletCount"`
+	TrackedWalletCount        int    `json:"trackedWalletCount"`
+	DistinctCounterpartyCount int    `json:"distinctCounterpartyCount"`
+	TotalAmount               string `json:"totalAmount"`
+	LargestTransferAmount     string `json:"largestTransferAmount"`
+	LatestObservedAt          string `json:"latestObservedAt"`
+	ListedOnUpbit             bool   `json:"listedOnUpbit"`
+	ListedOnBithumb           bool   `json:"listedOnBithumb"`
+}
+
+type AdminDomesticPrelistingCollection struct {
+	Items []AdminDomesticPrelistingCandidateSummary `json:"items"`
+}
+
 type AdminObservabilityCollection struct {
 	ProviderUsage         []AdminProviderUsageSummary            `json:"providerUsage"`
 	Ingest                AdminIngestSummary                     `json:"ingest"`
@@ -552,6 +573,42 @@ func (s *AdminConsoleService) ListObservability(
 			OccurredAt: failure.OccurredAt.UTC().Format(time.RFC3339),
 			Summary:    failure.Summary,
 			Details:    cloneAdminConsoleDetails(failure.Details),
+		})
+	}
+	return result, nil
+}
+
+func (s *AdminConsoleService) ListDomesticPrelistingCandidates(
+	ctx context.Context,
+	role string,
+	limit int,
+) (AdminDomesticPrelistingCollection, error) {
+	if err := ensureAdminConsoleAccess(role, false); err != nil {
+		return AdminDomesticPrelistingCollection{}, err
+	}
+	items, err := s.repo.ListDomesticPrelistingCandidates(ctx, limit)
+	if err != nil {
+		return AdminDomesticPrelistingCollection{}, err
+	}
+	result := AdminDomesticPrelistingCollection{
+		Items: make([]AdminDomesticPrelistingCandidateSummary, 0, len(items)),
+	}
+	for _, item := range items {
+		result.Items = append(result.Items, AdminDomesticPrelistingCandidateSummary{
+			Chain:                     item.Chain,
+			TokenAddress:              item.TokenAddress,
+			TokenSymbol:               item.TokenSymbol,
+			NormalizedAssetKey:        item.NormalizedAssetKey,
+			TransferCount7d:           item.TransferCount7d,
+			TransferCount24h:          item.TransferCount24h,
+			ActiveWalletCount:         item.ActiveWalletCount,
+			TrackedWalletCount:        item.TrackedWalletCount,
+			DistinctCounterpartyCount: item.DistinctCounterpartyCount,
+			TotalAmount:               item.TotalAmount,
+			LargestTransferAmount:     item.LargestTransferAmount,
+			LatestObservedAt:          item.LatestObservedAt.UTC().Format(time.RFC3339),
+			ListedOnUpbit:             item.ListedOnUpbit,
+			ListedOnBithumb:           item.ListedOnBithumb,
 		})
 	}
 	return result, nil

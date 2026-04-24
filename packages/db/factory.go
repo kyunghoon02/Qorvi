@@ -205,6 +205,16 @@ func NewProviderUsageLogStoreFromClients(clients *StorageClients) *PostgresProvi
 	return NewPostgresProviderUsageLogStoreFromPool(clients.Postgres)
 }
 
+func NewExchangeListingRegistryStoreFromClients(
+	clients *StorageClients,
+) *PostgresExchangeListingRegistryStore {
+	if clients == nil {
+		return nil
+	}
+
+	return NewPostgresExchangeListingRegistryStoreFromPool(clients.Postgres)
+}
+
 func NewSignalEventStoreFromClients(clients *StorageClients) *PostgresSignalEventStore {
 	if clients == nil {
 		return nil
