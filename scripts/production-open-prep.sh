@@ -47,10 +47,13 @@ cd "$ROOT_DIR"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
 
 if [[ -f "$ENV_FILE" ]]; then
+  SANITIZED_ENV_FILE="$(mktemp)"
+  tr -d '\r' < "$ENV_FILE" > "$SANITIZED_ENV_FILE"
   set -a
-  # shellcheck disable=SC1091
-  source "$ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$SANITIZED_ENV_FILE"
   set +a
+  rm -f "$SANITIZED_ENV_FILE"
 fi
 
 pass_count=0
@@ -135,7 +138,7 @@ check_same_origin() {
   return 0
 }
 
-echo "FlowIntel Production Open Prep"
+echo "Qorvi Production Open Prep"
 echo "Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "Repo: $ROOT_DIR"
 echo "Env file: $ENV_FILE"

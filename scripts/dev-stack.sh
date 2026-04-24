@@ -117,11 +117,11 @@ stop_flowintel_listener_on_port() {
     local cwd_info
     cwd_info="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null || true)"
     if printf '%s\n' "$cwd_info" | grep -Fq "n$ROOT_DIR"; then
-      echo "Stopping stale FlowIntel listener on port $port (pid=$pid)..."
+      echo "Stopping stale Qorvi listener on port $port (pid=$pid)..."
       kill "$pid" >/dev/null 2>&1 || true
       sleep 1
     else
-      echo "Port $port is already used by a non-FlowIntel process (pid=$pid)."
+      echo "Port $port is already used by a non-Qorvi process (pid=$pid)."
     fi
   done
 }
@@ -149,7 +149,7 @@ echo "Starting web on http://localhost:3000 ..."
 corepack pnpm dev:web &
 WEB_PID=$!
 
-echo "FlowIntel dev stack is starting."
+echo "Qorvi dev stack is starting."
 if [[ "$RUN_WORKER" == "true" ]]; then
   echo "Worker mode: $FLOWINTEL_DEV_STACK_WORKER_MODE (loop)"
 else

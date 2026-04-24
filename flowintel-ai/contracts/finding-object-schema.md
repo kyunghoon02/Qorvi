@@ -5,7 +5,7 @@ engines, background detection, and AI explanation layers.
 
 ## Purpose
 
-Standardize how FlowIntel represents interpreted onchain events before they are
+Standardize how Qorvi represents interpreted onchain events before they are
 rendered in feeds, alerts, wallet briefs, and entity pages.
 
 The finding object is the boundary between:

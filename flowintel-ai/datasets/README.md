@@ -1,6 +1,6 @@
 # Datasets
 
-This directory holds dataset definitions and source mappings for the FlowIntel
+This directory holds dataset definitions and source mappings for the Qorvi
 AI analyst layer.
 
 Planned artifacts:

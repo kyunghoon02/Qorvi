@@ -7,9 +7,8 @@ import "./globals.css";
 import { ClerkAuthChrome } from "./components/clerk-auth-chrome";
 
 export const metadata: Metadata = {
-  title: "FlowIntel",
-  description:
-    "FlowIntel product scaffold for wallet intelligence exploration.",
+  title: "Qorvi",
+  description: "Qorvi workspace for wallet intelligence exploration.",
 };
 
 export default function RootLayout({

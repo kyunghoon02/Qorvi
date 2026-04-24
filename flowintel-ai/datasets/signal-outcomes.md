@@ -1,6 +1,6 @@
 # Signal Outcome Labels
 
-This spec defines the outcome labels needed to train or evaluate the FlowIntel
+This spec defines the outcome labels needed to train or evaluate the Qorvi
 AI analyst layer and any future predictive scoring models.
 
 ## Goal

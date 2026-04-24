@@ -1,6 +1,6 @@
 # Signal Explainer Contract
 
-This contract defines the AI agent that explains why a FlowIntel signal was
+This contract defines the AI agent that explains why a Qorvi signal was
 raised and how to investigate it further.
 
 ## Purpose

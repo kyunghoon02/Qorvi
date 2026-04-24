@@ -228,7 +228,7 @@ func buildSMTPAlertEmailSenderFromOS() AlertEmailSender {
 
 func buildStartupMessage(env config.WorkerEnv) string {
 	return fmt.Sprintf(
-		"FlowIntel workers ready (env=%s, postgres=%s, redis=%s)",
+		"Qorvi workers ready (env=%s, postgres=%s, redis=%s)",
 		env.NodeEnv,
 		env.PostgresURL,
 		env.RedisURL,

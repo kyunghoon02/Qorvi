@@ -1,6 +1,6 @@
 # Agent Contracts
 
-This directory defines the structured inputs and outputs for FlowIntel AI
+This directory defines the structured inputs and outputs for Qorvi AI
 agents.
 
 Initial contracts:

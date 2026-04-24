@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook covers the minimal operations flows for FlowIntel admin work: labels, suppression, provider quota monitoring, and audit review.
+This runbook covers the minimal operations flows for Qorvi admin work: labels, suppression, provider quota monitoring, and audit review.
 
 ## Core Rules
 

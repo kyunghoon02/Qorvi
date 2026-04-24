@@ -1,7 +1,7 @@
 # Wallet Tracking State Migration Outline
 
 This document describes how the AI dataset state model should map into the main
-FlowIntel product schema.
+Qorvi product schema.
 
 It is not an executable migration yet. It is the bridge from AI workspace
 design to product implementation.

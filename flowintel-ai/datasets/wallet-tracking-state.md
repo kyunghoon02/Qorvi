@@ -1,6 +1,6 @@
 # Wallet Tracking State
 
-This spec defines the state model for moving FlowIntel from user-triggered lazy
+This spec defines the state model for moving Qorvi from user-triggered lazy
 indexing to candidate discovery, tracked coverage, and AI-ready serving.
 
 ## Goal

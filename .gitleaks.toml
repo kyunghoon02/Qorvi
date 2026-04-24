@@ -1,0 +1,15 @@
+title = "Qorvi gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Repository-safe fixtures and placeholders"
+regexTarget = "match"
+regexes = [
+  '''(?i)(token_address|tokenAddress|TokenAddress)["':\s]+0x[0-9a-f]{40}''',
+  '''sk_test_placeholder''',
+  '''pk_test_placeholder''',
+  '''whsec_placeholder''',
+  '''replace-me-(alchemy|helius|moralis|mobula|dune|stripe-secret|clerk-secret)''',
+]

@@ -1,11 +1,11 @@
 # Interactive Analyst Agent
 
-This contract defines the user-facing FlowIntel analyst agent.
+This contract defines the user-facing Qorvi analyst agent.
 
 ## Purpose
 
 Given a natural-language investigation question, orchestrate the minimum set of
-FlowIntel tools needed to answer it, compose an evidence bundle, and return a
+Qorvi tools needed to answer it, compose an evidence bundle, and return a
 bounded explanation.
 
 The interactive analyst is an orchestrator and explainer. It is not an

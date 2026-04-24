@@ -1,6 +1,6 @@
 # Wallet Analyst Contract
 
-This contract defines the first structured AI agent for FlowIntel.
+This contract defines the first structured AI agent for Qorvi.
 
 ## Purpose
 

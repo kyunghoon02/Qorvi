@@ -2,7 +2,7 @@
 
 ## 목적
 
-FlowIntel의 핵심 가치인 행동 기반 점수 엔진과 signal generation 로직을 구현한다.
+Qorvi의 핵심 가치인 행동 기반 점수 엔진과 signal generation 로직을 구현한다.
 
 ## 담당 범위
 

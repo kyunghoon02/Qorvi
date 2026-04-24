@@ -1,6 +1,6 @@
 # Beta Launch Gates
 
-이 문서는 FlowIntel beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
+이 문서는 Qorvi beta closeout의 최종 source of truth다. `WG-043`는 이 문서의 각 게이트가 `pass` 또는 `warn`으로 정리되고 `block`이 남아 있지 않을 때 완료로 본다.
 
 ## 1. Gate Status Rules
 
@@ -46,10 +46,10 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/server.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `apps/api/internal/server/server.go`
+- `apps/web/app/page.tsx`
+- `apps/web/app/wallets/[chain]/[address]/page.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ### 3.2 Tracking And Alerts
 
@@ -63,10 +63,10 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/watchlist.go`
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/alert_rule.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/alerts/alert-center-screen.tsx`
+- `apps/api/internal/server/watchlist.go`
+- `apps/api/internal/server/alert_rule.go`
+- `apps/web/app/alerts/page.tsx`
+- `apps/web/app/alerts/alert-center-screen.tsx`
 
 ### 3.3 Billing Activation Readiness
 
@@ -87,11 +87,11 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/billing.go`
-- `/Users/kh/Github/FlowIntel/apps/workers/billing_sync.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/account/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/pricing/page.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `apps/api/internal/server/billing.go`
+- `apps/workers/billing_sync.go`
+- `apps/web/app/account/page.tsx`
+- `apps/web/app/pricing/page.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ## 4. Reliability Gates
 
@@ -108,10 +108,10 @@ corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/webhook_replay_test.go`
-- `/Users/kh/Github/FlowIntel/packages/db/ingest_dedup.go`
-- `/Users/kh/Github/FlowIntel/packages/db/wallet_graph_invalidation.go`
-- `/Users/kh/Github/FlowIntel/packages/db/wallet_summary.go`
+- `apps/api/internal/server/webhook_replay_test.go`
+- `packages/db/ingest_dedup.go`
+- `packages/db/wallet_graph_invalidation.go`
+- `packages/db/wallet_summary.go`
 
 ### 4.2 Provider And Worker Stability
 
@@ -145,10 +145,10 @@ FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/web/lib/api-boundary.ts`
-- `/Users/kh/Github/FlowIntel/apps/web/app/home-screen.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
-- `/Users/kh/Github/FlowIntel/apps/web/e2e/beta-flow.spec.ts`
+- `apps/web/lib/api-boundary.ts`
+- `apps/web/app/home-screen.tsx`
+- `apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ## 6. Ops Gates
 
@@ -163,9 +163,9 @@ FLOWINTEL_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/FlowIntel/apps/api/internal/server/admin_console.go`
-- `/Users/kh/Github/FlowIntel/apps/web/app/admin/page.tsx`
-- `/Users/kh/Github/FlowIntel/docs/runbooks/ops-admin.md`
+- `apps/api/internal/server/admin_console.go`
+- `apps/web/app/admin/page.tsx`
+- `docs/runbooks/ops-admin.md`
 
 ## 7. Evidence Bundle
 
@@ -185,10 +185,9 @@ corepack pnpm beta:hardening
 3. browser/API mixed beta flow evidence
    - `corepack pnpm --filter @flowintel/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
 4. gate document review
-   - 이 문서와 `/Users/kh/Github/FlowIntel/plan.md`
-   - `/Users/kh/Github/FlowIntel/task.md`
-   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-release-package.md`
-   - `/Users/kh/Github/FlowIntel/docs/runbooks/beta-launch-review.md`
+   - 이 문서
+   - `docs/runbooks/beta-release-package.md`
+   - `docs/runbooks/beta-launch-review.md`
 
 optional billing evidence:
 

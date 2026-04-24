@@ -1,6 +1,6 @@
-# FlowIntel AI Workspace
+# Qorvi AI Workspace
 
-This directory is the dedicated workspace for the FlowIntel AI analyst layer.
+This directory is the dedicated workspace for the Qorvi AI analyst layer.
 It is intentionally separated from the main product code so dataset design,
 evaluation, prompt contracts, and model-serving experiments can move without
 polluting the core API, worker, and web application paths.

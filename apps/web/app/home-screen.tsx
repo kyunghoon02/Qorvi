@@ -634,7 +634,7 @@ export function HomeScreen({
               letterSpacing: "-0.01em",
             }}
           >
-            FlowIntel
+            Qorvi
           </h1>
           {walletDetailHref ? (
             <a className="search-cta" href={walletDetailHref}>

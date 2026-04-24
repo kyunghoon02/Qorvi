@@ -22,7 +22,7 @@ func TestBuildStartupMessage(t *testing.T) {
 		RedisURL:    "redis://localhost:6379",
 	})
 
-	if !strings.Contains(message, "FlowIntel workers ready") {
+	if !strings.Contains(message, "Qorvi workers ready") {
 		t.Fatalf("unexpected startup message %q", message)
 	}
 }

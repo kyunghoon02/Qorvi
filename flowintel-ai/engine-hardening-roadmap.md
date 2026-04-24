@@ -1,6 +1,6 @@
-# FlowIntel Engine Hardening Roadmap
+# Qorvi Engine Hardening Roadmap
 
-이 문서는 FlowIntel의 핵심 행동 해석 엔진을 `baseline heuristic` 단계에서
+이 문서는 Qorvi의 핵심 행동 해석 엔진을 `baseline heuristic` 단계에서
 `evidence-backed interpretation engine` 단계로 끌어올리기 위한 실제 구현
 로드맵이다.
 
