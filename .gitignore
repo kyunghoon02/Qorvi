@@ -23,6 +23,13 @@ go.work.sum
 .env.production.local
 .env.*.draft
 !.env.example
+Uncodixify.md
+prd.md
+agent.md
+agents.md
+AGENTS.md
+agents/
+flowintel-ai/contracts/*agent*.md
 .whalegraph/raw-payloads
 .flowintel/raw-payloads
 apps/web/test-results
