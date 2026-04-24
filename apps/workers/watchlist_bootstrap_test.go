@@ -18,7 +18,9 @@ func (s fakeWatchlistSeedSource) ListWalletRefs(_ context.Context) ([]db.WalletR
 }
 
 func TestWatchlistBootstrapServiceRunEnqueue(t *testing.T) {
-	t.Parallel()
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_WINDOW_DAYS", "7")
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_LIMIT", "2")
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_EXPANSION_DEPTH", "1")
 
 	queue := &fakeWalletBackfillQueueStore{}
 	service := WatchlistBootstrapService{
@@ -49,11 +51,14 @@ func TestWatchlistBootstrapServiceRunEnqueue(t *testing.T) {
 	if queue.jobs[0].Source != "watchlist_bootstrap" {
 		t.Fatalf("unexpected source %q", queue.jobs[0].Source)
 	}
-	if queue.jobs[0].Metadata["backfill_window_days"] != 365 {
-		t.Fatalf("expected 365-day watchlist backfill policy, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	if queue.jobs[0].Metadata["backfill_window_days"] != 7 {
+		t.Fatalf("expected 7-day watchlist backfill policy, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
 	}
-	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 2 {
-		t.Fatalf("expected 2-hop watchlist expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
+	if queue.jobs[0].Metadata["backfill_limit"] != 2 {
+		t.Fatalf("expected 2-item watchlist limit, got %#v", queue.jobs[0].Metadata["backfill_limit"])
+	}
+	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 1 {
+		t.Fatalf("expected 1-hop watchlist expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
 	}
 }
 

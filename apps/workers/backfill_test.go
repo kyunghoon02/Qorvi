@@ -875,7 +875,7 @@ func TestHistoricalBackfillIngestServiceSkipsEnrichmentRefreshForSolana(t *testi
 		Provider:      providers.ProviderHelius,
 		Chain:         domain.ChainSolana,
 		WalletAddress: "So11111111111111111111111111111111111111112",
-		SourceID:      "helius_transactions_v0",
+		SourceID:      "helius_solana_transactions_v0",
 		Kind:          "transfer",
 		Confidence:    0.91,
 		Metadata: map[string]any{
@@ -911,7 +911,9 @@ func TestHistoricalBackfillIngestServiceSkipsEnrichmentRefreshForSolana(t *testi
 }
 
 func TestBuildQueuedHistoricalBackfillBatchUsesSourcePolicies(t *testing.T) {
-	t.Parallel()
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_WINDOW_DAYS", "7")
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_LIMIT", "2")
+	t.Setenv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_EXPANSION_DEPTH", "1")
 
 	now := time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC)
 	batch, policy, err := buildQueuedHistoricalBackfillBatch(db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
@@ -926,14 +928,14 @@ func TestBuildQueuedHistoricalBackfillBatchUsesSourcePolicies(t *testing.T) {
 	if batch.Provider != providers.ProviderHelius {
 		t.Fatalf("expected helius provider for solana, got %q", batch.Provider)
 	}
-	if batch.Limit != 750 {
-		t.Fatalf("expected watchlist policy limit 750, got %d", batch.Limit)
+	if batch.Limit != 2 {
+		t.Fatalf("expected watchlist policy limit 2, got %d", batch.Limit)
 	}
-	if policy.ExpansionDepth != 2 {
-		t.Fatalf("expected watchlist policy expansion depth 2, got %d", policy.ExpansionDepth)
+	if policy.ExpansionDepth != 1 {
+		t.Fatalf("expected watchlist policy expansion depth 1, got %d", policy.ExpansionDepth)
 	}
-	if got := int(batch.WindowEnd.Sub(batch.WindowStart).Hours() / 24); got != 365 {
-		t.Fatalf("expected 365-day watchlist window, got %d days", got)
+	if got := int(batch.WindowEnd.Sub(batch.WindowStart).Hours() / 24); got != 7 {
+		t.Fatalf("expected 7-day watchlist window, got %d days", got)
 	}
 }
 

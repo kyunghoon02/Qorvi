@@ -5,15 +5,13 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flowintel/flowintel/packages/domain"
 )
 
 func TestHeliusHistoricalContractFixture(t *testing.T) {
 	t.Parallel()
-
-	signaturesFixture := readProviderFixture(t, "helius", "historical_signatures.json")
-	parsedFixture := readProviderFixture(t, "helius", "parsed_transactions.json")
 
 	httpClient := &http.Client{
 		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -23,21 +21,53 @@ func TestHeliusHistoricalContractFixture(t *testing.T) {
 			}
 			defer req.Body.Close()
 
-			switch req.URL.Path {
-			case "", "/":
-				var request heliusTransactionsRequest
-				if err := json.Unmarshal(body, &request); err != nil {
-					t.Fatalf("unmarshal request: %v", err)
+			var request solanaRPCRequest
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Fatalf("unmarshal request: %v", err)
+			}
+
+			switch request.Method {
+			case "getSignaturesForAddress":
+				if len(request.Params) == 2 {
+					if options, ok := request.Params[1].(map[string]any); ok && options["before"] != nil {
+						return jsonHTTPResponse(200, `{"jsonrpc":"2.0","id":1,"result":[]}`), nil
+					}
 				}
-				return jsonHTTPResponse(200, signaturesFixture), nil
-			case "/v0/transactions":
-				var request heliusTransactionsParseRequest
-				if err := json.Unmarshal(body, &request); err != nil {
-					t.Fatalf("unmarshal parse request: %v", err)
-				}
-				return jsonHTTPResponse(200, parsedFixture), nil
+				return jsonHTTPResponse(200, `{
+					"jsonrpc":"2.0",
+					"id":1,
+					"result":[
+						{"signature":"contract_sig_1","slot":1054,"blockTime":1641038400}
+					]
+				}`), nil
+			case "getTransaction":
+				return jsonHTTPResponse(200, `{
+					"jsonrpc":"2.0",
+					"id":1,
+					"result":{
+						"slot":1054,
+						"blockTime":1641038400,
+						"transaction":{
+							"signatures":["contract_sig_1"],
+							"message":{
+								"accountKeys":[
+									{"pubkey":"7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq"},
+									{"pubkey":"Counterparty111111111111111111111111111111111"}
+								]
+							}
+						},
+						"meta":{
+							"preTokenBalances":[
+								{"owner":"7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq","mint":"So11111111111111111111111111111111111111112","uiTokenAmount":{"amount":"125","decimals":1}}
+							],
+							"postTokenBalances":[
+								{"owner":"Counterparty111111111111111111111111111111111","mint":"So11111111111111111111111111111111111111112","uiTokenAmount":{"amount":"125","decimals":1}}
+							]
+						}
+					}
+				}`), nil
 			default:
-				t.Fatalf("unexpected path %s", req.URL.Path)
+				t.Fatalf("unexpected method %s", request.Method)
 				return nil, nil
 			}
 		}),
@@ -50,7 +80,20 @@ func TestHeliusHistoricalContractFixture(t *testing.T) {
 		DataAPIBaseURL: "https://helius.example/v0",
 	}, httpClient)
 
-	batch := CreateHistoricalBackfillBatchFixture(ProviderHelius, domain.ChainSolana, "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq")
+	batch := HistoricalBackfillBatch{
+		Provider: ProviderHelius,
+		Request: ProviderRequestContext{
+			Chain:         domain.ChainSolana,
+			WalletAddress: "7vfCXTUXx5h7d8Qq2M9BzN9Xv1cb3K4hKjJYJ8J9z5Zq",
+			Access: domain.AccessContext{
+				Role: domain.RoleOperator,
+				Plan: domain.PlanPro,
+			},
+		},
+		WindowStart: time.Unix(1641030000, 0).UTC(),
+		WindowEnd:   time.Unix(1641040000, 0).UTC(),
+		Limit:       25,
+	}
 	activities, err := client.FetchHistoricalWalletActivity(batch)
 	if err != nil {
 		t.Fatalf("FetchHistoricalWalletActivity returned error: %v", err)

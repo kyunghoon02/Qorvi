@@ -535,7 +535,9 @@ function formatGraphKind(kind: string): string {
 }
 
 function formatFlowLensDirectionLabel(direction: string | undefined): string {
-  const normalized = String(direction ?? "").trim().toLowerCase();
+  const normalized = String(direction ?? "")
+    .trim()
+    .toLowerCase();
   if (!normalized) {
     return "";
   }
@@ -605,7 +607,9 @@ function buildFlowLensContextSummary(
   }
 
   const segments: string[] = [];
-  const directionLabel = formatFlowLensDirectionLabel(flowLensContext.direction);
+  const directionLabel = formatFlowLensDirectionLabel(
+    flowLensContext.direction,
+  );
   const observedAt = formatFlowLensObservedAt(flowLensContext.flowMinute);
   const amount = formatFlowLensNumeric(flowLensContext.amount);
   const approxUsd = formatFlowLensUsd(flowLensContext.approxUsd);
@@ -632,7 +636,7 @@ function buildFlowLensContextSummary(
     segments.push(`approx ${approxUsd}`);
   }
 
-  return segments.join(". ") + ".";
+  return `${segments.join(". ")}.`;
 }
 
 function resolveGraphNodeLabel(

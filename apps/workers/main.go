@@ -158,7 +158,9 @@ func main() {
 		}
 	}
 
-	output, err := buildWorkerOutput(
+	autoIndexLoop := NewAutoIndexLoopService(seedDiscovery, watchlistBootstrap, ingest)
+
+	output, err := buildWorkerOutputWithAutoIndex(
 		appCtx,
 		mode,
 		env,
@@ -173,6 +175,7 @@ func main() {
 		alertDeliveryRetry,
 		trackingSubscriptionSync,
 		billingSubscriptionSync,
+		autoIndexLoop,
 	)
 	if err != nil {
 		log.Fatalf("worker execution failed: %v", err)
@@ -308,6 +311,7 @@ func requiresProviderRegistry(mode string) bool {
 	return mode == workerModeHistoricalBackfillIngest ||
 		mode == workerModeWalletBackfillDrain ||
 		mode == workerModeWalletBackfillDrainBatch ||
+		mode == workerModeAutoIndexLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeSeedDiscoveryEnqueue ||
 		mode == workerModeSeedDiscoverySeedWatchlist
@@ -317,6 +321,7 @@ func requiresWorkerStorage(mode string) bool {
 	return mode == workerModeHistoricalBackfillIngest ||
 		mode == workerModeWalletBackfillDrain ||
 		mode == workerModeWalletBackfillDrainBatch ||
+		mode == workerModeAutoIndexLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeSeedDiscoveryEnqueue ||
 		mode == workerModeSeedDiscoverySeedWatchlist ||
