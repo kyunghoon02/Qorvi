@@ -144,6 +144,7 @@ Environment templates:
 - [.env.production.example](.env.production.example) for production-style deployments.
 
 Do not commit real secrets. Local `.env` files are intentionally ignored.
+The example files are configuration references; any localhost credentials in `.env.example` are only for the Docker Compose development stack.
 
 ## Deployment
 
