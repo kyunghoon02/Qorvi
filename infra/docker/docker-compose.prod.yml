@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${QORVI_POSTGRES_DB:-qorvi}
+      POSTGRES_USER: ${QORVI_POSTGRES_USER:-qorvi}
+      POSTGRES_PASSWORD: ${QORVI_POSTGRES_PASSWORD:-qorvi}
+    volumes:
+      - qorvi_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  neo4j:
+    image: neo4j:5.24-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${QORVI_NEO4J_USERNAME:-neo4j}/${QORVI_NEO4J_PASSWORD:-neo4jpassword}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_memory_heap_initial__size: ${QORVI_NEO4J_HEAP_INITIAL_SIZE:-256M}
+      NEO4J_server_memory_heap_max__size: ${QORVI_NEO4J_HEAP_MAX_SIZE:-256M}
+      NEO4J_server_memory_pagecache_size: ${QORVI_NEO4J_PAGECACHE_SIZE:-256M}
+    volumes:
+      - qorvi_neo4j_data:/data
+      - qorvi_neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u ${QORVI_NEO4J_USERNAME:-neo4j} -p ${QORVI_NEO4J_PASSWORD:-neo4jpassword} -d neo4j 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - qorvi_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ../..
+      dockerfile: ./Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - ../../.env.backend
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-backfill:
+    profiles: ["worker"]
+    build:
+      context: ../..
+      dockerfile: ./Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - ../../.env.backend
+    environment:
+      FLOWINTEL_WORKER_MODE: ${FLOWINTEL_WORKER_MODE:-auto-index-loop}
+    volumes:
+      - qorvi_raw_payloads:${FLOWINTEL_RAW_PAYLOAD_ROOT:-/var/lib/qorvi/raw-payloads}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  qorvi_postgres_data:
+  qorvi_neo4j_data:
+  qorvi_neo4j_logs:
+  qorvi_redis_data:
+  qorvi_raw_payloads:

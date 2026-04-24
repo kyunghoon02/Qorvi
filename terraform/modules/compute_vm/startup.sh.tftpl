@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y \
+  ca-certificates \
+  curl \
+  git \
+  gnupg \
+  lsb-release \
+  nginx \
+  python3-certbot-nginx \
+  unzip
+
+install -m 0755 -d /etc/apt/keyrings
+
+if [ ! -f /etc/apt/keyrings/docker.asc ]; then
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+fi
+
+ARCH="$(dpkg --print-architecture)"
+CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+echo \
+  "deb [arch=$${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $${CODENAME} stable" \
+  > /etc/apt/sources.list.d/docker.list
+
+apt-get update
+apt-get install -y \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin
+
+systemctl enable docker
+systemctl start docker
+systemctl enable nginx
+systemctl restart nginx
+
+APP_USER="%{ if app_user != "" }${app_user}%{ else }qorvi%{ endif }"
+APP_DIR="%{ if app_directory != "" }${app_directory}%{ else }/opt/qorvi/app%{ endif }"
+APP_REPO_URL="%{ if app_repo_url != "" }${app_repo_url}%{ else }%{ endif }"
+APP_REPO_TOKEN="%{ if app_repo_token != "" }${app_repo_token}%{ else }%{ endif }"
+APP_REPO_REF="%{ if app_repo_ref != "" }${app_repo_ref}%{ else }main%{ endif }"
+APP_SERVICE_NAME="%{ if app_service_name != "" }${app_service_name}%{ else }qorvi-backend%{ endif }"
+APP_BIND_PORT="%{ if app_bind_port != 0 }${app_bind_port}%{ else }4000%{ endif }"
+APP_DOMAIN="%{ if app_domain != "" }${app_domain}%{ else }_%{ endif }"
+APP_ENV_FILE="$${APP_DIR}/.env.backend"
+APP_STACK_FILE="$${APP_DIR}/infra/docker/docker-compose.prod.yml"
+repo_host=""
+auth_header=""
+
+if [ ! -z "$${APP_REPO_URL}" ]; then
+  if ! id -u "$${APP_USER}" >/dev/null 2>&1; then
+    useradd --system --create-home --shell /bin/bash "$${APP_USER}"
+  fi
+
+  mkdir -p "$(dirname "$${APP_DIR}")"
+  if [ ! -d "$${APP_DIR}/.git" ]; then
+    if [ ! -z "$${APP_REPO_TOKEN}" ]; then
+      repo_host="$${APP_REPO_URL#*://}"
+      repo_host="$${repo_host%%/*}"
+      repo_host="$${repo_host#*@}"
+
+      if [ -n "$${repo_host}" ]; then
+        auth_header="AUTHORIZATION: basic $$(printf 'x-access-token:%s' "$${APP_REPO_TOKEN}" | base64 | tr -d '\n')"
+        git -c "http.https://$${repo_host}/.extraheader=$${auth_header}" clone "$${APP_REPO_URL}" "$${APP_DIR}"
+      else
+        git clone "$${APP_REPO_URL}" "$${APP_DIR}"
+      fi
+    else
+      git clone "$${APP_REPO_URL}" "$${APP_DIR}"
+    fi
+  fi
+
+  if [ ! -z "$${APP_REPO_TOKEN}" ]; then
+    repo_host="$${APP_REPO_URL#*://}"
+    repo_host="$${repo_host%%/*}"
+    repo_host="$${repo_host#*@}"
+
+    if [ -n "$${repo_host}" ]; then
+      auth_header="AUTHORIZATION: basic $$(printf 'x-access-token:%s' "$${APP_REPO_TOKEN}" | base64 | tr -d '\n')"
+      git -c "http.https://$${repo_host}/.extraheader=$${auth_header}" -C "$${APP_DIR}" fetch --all --tags
+    else
+      git -C "$${APP_DIR}" fetch --all --tags
+    fi
+  else
+    git -C "$${APP_DIR}" fetch --all --tags
+  fi
+
+  git -C "$${APP_DIR}" checkout "$${APP_REPO_REF}"
+  if [ ! -z "$${APP_REPO_TOKEN}" ] && [ -n "$${repo_host}" ]; then
+    if git -c "http.https://$${repo_host}/.extraheader=$${auth_header}" -C "$${APP_DIR}" show-ref --verify --quiet "refs/remotes/origin/$${APP_REPO_REF}"; then
+      git -c "http.https://$${repo_host}/.extraheader=$${auth_header}" -C "$${APP_DIR}" reset --hard "origin/$${APP_REPO_REF}"
+    else
+      git -c "http.https://$${repo_host}/.extraheader=$${auth_header}" -C "$${APP_DIR}" reset --hard "$${APP_REPO_REF}"
+    fi
+  else
+    if git -C "$${APP_DIR}" show-ref --verify --quiet "refs/remotes/origin/$${APP_REPO_REF}"; then
+      git -C "$${APP_DIR}" reset --hard "origin/$${APP_REPO_REF}"
+    else
+      git -C "$${APP_DIR}" reset --hard "$${APP_REPO_REF}"
+    fi
+  fi
+
+%{ if app_env_content != "" ~}
+  cat >"$${APP_ENV_FILE}" <<'EOF'
+${app_env_content}
+EOF
+%{ endif ~}
+
+  if [ -f "$${APP_ENV_FILE}" ]; then
+    set -a
+    . "$${APP_ENV_FILE}"
+    set +a
+  fi
+
+  mkdir -p "$${FLOWINTEL_RAW_PAYLOAD_ROOT:-/var/lib/qorvi/raw-payloads}"
+
+  docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" up -d postgres redis neo4j
+
+  for attempt in $(seq 1 45); do
+    if docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" exec -T postgres pg_isready -U "$${QORVI_POSTGRES_USER:-qorvi}" -d "$${QORVI_POSTGRES_DB:-qorvi}" >/dev/null 2>&1; then
+      break
+    fi
+    if [ "$${attempt}" -eq 45 ]; then
+      echo "Qorvi postgres did not become ready in time" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+
+  for attempt in $(seq 1 45); do
+    if docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" exec -T neo4j cypher-shell -u "$${QORVI_NEO4J_USERNAME:-neo4j}" -p "$${QORVI_NEO4J_PASSWORD:-neo4jpassword}" -d neo4j "RETURN 1" >/dev/null 2>&1; then
+      break
+    fi
+    if [ "$${attempt}" -eq 45 ]; then
+      echo "Qorvi neo4j did not become ready in time" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+
+  for file in "$${APP_DIR}"/infra/migrations/postgres/*.sql; do
+    docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" exec -T postgres \
+      psql -v ON_ERROR_STOP=1 -U "$${QORVI_POSTGRES_USER:-qorvi}" -d "$${QORVI_POSTGRES_DB:-qorvi}" -f - < "$${file}"
+  done
+
+  for file in "$${APP_DIR}"/infra/migrations/neo4j/*.cypher; do
+    docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" exec -T neo4j \
+      cypher-shell -u "$${QORVI_NEO4J_USERNAME:-neo4j}" -p "$${QORVI_NEO4J_PASSWORD:-neo4jpassword}" -d neo4j < "$${file}"
+  done
+
+  docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" up -d --build api
+
+  if [ "$${QORVI_ENABLE_BACKFILL_WORKER:-false}" = "true" ]; then
+    docker compose --env-file "$${APP_ENV_FILE}" -f "$${APP_STACK_FILE}" --profile worker up -d worker-backfill
+  fi
+
+  cat >/etc/nginx/sites-available/qorvi-api <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name $${APP_DOMAIN};
+
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://127.0.0.1:$${APP_BIND_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+
+  rm -f /etc/nginx/sites-enabled/default
+  ln -sf /etc/nginx/sites-available/qorvi-api /etc/nginx/sites-enabled/qorvi-api
+
+  chown -R "$${APP_USER}:$${APP_USER}" "$${APP_DIR}"
+  systemctl restart nginx
+
+  cat >/etc/systemd/system/$${APP_SERVICE_NAME}.service <<EOF
+[Unit]
+Description=Qorvi backend bootstrap
+After=docker.service network.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=$${APP_DIR}
+ExecStart=/usr/bin/docker compose --env-file $${APP_ENV_FILE} -f $${APP_STACK_FILE} up -d api postgres redis neo4j
+ExecStop=/usr/bin/docker compose --env-file $${APP_ENV_FILE} -f $${APP_STACK_FILE} down
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable "$${APP_SERVICE_NAME}"
+  systemctl restart "$${APP_SERVICE_NAME}"
+
+  cat >/etc/motd <<'EOF'
+Qorvi backend host ready.
+
+Stack:
+- nginx reverse proxy on port 80
+- docker compose api + postgres + redis + neo4j
+- optional worker-backfill profile
+EOF
+fi
+
+%{ if startup_script_extra != "" ~}
+${startup_script_extra}
+%{ endif ~}

@@ -26,3 +26,8 @@ go.work.sum
 .flowintel/raw-payloads
 apps/web/test-results
 apps/web/tsconfig.tsbuildinfo
+.terraform
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform.lock.hcl

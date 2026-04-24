@@ -1,0 +1,222 @@
+[
+  {
+    "Chain": "solana",
+    "WalletAddress": "BZ3kabSsMzbuJUguYxtmkRtzw7ACqw1DUMH8PcbvXiUr",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-02-14T22:03:08Z",
+    "SourceID": "qorvi_seed:binance:orb_binance_3",
+    "SeedLabel": "binance_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "orb_binance_3",
+    "Metadata": {
+      "exchange_name": "binance",
+      "label_source": "orb_binance_3",
+      "is_active": true,
+      "seed_priority": 150,
+      "recent_volume_hint": 1,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "GBrURzmtWujJRTA3Bkvo7ZgWuZYLMMwPCwre7BejJXnK",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:32:23Z",
+    "SourceID": "qorvi_seed:binance:orb_binance_cold_wallet_1",
+    "SeedLabel": "binance_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "orb_binance_cold_wallet_1",
+    "Metadata": {
+      "exchange_name": "binance",
+      "label_source": "orb_binance_cold_wallet_1",
+      "is_active": true,
+      "seed_priority": 210,
+      "recent_volume_hint": 10000000000000,
+      "recent_volume_hint_type": "token",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:53:21Z",
+    "SourceID": "qorvi_seed:binance:solscan_binance_2",
+    "SeedLabel": "binance_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "solscan_binance_2",
+    "Metadata": {
+      "exchange_name": "binance",
+      "label_source": "solscan_binance_2",
+      "is_active": true,
+      "seed_priority": 245,
+      "recent_volume_hint": 1083011000,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:50:40Z",
+    "SourceID": "qorvi_seed:bybit:bybit_por_2024_11:1",
+    "SeedLabel": "bybit_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "bybit_por_2024_11",
+    "Metadata": {
+      "exchange_name": "bybit",
+      "label_source": "bybit_por_2024_11",
+      "is_active": true,
+      "seed_priority": 240,
+      "recent_volume_hint": 1355834250500,
+      "recent_volume_hint_type": "token",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "42brAgAVNzMBP7aaktPvAmBSPEkehnFQejiZc53EpJFd",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:27:40Z",
+    "SourceID": "qorvi_seed:bybit:bybit_por_2024_11:2",
+    "SeedLabel": "bybit_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "bybit_por_2024_11",
+    "Metadata": {
+      "exchange_name": "bybit",
+      "label_source": "bybit_por_2024_11",
+      "is_active": true,
+      "seed_priority": 220,
+      "recent_volume_hint": 5000000000000,
+      "recent_volume_hint_type": "token",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "7cAui6ADtxLnpRr2wYvwJWTkzwgmVF2LYKnjKTLx4xR8",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:45:22Z",
+    "SourceID": "qorvi_seed:bybit:solscan_bybit_wallet",
+    "SeedLabel": "bybit_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "solscan_bybit_wallet",
+    "Metadata": {
+      "exchange_name": "bybit",
+      "label_source": "solscan_bybit_wallet",
+      "is_active": true,
+      "seed_priority": 230,
+      "recent_volume_hint": 122000000,
+      "recent_volume_hint_type": "token",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "2qo8jvuc49pFmTjmUHLiARSV6ppPTaE7gw27ZJ6DnNZy",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:50:42Z",
+    "SourceID": "qorvi_seed:bybit:solscan_bybit_wallet_12",
+    "SeedLabel": "bybit_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "solscan_bybit_wallet_12",
+    "Metadata": {
+      "exchange_name": "bybit",
+      "label_source": "solscan_bybit_wallet_12",
+      "is_active": true,
+      "seed_priority": 241,
+      "recent_volume_hint": 230049205,
+      "recent_volume_hint_type": "token",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "9obNtb5GyUegcs3a1CbBkLuc5hEWynWfJC6gjz5uWQkE",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:52:43Z",
+    "SourceID": "qorvi_seed:coinbase:orb_coinbase_hot_wallet_1",
+    "SeedLabel": "coinbase_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "orb_coinbase_hot_wallet_1",
+    "Metadata": {
+      "exchange_name": "coinbase",
+      "label_source": "orb_coinbase_hot_wallet_1",
+      "is_active": true,
+      "seed_priority": 250,
+      "recent_volume_hint": 1014690255,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:53:27Z",
+    "SourceID": "qorvi_seed:coinbase:orb_coinbase_hot_wallet",
+    "SeedLabel": "coinbase_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "orb_coinbase_hot_wallet",
+    "Metadata": {
+      "exchange_name": "coinbase",
+      "label_source": "orb_coinbase_hot_wallet",
+      "is_active": true,
+      "seed_priority": 242,
+      "recent_volume_hint": 106500,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "FpwQQhQQoEaVu3WU2qZMfF1hx48YyfwsLoRgXG83E99Q",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:53:17Z",
+    "SourceID": "qorvi_seed:coinbase:solscan_coinbase_hot_wallet_1",
+    "SeedLabel": "coinbase_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "solscan_coinbase_hot_wallet_1",
+    "Metadata": {
+      "exchange_name": "coinbase",
+      "label_source": "solscan_coinbase_hot_wallet_1",
+      "is_active": true,
+      "seed_priority": 243,
+      "recent_volume_hint": 45916788,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  },
+  {
+    "Chain": "solana",
+    "WalletAddress": "D89hHJT5Aqyx1trP6EnGY9jJUB3whgnq3aUvvCqedvzf",
+    "Kind": "seed_label",
+    "Confidence": 0.98,
+    "ObservedAt": "2026-04-13T06:53:28Z",
+    "SourceID": "qorvi_seed:coinbase:solscan_coinbase_hot_wallet_3",
+    "SeedLabel": "coinbase_seed_wallet",
+    "SeedLabelReason": "qorvi_system_seed_wallets",
+    "SeedLabelSourceID": "solscan_coinbase_hot_wallet_3",
+    "Metadata": {
+      "exchange_name": "coinbase",
+      "label_source": "solscan_coinbase_hot_wallet_3",
+      "is_active": true,
+      "seed_priority": 244,
+      "recent_volume_hint": 341999130,
+      "recent_volume_hint_type": "native",
+      "seed_source": "qorvi_system"
+    }
+  }
+]

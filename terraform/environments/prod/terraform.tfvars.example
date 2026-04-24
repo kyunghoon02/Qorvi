@@ -1,0 +1,84 @@
+project_id        = "replace-with-your-gcp-project-id"
+region            = "asia-southeast1"
+zone              = "asia-southeast1-a"
+machine_type      = "e2-standard-2"
+instance_name     = "qorvi-backend"
+ssh_user          = "deploy"
+ssh_public_key    = "ssh-ed25519 AAAA... replace-with-your-public-key"
+ssh_source_ranges = ["YOUR_PUBLIC_IP/32"]
+app_repo_url      = "https://github.com/your-org/Qorvi.git"
+app_repo_token    = ""
+app_repo_ref      = "main"
+app_domain        = "api.qorvi.app"
+
+labels = {
+  owner = "platform"
+}
+
+app_env_content = <<-EOT
+NODE_ENV=production
+LOG_LEVEL=info
+
+APP_BASE_URL=https://qorvi.app
+NEXT_PUBLIC_APP_BASE_URL=https://qorvi.app
+NEXT_PUBLIC_API_BASE_URL=https://api.qorvi.app
+API_PROXY_TARGET=https://api.qorvi.app
+API_HOST=0.0.0.0
+API_PORT=4000
+
+QORVI_POSTGRES_DB=qorvi
+QORVI_POSTGRES_USER=qorvi
+QORVI_POSTGRES_PASSWORD=replace-me-postgres
+QORVI_NEO4J_USERNAME=neo4j
+QORVI_NEO4J_PASSWORD=replace-me-neo4j
+QORVI_NEO4J_HEAP_INITIAL_SIZE=256M
+QORVI_NEO4J_HEAP_MAX_SIZE=256M
+QORVI_NEO4J_PAGECACHE_SIZE=256M
+QORVI_ENABLE_BACKFILL_WORKER=false
+
+POSTGRES_URL=postgres://qorvi:replace-me-postgres@postgres:5432/qorvi?sslmode=disable
+NEO4J_URL=bolt://neo4j:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=replace-me-neo4j
+REDIS_URL=redis://redis:6379/0
+
+FLOWINTEL_RAW_PAYLOAD_ROOT=/var/lib/qorvi/raw-payloads
+FLOWINTEL_SEED_DISCOVERY_TOP_N=10
+FLOWINTEL_SEED_DISCOVERY_MIN_CONFIDENCE=0.8
+
+AUTH_PROVIDER=clerk
+AUTH_SECRET=replace-me-auth-secret
+CLERK_SECRET_KEY=replace-me-clerk-secret
+CLERK_AUDIENCE=qorvi
+CLERK_CLOCK_SKEW_SECONDS=60
+CLERK_ISSUER_URL=
+CLERK_JWKS_URL=
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=replace-me-clerk-publishable
+
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_BASE_URL=
+STRIPE_SUCCESS_URL=https://qorvi.app/account?checkout=success
+STRIPE_CANCEL_URL=https://qorvi.app/account?checkout=cancel
+
+DUNE_API_KEY=
+ALCHEMY_API_KEY=replace-me-alchemy
+HELIUS_API_KEY=replace-me-helius
+MORALIS_API_KEY=replace-me-moralis
+MOBULA_API_KEY=
+ALCHEMY_BASE_URL=https://eth-mainnet.g.alchemy.com
+ALCHEMY_SOLANA_BASE_URL=https://solana-mainnet.g.alchemy.com
+HELIUS_BASE_URL=https://mainnet.helius-rpc.com
+HELIUS_DATA_API_BASE_URL=https://api-mainnet.helius-rpc.com/v0
+MORALIS_BASE_URL=https://deep-index.moralis.io/api/v2.2
+ALCHEMY_ADDRESS_ACTIVITY_WEBHOOK_ID=
+HELIUS_ADDRESS_ACTIVITY_WEBHOOK_ID=
+ALCHEMY_NOTIFY_AUTH_TOKEN=
+ALCHEMY_NOTIFY_BASE_URL=https://dashboard.alchemy.com
+EOT
+
+startup_script_extra = <<-EOT
+# Optional:
+# sudo docker compose --env-file /opt/qorvi/app/.env.backend -f /opt/qorvi/app/infra/docker/docker-compose.prod.yml --profile worker up -d worker-backfill
+EOT
