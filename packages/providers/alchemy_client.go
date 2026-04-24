@@ -618,6 +618,26 @@ func alchemySolanaTransactionToActivity(
 	index int,
 	pageMetadata map[string]any,
 ) ProviderWalletActivity {
+	return solanaHistoricalTransactionToActivity(
+		ProviderAlchemy,
+		"solana_getTransaction",
+		"alchemy",
+		batch,
+		tx,
+		index,
+		pageMetadata,
+	)
+}
+
+func solanaHistoricalTransactionToActivity(
+	provider ProviderName,
+	sourceID string,
+	rawPayloadPrefix string,
+	batch HistoricalBackfillBatch,
+	tx solanaTransactionResult,
+	index int,
+	pageMetadata map[string]any,
+) ProviderWalletActivity {
 	observedAt := batch.WindowEnd.Add(-time.Duration(index) * time.Minute)
 	if tx.BlockTime > 0 {
 		observedAt = time.Unix(tx.BlockTime, 0).UTC()
@@ -626,7 +646,7 @@ func alchemySolanaTransactionToActivity(
 	metadata := mergeMetadata(pageMetadata, buildSolanaHistoricalTransferMetadata(batch.Request.WalletAddress, tx))
 	metadata = mergeMetadata(metadata, map[string]any{
 		"tx_hash":           firstString(tx.Transaction.Signatures),
-		"raw_payload_path":  fmt.Sprintf("alchemy://solana/transactions/%s", firstString(tx.Transaction.Signatures)),
+		"raw_payload_path":  fmt.Sprintf("%s://solana/transactions/%s", rawPayloadPrefix, firstString(tx.Transaction.Signatures)),
 		"block_number":      tx.Slot,
 		"transaction_index": index,
 	})
@@ -635,10 +655,10 @@ func alchemySolanaTransactionToActivity(
 	}
 
 	return CreateProviderActivityFixture(ProviderActivityFixtureInput{
-		Provider:      ProviderAlchemy,
+		Provider:      provider,
 		Chain:         batch.Request.Chain,
 		WalletAddress: batch.Request.WalletAddress,
-		SourceID:      "solana_getTransaction",
+		SourceID:      sourceID,
 		Kind:          "transaction",
 		Confidence:    0.82,
 		ObservedAt:    observedAt,

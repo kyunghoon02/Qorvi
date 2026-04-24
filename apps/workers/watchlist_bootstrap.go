@@ -95,10 +95,10 @@ func (s WatchlistBootstrapService) RunEnqueue(ctx context.Context) (WatchlistBoo
 				"candidate_score":                 1.0,
 				"tracking_status_target":          db.WalletTrackingStatusCandidate,
 				"watchlist_bootstrap":             true,
-				"backfill_window_days":            365,
-				"backfill_limit":                  750,
-				"backfill_expansion_depth":        2,
-				"backfill_stop_service_addresses": true,
+				"backfill_window_days":            watchlistBootstrapBackfillWindowDays(),
+				"backfill_limit":                  watchlistBootstrapBackfillLimit(),
+				"backfill_expansion_depth":        watchlistBootstrapBackfillExpansionDepth(),
+				"backfill_stop_service_addresses": watchlistBootstrapBackfillStopServiceAddresses(),
 			},
 		})); err != nil {
 			return WatchlistBootstrapReport{}, err
@@ -163,4 +163,20 @@ func walletBackfillDrainLimit() int {
 	}
 
 	return parsed
+}
+
+func watchlistBootstrapBackfillWindowDays() int {
+	return envIntOrDefault("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_WINDOW_DAYS", 7)
+}
+
+func watchlistBootstrapBackfillLimit() int {
+	return envIntOrDefault("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_LIMIT", 2)
+}
+
+func watchlistBootstrapBackfillExpansionDepth() int {
+	return envIntOrDefault("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_EXPANSION_DEPTH", 1)
+}
+
+func watchlistBootstrapBackfillStopServiceAddresses() bool {
+	return parseBoolEnv("FLOWINTEL_WATCHLIST_BOOTSTRAP_BACKFILL_STOP_SERVICE_ADDRESSES", true)
 }

@@ -32,8 +32,8 @@ type SeedDiscoveryJobRunner struct {
 	EntityIndex interface {
 		SyncAdminCuratedEntityIndex(context.Context, string) error
 	}
-	Dedup   db.IngestDedupStore
-	JobRuns db.JobRunStore
+	Dedup      db.IngestDedupStore
+	JobRuns    db.JobRunStore
 	Watchlists interface {
 		ListWatchlists(context.Context, string) ([]domain.Watchlist, error)
 		CreateWatchlist(context.Context, string, string, string, []string) (domain.Watchlist, error)
@@ -320,94 +320,96 @@ func (r SeedDiscoveryJobRunner) runEnqueueBatches(
 	}
 
 	report := summarizeSeedDiscoveryResults(results)
-	for _, result := range results {
-		for _, candidate := range result.Candidates {
-			if r.Dedup != nil {
-				key := db.BuildIngestDedupKey(
-					options.DedupNamespace,
-					fmt.Sprintf("%s:%s", candidate.SourceID, domain.BuildWalletCanonicalKey(candidate.Chain, candidate.WalletAddress)),
-				)
-				claimed, claimErr := r.Dedup.Claim(ctx, key, 24*time.Hour)
-				if claimErr != nil {
-					_ = r.recordJobRun(ctx, db.JobRunEntry{
-						JobName:    options.JobName,
-						Status:     db.JobRunStatusFailed,
-						StartedAt:  startedAt,
-						FinishedAt: pointerToTime(r.now().UTC()),
-						Details: map[string]any{
-							"error":     claimErr.Error(),
-							"candidate": candidate.WalletAddress,
-							"source_id": candidate.SourceID,
-							"provider":  string(candidate.Provider),
-						},
-					})
-					return SeedDiscoveryIngestReport{}, claimErr
-				}
-				if !claimed {
-					report.CandidatesDeduped++
-					continue
-				}
-			}
-
-			metadata := cloneSeedDiscoveryMetadata(candidate.Metadata)
-			metadata["seed_discovery_kind"] = candidate.Kind
-			metadata["seed_discovery_confidence"] = candidate.Confidence
-			metadata["seed_discovery_source_id"] = candidate.SourceID
-			metadata["seed_discovery_observed_at"] = candidate.ObservedAt.Format(time.RFC3339)
-			metadata["reason"] = options.DiscoveryReason
-			metadata["priority"] = options.TrackingPriority
-			metadata["source_type"] = options.SourceType
-			metadata["source_ref"] = candidate.SourceID
-			metadata["candidate_score"] = candidate.Confidence
-			metadata["tracking_status_target"] = db.WalletTrackingStatusCandidate
-			metadata["backfill_window_days"] = options.BackfillWindowDays
-			metadata["backfill_limit"] = options.BackfillLimit
-			metadata["backfill_expansion_depth"] = options.BackfillExpansionDepth
-			metadata["backfill_stop_service_addresses"] = options.BackfillStopServiceAddresses
-			if r.Tracking != nil {
-				if err := r.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
-					Chain:            candidate.Chain,
-					Address:          candidate.WalletAddress,
-					SourceType:       options.SourceType,
-					SourceRef:        candidate.SourceID,
-					DiscoveryReason:  options.DiscoveryReason,
-					Confidence:       candidate.Confidence,
-					CandidateScore:   candidate.Confidence,
-					TrackingPriority: options.TrackingPriority,
-					ObservedAt:       candidate.ObservedAt,
-					Payload:          cloneSeedDiscoveryMetadata(candidate.Metadata),
-					Notes: map[string]any{
-						"provider": string(candidate.Provider),
-						"kind":     candidate.Kind,
-					},
-				}); err != nil {
-					return SeedDiscoveryIngestReport{}, err
-				}
-			}
-
-			if err := r.Queue.EnqueueWalletBackfill(ctx, db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
-				Chain:       candidate.Chain,
-				Address:     candidate.WalletAddress,
-				Source:      options.QueueSource,
-				RequestedAt: r.now().UTC(),
-				Metadata:    metadata,
-			})); err != nil {
+	for _, candidate := range orderSeedDiscoveryCandidates(flattenSeedDiscoveryCandidates(results)) {
+		if r.Dedup != nil {
+			key := db.BuildIngestDedupKey(
+				options.DedupNamespace,
+				fmt.Sprintf("%s:%s", candidate.SourceID, domain.BuildWalletCanonicalKey(candidate.Chain, candidate.WalletAddress)),
+			)
+			claimed, claimErr := r.Dedup.Claim(ctx, key, 24*time.Hour)
+			if claimErr != nil {
 				_ = r.recordJobRun(ctx, db.JobRunEntry{
 					JobName:    options.JobName,
 					Status:     db.JobRunStatusFailed,
 					StartedAt:  startedAt,
 					FinishedAt: pointerToTime(r.now().UTC()),
 					Details: map[string]any{
-						"error":     err.Error(),
+						"error":     claimErr.Error(),
 						"candidate": candidate.WalletAddress,
 						"source_id": candidate.SourceID,
 						"provider":  string(candidate.Provider),
 					},
 				})
+				return SeedDiscoveryIngestReport{}, claimErr
+			}
+			if !claimed {
+				report.CandidatesDeduped++
+				continue
+			}
+		}
+
+		metadata := cloneSeedDiscoveryMetadata(candidate.Metadata)
+		priority := seedDiscoveryCandidatePriority(candidate)
+		if priority < options.TrackingPriority {
+			priority = options.TrackingPriority
+		}
+		metadata["seed_discovery_kind"] = candidate.Kind
+		metadata["seed_discovery_confidence"] = candidate.Confidence
+		metadata["seed_discovery_source_id"] = candidate.SourceID
+		metadata["seed_discovery_observed_at"] = candidate.ObservedAt.Format(time.RFC3339)
+		metadata["reason"] = options.DiscoveryReason
+		metadata["priority"] = priority
+		metadata["source_type"] = options.SourceType
+		metadata["source_ref"] = candidate.SourceID
+		metadata["candidate_score"] = candidate.Confidence
+		metadata["tracking_status_target"] = db.WalletTrackingStatusCandidate
+		metadata["backfill_window_days"] = seedDiscoveryBackfillWindowDaysFromMetadata(metadata)
+		metadata["backfill_limit"] = seedDiscoveryBackfillLimitFromMetadata(metadata)
+		metadata["backfill_expansion_depth"] = seedDiscoveryBackfillExpansionDepthFromMetadata(metadata)
+		metadata["backfill_stop_service_addresses"] = seedDiscoveryBackfillStopServiceAddressesFromMetadata(metadata)
+		if r.Tracking != nil {
+			if err := r.Tracking.RecordWalletCandidate(ctx, db.WalletTrackingCandidate{
+				Chain:            candidate.Chain,
+				Address:          candidate.WalletAddress,
+				SourceType:       options.SourceType,
+				SourceRef:        candidate.SourceID,
+				DiscoveryReason:  options.DiscoveryReason,
+				Confidence:       candidate.Confidence,
+				CandidateScore:   candidate.Confidence,
+				TrackingPriority: priority,
+				ObservedAt:       candidate.ObservedAt,
+				Payload:          cloneSeedDiscoveryMetadata(candidate.Metadata),
+				Notes: map[string]any{
+					"provider": string(candidate.Provider),
+					"kind":     candidate.Kind,
+				},
+			}); err != nil {
 				return SeedDiscoveryIngestReport{}, err
 			}
-			report.CandidatesEnqueued++
 		}
+
+		if err := r.Queue.EnqueueWalletBackfill(ctx, db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+			Chain:       candidate.Chain,
+			Address:     candidate.WalletAddress,
+			Source:      options.QueueSource,
+			RequestedAt: r.now().UTC(),
+			Metadata:    metadata,
+		})); err != nil {
+			_ = r.recordJobRun(ctx, db.JobRunEntry{
+				JobName:    options.JobName,
+				Status:     db.JobRunStatusFailed,
+				StartedAt:  startedAt,
+				FinishedAt: pointerToTime(r.now().UTC()),
+				Details: map[string]any{
+					"error":     err.Error(),
+					"candidate": candidate.WalletAddress,
+					"source_id": candidate.SourceID,
+					"provider":  string(candidate.Provider),
+				},
+			})
+			return SeedDiscoveryIngestReport{}, err
+		}
+		report.CandidatesEnqueued++
 	}
 
 	if err := r.recordJobRun(ctx, db.JobRunEntry{
@@ -546,6 +548,95 @@ func cloneSeedDiscoveryMetadata(metadata map[string]any) map[string]any {
 	return cloned
 }
 
+func flattenSeedDiscoveryCandidates(results []providers.SeedDiscoveryResult) []providers.SeedDiscoveryCandidate {
+	candidates := make([]providers.SeedDiscoveryCandidate, 0)
+	for _, result := range results {
+		candidates = append(candidates, result.Candidates...)
+	}
+	return candidates
+}
+
+func orderSeedDiscoveryCandidates(candidates []providers.SeedDiscoveryCandidate) []providers.SeedDiscoveryCandidate {
+	ordered := append([]providers.SeedDiscoveryCandidate(nil), candidates...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		leftPriority := seedDiscoveryCandidatePriority(ordered[i])
+		rightPriority := seedDiscoveryCandidatePriority(ordered[j])
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
+		if !ordered[i].ObservedAt.Equal(ordered[j].ObservedAt) {
+			return ordered[i].ObservedAt.After(ordered[j].ObservedAt)
+		}
+		if ordered[i].Confidence != ordered[j].Confidence {
+			return ordered[i].Confidence > ordered[j].Confidence
+		}
+		return ordered[i].WalletAddress < ordered[j].WalletAddress
+	})
+	return ordered
+}
+
+func seedDiscoveryCandidatePriority(candidate providers.SeedDiscoveryCandidate) int {
+	priority := 180
+	if metadataPriority := readIntMetadataWithFallback(candidate.Metadata, "seed_priority", 0); metadataPriority > 0 {
+		priority = metadataPriority
+	}
+	if metadataPriority := readIntMetadataWithFallback(candidate.Metadata, "priority", 0); metadataPriority > priority {
+		priority = metadataPriority
+	}
+	if metadataPriority := readIntMetadataWithFallback(candidate.Metadata, "queue_priority", 0); metadataPriority > priority {
+		priority = metadataPriority
+	}
+	if metadataBoolValue(candidate.Metadata, "is_active") {
+		priority += 5
+	}
+	priority += seedDiscoveryCandidateVolumeBonus(candidate)
+	return priority
+}
+
+func seedDiscoveryCandidateVolumeBonus(candidate providers.SeedDiscoveryCandidate) int {
+	volumeHint := metadataFloatValue(candidate.Metadata, "recent_volume_hint", 0)
+	if volumeHint <= 0 {
+		volumeHint = metadataFloatValue(candidate.Metadata, "volume_hint", 0)
+	}
+
+	switch {
+	case volumeHint >= 1_000_000_000_000:
+		return 18
+	case volumeHint >= 10_000_000_000:
+		return 14
+	case volumeHint >= 1_000_000_000:
+		return 10
+	case volumeHint >= 100_000_000:
+		return 6
+	case volumeHint >= 1_000_000:
+		return 3
+	case volumeHint > 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func metadataBoolValue(metadata map[string]any, key string) bool {
+	if metadata == nil {
+		return false
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return false
+	}
+
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return parseBoolString(typed, false)
+	default:
+		return false
+	}
+}
+
 func rankSeedDiscoveryCandidates(
 	results []providers.SeedDiscoveryResult,
 	topN int,
@@ -564,29 +655,28 @@ func rankSeedDiscoveryCandidates(
 	}
 
 	scored := make([]scoredCandidate, 0)
-	for _, result := range results {
-		for _, candidate := range result.Candidates {
-			kind := strings.TrimSpace(candidate.Kind)
-			label := strings.TrimSpace(stringValue(candidate.Metadata["seed_label"]))
-			reason := strings.TrimSpace(stringValue(candidate.Metadata["seed_label_reason"]))
-			if kind != "seed_label" && label == "" {
-				continue
-			}
-			if candidate.Confidence < minConfidence {
-				continue
-			}
-			score := candidate.Confidence * 100
-			if kind == "seed_label" {
-				score += 5
-			}
-			if label != "" {
-				score += 3
-			}
-			if reason != "" {
-				score += 2
-			}
-			scored = append(scored, scoredCandidate{candidate: candidate, score: score})
+	for _, candidate := range flattenSeedDiscoveryCandidates(results) {
+		kind := strings.TrimSpace(candidate.Kind)
+		label := strings.TrimSpace(stringValue(candidate.Metadata["seed_label"]))
+		reason := strings.TrimSpace(stringValue(candidate.Metadata["seed_label_reason"]))
+		if kind != "seed_label" && label == "" {
+			continue
 		}
+		if candidate.Confidence < minConfidence {
+			continue
+		}
+		score := candidate.Confidence * 100
+		if kind == "seed_label" {
+			score += 5
+		}
+		if label != "" {
+			score += 3
+		}
+		if reason != "" {
+			score += 2
+		}
+		score += float64(seedDiscoveryCandidatePriority(candidate)) / 10
+		scored = append(scored, scoredCandidate{candidate: candidate, score: score})
 	}
 
 	sort.Slice(scored, func(i, j int) bool {
@@ -688,4 +778,142 @@ func seedDiscoveryMinConfidenceFromEnv() float64 {
 	}
 
 	return parsed
+}
+
+func seedDiscoveryBackfillWindowDaysFromMetadata(metadata map[string]any) int {
+	return readIntMetadataWithFallback(
+		metadata,
+		"backfill_window_days",
+		seedDiscoveryBackfillWindowDaysFromEnv(),
+	)
+}
+
+func seedDiscoveryBackfillLimitFromMetadata(metadata map[string]any) int {
+	return readIntMetadataWithFallback(
+		metadata,
+		"backfill_limit",
+		seedDiscoveryBackfillLimitFromEnv(),
+	)
+}
+
+func seedDiscoveryBackfillExpansionDepthFromMetadata(metadata map[string]any) int {
+	return readIntMetadataWithFallback(
+		metadata,
+		"backfill_expansion_depth",
+		seedDiscoveryBackfillExpansionDepthFromEnv(),
+	)
+}
+
+func seedDiscoveryBackfillStopServiceAddressesFromMetadata(metadata map[string]any) bool {
+	if metadata != nil {
+		if value, ok := metadata["backfill_stop_service_addresses"]; ok {
+			switch typed := value.(type) {
+			case bool:
+				return typed
+			case string:
+				return parseBoolString(typed, true)
+			}
+		}
+	}
+
+	return parseBoolEnv("FLOWINTEL_SEED_DISCOVERY_BACKFILL_STOP_SERVICE_ADDRESSES", true)
+}
+
+func seedDiscoveryBackfillWindowDaysFromEnv() int {
+	return envIntOrDefault("FLOWINTEL_SEED_DISCOVERY_BACKFILL_WINDOW_DAYS", 7)
+}
+
+func seedDiscoveryBackfillLimitFromEnv() int {
+	return envIntOrDefault("FLOWINTEL_SEED_DISCOVERY_BACKFILL_LIMIT", 2)
+}
+
+func seedDiscoveryBackfillExpansionDepthFromEnv() int {
+	return envIntOrDefault("FLOWINTEL_SEED_DISCOVERY_BACKFILL_EXPANSION_DEPTH", 1)
+}
+
+func readIntMetadataWithFallback(metadata map[string]any, key string, fallback int) int {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	default:
+		return fallback
+	}
+}
+
+func metadataFloatValue(metadata map[string]any, key string, fallback float64) float64 {
+	if metadata == nil {
+		return fallback
+	}
+
+	value, ok := metadata[key]
+	if !ok {
+		return fallback
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int32:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	default:
+		return fallback
+	}
+}
+
+func envIntOrDefault(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
+}
+
+func parseBoolString(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

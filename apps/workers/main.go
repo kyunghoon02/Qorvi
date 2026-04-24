@@ -173,7 +173,9 @@ func main() {
 		exchangeListingRegistrySync.JobRuns = db.NewJobRunStoreFromClients(clients)
 	}
 
-	output, err := buildWorkerOutput(
+	autoIndexLoop := NewAutoIndexLoopService(seedDiscovery, watchlistBootstrap, ingest)
+
+	output, err := buildWorkerOutputWithAutoIndex(
 		appCtx,
 		mode,
 		env,
@@ -189,6 +191,7 @@ func main() {
 		trackingSubscriptionSync,
 		exchangeListingRegistrySync,
 		billingSubscriptionSync,
+		autoIndexLoop,
 	)
 	if err != nil {
 		log.Fatalf("worker execution failed: %v", err)
@@ -328,6 +331,7 @@ func requiresProviderRegistry(mode string) bool {
 		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
 		mode == workerModeWalletBackfillDrainLoop ||
+		mode == workerModeAutoIndexLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeMobulaSmartMoneyEnqueue ||
 		mode == workerModeSeedDiscoveryEnqueue ||
@@ -340,6 +344,7 @@ func requiresWorkerStorage(mode string) bool {
 		mode == workerModeWalletBackfillDrainPriority ||
 		mode == workerModeWalletBackfillDrainBatch ||
 		mode == workerModeWalletBackfillDrainLoop ||
+		mode == workerModeAutoIndexLoop ||
 		mode == workerModeMoralisEnrichmentRefresh ||
 		mode == workerModeMobulaSmartMoneyEnqueue ||
 		mode == workerModeAdminCuratedWalletImport ||

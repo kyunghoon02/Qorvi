@@ -42,30 +42,63 @@ func (c *HeliusClient) FetchHistoricalWalletActivity(batch HistoricalBackfillBat
 		return nil, err
 	}
 
-	activities := make([]ProviderWalletActivity, 0, batch.Limit)
-	paginationToken := ""
+	signatures, err := c.fetchSolanaSignatures(endpoint, batch)
+	if err != nil {
+		return nil, err
+	}
+	if len(signatures) == 0 {
+		return []ProviderWalletActivity{}, nil
+	}
 
-	for len(activities) < batch.Limit {
-		requestBody := heliusTransactionsRequest{
+	activities := make([]ProviderWalletActivity, 0, len(signatures))
+	for index, signature := range signatures {
+		if len(activities) >= batch.Limit {
+			break
+		}
+
+		tx, metadata, err := c.fetchSolanaTransaction(endpoint, batch, signature)
+		if err != nil {
+			return nil, err
+		}
+		if tx == nil {
+			continue
+		}
+
+		activities = append(activities, solanaHistoricalTransactionToActivity(
+			ProviderHelius,
+			"solana_getTransaction",
+			"helius",
+			batch,
+			*tx,
+			index,
+			metadata,
+		))
+	}
+
+	return activities, nil
+}
+
+func (c *HeliusClient) fetchSolanaSignatures(endpoint string, batch HistoricalBackfillBatch) ([]solanaSignatureInfo, error) {
+	signatures := make([]solanaSignatureInfo, 0, batch.Limit)
+	before := ""
+
+	for len(signatures) < batch.Limit {
+		requestBody := solanaRPCRequest{
 			JSONRPC: "2.0",
 			ID:      1,
-			Method:  "getTransactionsForAddress",
+			Method:  "getSignaturesForAddress",
 			Params: []any{
 				batch.Request.WalletAddress,
-				heliusTransactionsOptions{
-					TransactionDetails: "signatures",
-					SortOrder:          "desc",
-					Limit:              minInt(batch.Limit-len(activities), 1000),
-					PaginationToken:    paginationToken,
-					Filters: heliusTransactionsFilters{
-						BlockTime: heliusRangeFilter{
-							GTE: batch.WindowStart.Unix(),
-							LTE: batch.WindowEnd.Unix(),
-						},
-						Status: "succeeded",
-					},
+				map[string]any{
+					"limit":  minInt(batch.Limit-len(signatures), 1000),
+					"before": before,
 				},
 			},
+		}
+		if before == "" {
+			requestBody.Params[1] = map[string]any{
+				"limit": minInt(batch.Limit-len(signatures), 1000),
+			}
 		}
 
 		req, err := newJSONRequest(http.MethodPost, endpoint, requestBody)
@@ -73,56 +106,90 @@ func (c *HeliusClient) FetchHistoricalWalletActivity(batch HistoricalBackfillBat
 			return nil, err
 		}
 
-		response := heliusTransactionsResponse{}
-		rawBody, err := c.http.doJSONRequestWithRaw(req, &response)
-		if err != nil {
-			if fallbackActivities, attempted, fallbackErr := c.tryFallbackHistorical(batch, err); attempted {
-				if fallbackErr != nil {
-					return nil, fallbackErr
-				}
-				return fallbackActivities, nil
-			}
+		var response solanaSignaturesResponse
+		if _, err := c.http.doJSONRequestWithRaw(req, &response); err != nil {
 			return nil, err
 		}
 		if response.Error != nil {
-			if fallbackActivities, attempted, fallbackErr := c.tryFallbackHistorical(batch, fmt.Errorf("helius transactions api error: %s", response.Error.Message)); attempted {
-				if fallbackErr != nil {
-					return nil, fallbackErr
-				}
-				return fallbackActivities, nil
-			}
-			return nil, fmt.Errorf("helius transactions api error: %s", response.Error.Message)
+			return nil, fmt.Errorf("helius solana signatures api error: %s", response.Error.Message)
 		}
-		enrichmentBySignature, err := c.fetchTransactionEnrichment(batch, response.Result.Data)
-		if err != nil {
-			return nil, err
+		if len(response.Result) == 0 {
+			break
 		}
-		pageMetadata := capturePagePayloadMetadata(
-			ProviderHelius,
-			"getTransactionsForAddress",
-			batch.WindowEnd,
-			response.Result.PaginationToken,
-			rawBody,
-			map[string]any{
-				"response_pagination_token": response.Result.PaginationToken,
-				"response_count":            len(response.Result.Data),
-			},
-		)
 
-		for _, tx := range response.Result.Data {
-			activities = append(activities, heliusTransactionToActivity(batch, tx, len(activities), pageMetadata, enrichmentBySignature[tx.Signature]))
-			if len(activities) >= batch.Limit {
+		stop := false
+		for _, item := range response.Result {
+			if item.BlockTime > 0 {
+				observedAt := time.Unix(item.BlockTime, 0).UTC()
+				if observedAt.Before(batch.WindowStart) {
+					stop = true
+					break
+				}
+				if observedAt.After(batch.WindowEnd) {
+					continue
+				}
+			}
+			signatures = append(signatures, item)
+			if len(signatures) >= batch.Limit {
 				break
 			}
 		}
+		if stop || len(signatures) >= batch.Limit {
+			break
+		}
 
-		paginationToken = response.Result.PaginationToken
-		if paginationToken == "" {
+		before = response.Result[len(response.Result)-1].Signature
+		if before == "" {
 			break
 		}
 	}
 
-	return activities, nil
+	return signatures, nil
+}
+
+func (c *HeliusClient) fetchSolanaTransaction(endpoint string, batch HistoricalBackfillBatch, signature solanaSignatureInfo) (*solanaTransactionResult, map[string]any, error) {
+	requestBody := solanaRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "getTransaction",
+		Params: []any{
+			signature.Signature,
+			map[string]any{
+				"encoding":                       "jsonParsed",
+				"maxSupportedTransactionVersion": 0,
+			},
+		},
+	}
+
+	req, err := newJSONRequest(http.MethodPost, endpoint, requestBody)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var response solanaTransactionResponse
+	rawBody, err := c.http.doJSONRequestWithRaw(req, &response)
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.Error != nil {
+		return nil, nil, fmt.Errorf("helius solana transaction api error: %s", response.Error.Message)
+	}
+	if response.Result == nil {
+		return nil, nil, nil
+	}
+
+	metadata := capturePagePayloadMetadata(
+		ProviderHelius,
+		"solana_getTransaction",
+		batch.WindowEnd,
+		signature.Signature,
+		rawBody,
+		map[string]any{
+			"response_slot": response.Result.Slot,
+		},
+	)
+
+	return response.Result, metadata, nil
 }
 
 func (c *HeliusClient) tryFallbackHistorical(batch HistoricalBackfillBatch, cause error) ([]ProviderWalletActivity, bool, error) {

@@ -121,7 +121,9 @@ func newMobulaSeedDiscoveryRunnerForTest(t *testing.T) SeedDiscoveryJobRunner {
 }
 
 func TestSeedDiscoveryJobRunnerRunEnqueue(t *testing.T) {
-	t.Parallel()
+	t.Setenv("FLOWINTEL_SEED_DISCOVERY_BACKFILL_WINDOW_DAYS", "7")
+	t.Setenv("FLOWINTEL_SEED_DISCOVERY_BACKFILL_LIMIT", "2")
+	t.Setenv("FLOWINTEL_SEED_DISCOVERY_BACKFILL_EXPANSION_DEPTH", "1")
 
 	queue := &fakeWalletBackfillQueueStore{}
 	dedup := &fakeIngestDedupStore{}
@@ -153,11 +155,14 @@ func TestSeedDiscoveryJobRunnerRunEnqueue(t *testing.T) {
 	if queue.jobs[0].Metadata["seed_label"] != "dune_fixture_whale" {
 		t.Fatalf("expected seed label metadata, got %#v", queue.jobs[0].Metadata["seed_label"])
 	}
-	if queue.jobs[0].Metadata["backfill_window_days"] != 365 {
-		t.Fatalf("expected 365-day seed-discovery window, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
+	if queue.jobs[0].Metadata["backfill_window_days"] != 7 {
+		t.Fatalf("expected 7-day seed-discovery window, got %#v", queue.jobs[0].Metadata["backfill_window_days"])
 	}
-	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 2 {
-		t.Fatalf("expected 2-hop seed-discovery expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
+	if queue.jobs[0].Metadata["backfill_limit"] != 2 {
+		t.Fatalf("expected limit 2, got %#v", queue.jobs[0].Metadata["backfill_limit"])
+	}
+	if queue.jobs[0].Metadata["backfill_expansion_depth"] != 1 {
+		t.Fatalf("expected 1-hop seed-discovery expansion depth, got %#v", queue.jobs[0].Metadata["backfill_expansion_depth"])
 	}
 	if len(jobRuns.entries) != 1 {
 		t.Fatalf("expected 1 job run entry, got %d", len(jobRuns.entries))
@@ -228,6 +233,136 @@ func TestSeedDiscoveryJobRunnerRunMobulaSmartMoneyEnqueue(t *testing.T) {
 	}
 	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusSucceeded {
 		t.Fatalf("expected one succeeded job run, got %#v", jobRuns.entries)
+	}
+}
+
+func TestSeedDiscoveryJobRunnerRunEnqueueOrdersCandidatesByPriorityAndObservedAt(t *testing.T) {
+	t.Parallel()
+
+	queue := &fakeWalletBackfillQueueStore{}
+	runner := NewSeedDiscoveryJobRunner(providers.NewConfiguredRegistry(providers.ProviderEnv{
+		DuneAPIKey: "dune_secret",
+		DuneSeedExportRows: []providers.DuneSeedExportRow{
+			{
+				Chain:         "solana",
+				WalletAddress: "DormantWallet111111111111111111111111111111",
+				SeedLabel:     "seed",
+				Confidence:    0.98,
+				ObservedAt:    "2026-02-14T22:03:08Z",
+				Metadata: map[string]any{
+					"is_active":     true,
+					"seed_priority": 150,
+				},
+			},
+			{
+				Chain:         "solana",
+				WalletAddress: "FreshWallet22222222222222222222222222222222",
+				SeedLabel:     "seed",
+				Confidence:    0.98,
+				ObservedAt:    "2026-04-13T06:02:07Z",
+				Metadata: map[string]any{
+					"is_active":     true,
+					"seed_priority": 240,
+				},
+			},
+			{
+				Chain:         "solana",
+				WalletAddress: "RecentWallet3333333333333333333333333333333",
+				SeedLabel:     "seed",
+				Confidence:    0.98,
+				ObservedAt:    "2026-04-13T06:01:47Z",
+				Metadata: map[string]any{
+					"is_active":     true,
+					"seed_priority": 220,
+				},
+			},
+		},
+		AlchemyAPIKey: "alchemy_secret",
+		HeliusAPIKey:  "helius_secret",
+		MoralisAPIKey: "moralis_secret",
+	}))
+	runner.Queue = queue
+	runner.Now = func() time.Time {
+		return time.Date(2026, time.April, 13, 6, 5, 0, 0, time.UTC)
+	}
+
+	report, err := runner.RunEnqueue(context.Background())
+	if err != nil {
+		t.Fatalf("RunEnqueue returned error: %v", err)
+	}
+	if report.CandidatesEnqueued != 3 {
+		t.Fatalf("expected 3 candidates enqueued, got %#v", report)
+	}
+	if len(queue.jobs) != 3 {
+		t.Fatalf("expected 3 queued jobs, got %d", len(queue.jobs))
+	}
+	if queue.jobs[0].Address != "FreshWallet22222222222222222222222222222222" {
+		t.Fatalf("expected freshest high-priority wallet first, got %q", queue.jobs[0].Address)
+	}
+	if queue.jobs[1].Address != "RecentWallet3333333333333333333333333333333" {
+		t.Fatalf("expected second freshest wallet next, got %q", queue.jobs[1].Address)
+	}
+	if queue.jobs[2].Address != "DormantWallet111111111111111111111111111111" {
+		t.Fatalf("expected dormant wallet last, got %q", queue.jobs[2].Address)
+	}
+	if queue.jobs[0].Metadata["priority"] != 245 {
+		t.Fatalf("expected boosted queue priority, got %#v", queue.jobs[0].Metadata["priority"])
+	}
+}
+
+func TestSeedDiscoveryJobRunnerRunEnqueueUsesVolumeHintToBreakPriorityTies(t *testing.T) {
+	t.Parallel()
+
+	queue := &fakeWalletBackfillQueueStore{}
+	runner := NewSeedDiscoveryJobRunner(providers.NewConfiguredRegistry(providers.ProviderEnv{
+		DuneAPIKey: "dune_secret",
+		DuneSeedExportRows: []providers.DuneSeedExportRow{
+			{
+				Chain:         "solana",
+				WalletAddress: "LowVolumeWallet1111111111111111111111111111",
+				SeedLabel:     "seed",
+				Confidence:    0.98,
+				ObservedAt:    "2026-04-13T06:00:00Z",
+				Metadata: map[string]any{
+					"is_active":          true,
+					"seed_priority":      220,
+					"recent_volume_hint": 1000,
+				},
+			},
+			{
+				Chain:         "solana",
+				WalletAddress: "HighVolumeWallet222222222222222222222222222",
+				SeedLabel:     "seed",
+				Confidence:    0.98,
+				ObservedAt:    "2026-04-13T05:59:00Z",
+				Metadata: map[string]any{
+					"is_active":          true,
+					"seed_priority":      220,
+					"recent_volume_hint": 1000000000000.0,
+				},
+			},
+		},
+		AlchemyAPIKey: "alchemy_secret",
+		HeliusAPIKey:  "helius_secret",
+		MoralisAPIKey: "moralis_secret",
+	}))
+	runner.Queue = queue
+	runner.Now = func() time.Time {
+		return time.Date(2026, time.April, 13, 6, 5, 0, 0, time.UTC)
+	}
+
+	report, err := runner.RunEnqueue(context.Background())
+	if err != nil {
+		t.Fatalf("RunEnqueue returned error: %v", err)
+	}
+	if report.CandidatesEnqueued != 2 {
+		t.Fatalf("expected 2 candidates enqueued, got %#v", report)
+	}
+	if queue.jobs[0].Address != "HighVolumeWallet222222222222222222222222222" {
+		t.Fatalf("expected high-volume wallet first, got %q", queue.jobs[0].Address)
+	}
+	if queue.jobs[0].Metadata["priority"] != 243 {
+		t.Fatalf("expected volume-boosted priority, got %#v", queue.jobs[0].Metadata["priority"])
 	}
 }
 

@@ -1028,10 +1028,14 @@ func queuedBackfillPolicyForJob(job db.WalletBackfillJob) queuedBackfillPolicy {
 	}
 
 	switch strings.TrimSpace(job.Source) {
-	case "watchlist_bootstrap", "seed_discovery":
-		policy.WindowDays = 365
-		policy.ExpansionDepth = 2
-		policy.Limit = 750
+	case "watchlist_bootstrap":
+		policy.WindowDays = watchlistBootstrapBackfillWindowDays()
+		policy.ExpansionDepth = watchlistBootstrapBackfillExpansionDepth()
+		policy.Limit = watchlistBootstrapBackfillLimit()
+	case "seed_discovery":
+		policy.WindowDays = seedDiscoveryBackfillWindowDaysFromEnv()
+		policy.ExpansionDepth = seedDiscoveryBackfillExpansionDepthFromEnv()
+		policy.Limit = seedDiscoveryBackfillLimitFromEnv()
 	}
 
 	policy.WindowDays = clampQueuedBackfillWindowDays(intMetadataValue(job.Metadata, "backfill_window_days", policy.WindowDays))
