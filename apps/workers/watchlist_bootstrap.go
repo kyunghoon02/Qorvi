@@ -19,10 +19,10 @@ type WatchlistBootstrapService struct {
 		ListWalletRefs(context.Context) ([]db.WalletRef, error)
 	}
 	Tracking db.WalletTrackingStateStore
-	Queue   db.WalletBackfillQueueStore
-	Dedup   db.IngestDedupStore
-	JobRuns db.JobRunStore
-	Now     func() time.Time
+	Queue    db.WalletBackfillQueueStore
+	Dedup    db.IngestDedupStore
+	JobRuns  db.JobRunStore
+	Now      func() time.Time
 }
 
 type WatchlistBootstrapReport struct {
@@ -150,6 +150,9 @@ func (s WatchlistBootstrapService) recordJobRun(ctx context.Context, entry db.Jo
 
 func walletBackfillDrainLimit() int {
 	value := strings.TrimSpace(os.Getenv("QORVI_WALLET_BACKFILL_DRAIN_LIMIT"))
+	if value == "" {
+		value = strings.TrimSpace(os.Getenv("FLOWINTEL_WALLET_BACKFILL_DRAIN_LIMIT"))
+	}
 	if value == "" {
 		return 25
 	}

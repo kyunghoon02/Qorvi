@@ -1490,7 +1490,13 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
             depthResolved: 2,
             densityCapped: true,
             nodes: [
-              { id: "wallet_root", kind: "wallet", label: "Live Whale" },
+              {
+                id: "wallet_root",
+                kind: "wallet",
+                chain: "evm",
+                address: "0x1234567890ABCDEF1234567890ABCDEF12345678",
+                label: "Live Whale",
+              },
               { id: "cluster_live", kind: "cluster", label: "cluster_live" },
             ],
             edges: [
@@ -1525,7 +1531,14 @@ test("loadWalletGraphPreview maps live backend data when available", async () =>
   assert.equal(preview.depthRequested, 2);
   assert.equal(preview.depthResolved, 2);
   assert.equal(preview.densityCapped, true);
-  assert.equal(preview.nodes[0]?.id, "wallet_root");
+  assert.equal(
+    preview.nodes[0]?.id,
+    "wallet:evm:0x1234567890abcdef1234567890abcdef12345678",
+  );
+  assert.equal(
+    preview.edges[0]?.sourceId,
+    "wallet:evm:0x1234567890abcdef1234567890abcdef12345678",
+  );
   assert.equal(preview.edges[0]?.family, "derived");
   assert.equal(preview.edges[0]?.kind, "member_of");
   assert.equal(preview.edges[0]?.evidence?.source, "neo4j-materialized");
@@ -1557,7 +1570,15 @@ test("loadWalletGraphPreview retries at depth 1 when depth 2 is forbidden", asyn
             depthRequested: 1,
             depthResolved: 1,
             densityCapped: false,
-            nodes: [{ id: "wallet_root", kind: "wallet", label: "Live Whale" }],
+            nodes: [
+              {
+                id: "wallet_root",
+                kind: "wallet",
+                chain: "evm",
+                address: "0x1234567890abcdef1234567890abcdef12345678",
+                label: "Live Whale",
+              },
+            ],
             edges: [],
           },
           error: null,
@@ -1659,6 +1680,18 @@ test("deriveWalletGraphPreviewFromSummary builds a usable graph from summary cou
   });
 
   assert.equal(preview.source, "summary-derived");
+  assert.equal(
+    preview.nodes[0]?.id,
+    "wallet:evm:0x1234567890abcdef1234567890abcdef12345678",
+  );
+  assert.equal(
+    preview.edges[0]?.sourceId,
+    "wallet:evm:0x1234567890abcdef1234567890abcdef12345678",
+  );
+  assert.equal(
+    preview.edges[1]?.targetId,
+    "wallet:evm:0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+  );
   assert.equal(preview.nodes.length, 5);
   assert.equal(preview.edges.length, 4);
   assert.equal(preview.neighborhoodSummary.neighborNodeCount, 4);

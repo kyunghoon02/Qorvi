@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -260,7 +261,8 @@ func (s *failingTransactionStore) UpsertNormalizedTransactions(_ context.Context
 }
 
 type fakeWalletBackfillQueueStore struct {
-	jobs []db.WalletBackfillJob
+	jobs      []db.WalletBackfillJob
+	onDequeue func(db.WalletBackfillJob, bool)
 }
 
 func (s *fakeWalletBackfillQueueStore) EnqueueWalletBackfill(_ context.Context, job db.WalletBackfillJob) error {
@@ -270,17 +272,24 @@ func (s *fakeWalletBackfillQueueStore) EnqueueWalletBackfill(_ context.Context, 
 
 func (s *fakeWalletBackfillQueueStore) DequeueWalletBackfill(_ context.Context, _ string) (db.WalletBackfillJob, bool, error) {
 	if len(s.jobs) == 0 {
+		if s.onDequeue != nil {
+			s.onDequeue(db.WalletBackfillJob{}, false)
+		}
 		return db.WalletBackfillJob{}, false, nil
 	}
 
 	job := s.jobs[0]
 	s.jobs = s.jobs[1:]
+	if s.onDequeue != nil {
+		s.onDequeue(job, true)
+	}
 	return job, true, nil
 }
 
 type fakeHistoricalBackfillAdapter struct {
 	provider   providers.ProviderName
 	activities []providers.ProviderWalletActivity
+	err        error
 }
 
 func (a fakeHistoricalBackfillAdapter) Name() providers.ProviderName { return a.provider }
@@ -294,6 +303,9 @@ func (a fakeHistoricalBackfillAdapter) FetchWalletActivity(ctx providers.Provide
 }
 
 func (a fakeHistoricalBackfillAdapter) FetchHistoricalWalletActivity(_ providers.HistoricalBackfillBatch) ([]providers.ProviderWalletActivity, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
 	return append([]providers.ProviderWalletActivity(nil), a.activities...), nil
 }
 
@@ -1130,6 +1142,119 @@ func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnceReturnsEmptyWhenQue
 	}
 	if report.Dequeued {
 		t.Fatalf("expected empty queue report, got %#v", report)
+	}
+}
+
+func TestHistoricalBackfillIngestServiceRunQueuedBackfillOnceRequeuesRetryableFailures(t *testing.T) {
+	t.Parallel()
+
+	queue := &fakeWalletBackfillQueueStore{
+		jobs: []db.WalletBackfillJob{
+			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				Source:      "search_lookup_miss",
+				RequestedAt: time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
+			}),
+		},
+	}
+	jobRuns := &fakeJobRunStore{}
+	providerUsage := &fakeProviderUsageLogStore{}
+	registry := providers.Registry{
+		providers.ProviderAlchemy: fakeHistoricalBackfillAdapter{
+			provider: providers.ProviderAlchemy,
+			err: &providers.HTTPStatusError{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       `{"error":"rate limited"}`,
+			},
+		},
+	}
+	service := NewHistoricalBackfillIngestService(registry, &fakeWalletStore{}, &fakeTransactionStore{})
+	service.Queue = queue
+	service.JobRuns = jobRuns
+	service.ProviderUsage = providerUsage
+	service.Now = func() time.Time {
+		return time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC)
+	}
+
+	report, err := service.RunQueuedBackfillOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunQueuedBackfillOnce returned error: %v", err)
+	}
+	if !report.RetryScheduled {
+		t.Fatalf("expected retry to be scheduled, got %#v", report)
+	}
+	if report.RetryCount != 1 {
+		t.Fatalf("expected first retry count, got %#v", report)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected one requeued job, got %#v", queue.jobs)
+	}
+	if !queue.jobs[0].RequestedAt.After(service.Now()) {
+		t.Fatalf("expected delayed retry job, got %#v", queue.jobs[0])
+	}
+	if got := intMetadataValue(queue.jobs[0].Metadata, "retry_count", 0); got != 1 {
+		t.Fatalf("expected retry_count metadata to be 1, got %#v", queue.jobs[0].Metadata)
+	}
+	if len(jobRuns.entries) != 1 || jobRuns.entries[0].Status != db.JobRunStatusFailed {
+		t.Fatalf("expected failed job run entry, got %#v", jobRuns.entries)
+	}
+	if len(providerUsage.entries) != 1 || providerUsage.entries[0].StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 provider usage entry, got %#v", providerUsage.entries)
+	}
+}
+
+func TestHistoricalBackfillIngestServiceRunQueuedBackfillLoopProcessesUntilCanceled(t *testing.T) {
+	t.Setenv("QORVI_WALLET_BACKFILL_ITEM_DELAY_SECONDS", "0")
+	t.Setenv("QORVI_WALLET_BACKFILL_LOOP_IDLE_SECONDS", "0")
+	t.Setenv("QORVI_WALLET_BACKFILL_LOOP_ACTIVE_SECONDS", "0")
+
+	dequeueCount := 0
+	queue := &fakeWalletBackfillQueueStore{
+		jobs: []db.WalletBackfillJob{
+			db.NormalizeWalletBackfillJob(db.WalletBackfillJob{
+				Chain:       domain.ChainEVM,
+				Address:     "0x1234567890abcdef1234567890abcdef12345678",
+				Source:      "search_lookup_miss",
+				RequestedAt: time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC),
+			}),
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	queue.onDequeue = func(_ db.WalletBackfillJob, ok bool) {
+		dequeueCount++
+		if !ok && dequeueCount >= 2 {
+			cancel()
+		}
+	}
+
+	registry := providers.Registry{
+		providers.ProviderAlchemy: fakeHistoricalBackfillAdapter{
+			provider: providers.ProviderAlchemy,
+		},
+	}
+	service := NewHistoricalBackfillIngestService(registry, &fakeWalletStore{}, &fakeTransactionStore{})
+	service.Queue = queue
+	service.Dedup = &fakeIngestDedupStore{}
+	service.Now = func() time.Time {
+		return time.Date(2026, time.March, 20, 6, 7, 8, 0, time.UTC)
+	}
+
+	report, err := service.RunQueuedBackfillLoop(ctx, 1)
+	if err != nil {
+		t.Fatalf("RunQueuedBackfillLoop returned error: %v", err)
+	}
+	if !report.StoppedByContext {
+		t.Fatalf("expected loop to stop on context cancellation, got %#v", report)
+	}
+	if report.JobsProcessed != 1 {
+		t.Fatalf("expected one processed job, got %#v", report)
+	}
+	if report.EmptyPolls != 1 {
+		t.Fatalf("expected one empty poll before cancellation, got %#v", report)
+	}
+	if report.Cycles != 2 {
+		t.Fatalf("expected two loop cycles, got %#v", report)
 	}
 }
 
