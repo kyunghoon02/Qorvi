@@ -1,26 +1,24 @@
 # Qorvi
 
-Qorvi is an onchain intelligence workspace for investigating wallets, surfacing high-signal graph activity, and operating alerts around tracked entities.
+Qorvi is an onchain intelligence workspace for teams that need to investigate wallets, monitor high-risk activity, and turn raw blockchain transactions into graph-backed operational signals.
 
-It is built as a portfolio-grade prototype of the product infrastructure behind a crypto investigation platform: ingestion workers, provider integrations, graph storage, billing gates, auth, alerts, and a Next.js operator UI.
+It brings wallet context, entity relationships, watchlists, alerting, and analyst workflows into one product surface so operators can move from "what happened?" to "what should we track next?"
 
-> Public-source portfolio repository. Not open-source for reuse. See [LICENSE](LICENSE).
+## What Qorvi Does
 
-## What It Demonstrates
+- **Investigate wallets:** inspect wallet activity, graph context, related entities, and historical behavior from a single workspace.
+- **Find signal in graph activity:** surface first-connection and shadow-exit style events that can indicate meaningful movement.
+- **Track entities over time:** maintain watchlists and monitored wallets with provider-backed indexing and enrichment loops.
+- **Operate alerts:** define alerting workflows, retry delivery, and keep investigation handoffs connected to product state.
+- **Support analyst review:** preserve findings, interpretation contracts, and AI-ready schemas for repeatable analyst workflows.
 
-- Multi-service product architecture with a Go API, Go workers, a Next.js frontend, Postgres, Redis, and Neo4j.
-- Wallet intelligence workflows: wallet detail, graph exploration, cluster/entity views, watchlists, findings, and signal feeds.
-- Background ingestion and enrichment loops for provider-backed historical data and ongoing indexing.
-- Production-facing concerns: auth, billing, deployment shapes, environment templates, migrations, and operational runbooks.
-- AI/analyst contract design for future wallet analysis and signal explanation workflows.
+## Core Workflows
 
-## Product Surface
-
-- **Wallet investigation:** wallet detail pages, activity context, graph-oriented summaries, and linked entity views.
-- **Signal feeds:** first-connection and shadow-exit style feeds for surfacing unusual wallet behavior.
-- **Watchlists and alerts:** tracked wallet/entity workflows with alert delivery and retry handling.
-- **Operator admin:** internal admin console, usage/billing hooks, provider status, and operational controls.
-- **Graph intelligence:** Neo4j-backed graph reads for clusters, wallet relationships, and entity interpretation.
+- **Wallet detail:** address-level context, chain activity, relationship summaries, and graph-oriented investigation views.
+- **Graph exploration:** Neo4j-backed cluster, entity, and wallet relationship surfaces.
+- **Signal feeds:** product feeds for unusual movement, early links, and monitored-wallet activity.
+- **Watchlists:** tracked wallet/entity workflows that connect ingestion, enrichment, and alerts.
+- **Admin operations:** account, billing, provider status, and internal operational controls.
 
 ## Architecture
 
@@ -45,7 +43,7 @@ flowchart LR
 - **Workers:** Go worker modes for backfill, indexing, alerts, billing sync, tracking sync, enrichment, and delivery retries.
 - **Data:** Postgres for product state, Neo4j for graph relationships, Redis for caching/coordination.
 - **Integrations:** Clerk, Stripe, Alchemy, Helius, Moralis, Dune.
-- **Infra:** Docker Compose for local/prototype deployments, Terraform for a low-cost GCP backend shape, Vercel-ready frontend config.
+- **Infra:** Docker Compose for local and single-host deployments, Terraform for a low-cost GCP backend shape, Vercel-ready frontend config.
 
 ## Repository Layout
 
@@ -147,7 +145,7 @@ Do not commit real secrets. Local `.env` files are intentionally ignored.
 
 The current low-cost deployment shape is documented in [docs/deployment-architecture.md](docs/deployment-architecture.md).
 
-Recommended prototype shape:
+Recommended early deployment shape:
 
 - Frontend on Vercel at `qorvi.app`.
 - Backend on a single GCP Compute Engine VM at `api.qorvi.app`.
@@ -162,13 +160,13 @@ Other deployment assets:
 
 ## Public Repo Notes
 
+- This is a public-source product repository, not an open-source package for reuse. See [LICENSE](LICENSE).
 - Repository-managed seed data is documented in [infra/seeds/README.md](infra/seeds/README.md).
 - Real secrets should live only in local `.env` files or deployment provider secret stores.
 - Test fixtures may contain placeholder values such as `sk_live_test`; these are not live credentials.
-- The repository is intended to show architecture, implementation quality, and product thinking, not to provide a drop-in hosted service.
 
-## Portfolio Narrative
+## Product Direction
 
-Qorvi was designed around a practical product problem: onchain monitoring tools often show raw transactions, but operators need a workflow that turns wallet activity into graph context, tracked entities, alertable signals, and repeatable investigation surfaces.
+Qorvi is designed around a practical product gap: onchain monitoring tools often expose raw transactions, but operators need a workflow that turns wallet activity into graph context, tracked entities, alertable signals, and repeatable investigation surfaces.
 
-The repo emphasizes the engineering needed behind that workflow: provider adapters, idempotent ingestion, graph-aware storage, worker modes, alert retries, account/billing boundaries, and deployment paths that fit an early-stage product budget.
+The product direction is to make onchain investigations more operational: less manual wallet checking, more structured context, and clearer handoffs from signal detection to analyst review.
