@@ -47,10 +47,10 @@ corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/server.go`
-- `/Users/kh/Github/Qorvi/apps/web/app/page.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/app/wallets/[chain]/[address]/page.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
+- `apps/api/internal/server/server.go`
+- `apps/web/app/page.tsx`
+- `apps/web/app/wallets/[chain]/[address]/page.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ### 3.2 Tracking And Alerts
 
@@ -70,10 +70,10 @@ beta 정책:
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/watchlist.go`
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/alert_rule.go`
-- `/Users/kh/Github/Qorvi/apps/web/app/alerts/page.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/app/alerts/alert-center-screen.tsx`
+- `apps/api/internal/server/watchlist.go`
+- `apps/api/internal/server/alert_rule.go`
+- `apps/web/app/alerts/page.tsx`
+- `apps/web/app/alerts/alert-center-screen.tsx`
 
 ### 3.3 Billing Activation Readiness
 
@@ -94,11 +94,11 @@ beta 정책:
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/billing.go`
-- `/Users/kh/Github/Qorvi/apps/workers/billing_sync.go`
-- `/Users/kh/Github/Qorvi/apps/web/app/account/page.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/app/pricing/page.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
+- `apps/api/internal/server/billing.go`
+- `apps/workers/billing_sync.go`
+- `apps/web/app/account/page.tsx`
+- `apps/web/app/pricing/page.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ## 4. Reliability Gates
 
@@ -115,10 +115,10 @@ beta 정책:
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/webhook_replay_test.go`
-- `/Users/kh/Github/Qorvi/packages/db/ingest_dedup.go`
-- `/Users/kh/Github/Qorvi/packages/db/wallet_graph_invalidation.go`
-- `/Users/kh/Github/Qorvi/packages/db/wallet_summary.go`
+- `apps/api/internal/server/webhook_replay_test.go`
+- `packages/db/ingest_dedup.go`
+- `packages/db/wallet_graph_invalidation.go`
+- `packages/db/wallet_summary.go`
 
 ### 4.2 Provider And Worker Stability
 
@@ -152,10 +152,10 @@ QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/web/lib/api-boundary.ts`
-- `/Users/kh/Github/Qorvi/apps/web/app/home-screen.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
-- `/Users/kh/Github/Qorvi/apps/web/e2e/beta-flow.spec.ts`
+- `apps/web/lib/api-boundary.ts`
+- `apps/web/app/home-screen.tsx`
+- `apps/web/app/wallets/[chain]/[address]/wallet-detail-screen.tsx`
+- `apps/web/e2e/beta-flow.spec.ts`
 
 ## 6. Ops Gates
 
@@ -170,9 +170,9 @@ QORVI_WORKER_MODE=moralis-enrichment-refresh corepack pnpm dev:workers
 
 관련 경로:
 
-- `/Users/kh/Github/Qorvi/apps/api/internal/server/admin_console.go`
-- `/Users/kh/Github/Qorvi/apps/web/app/admin/page.tsx`
-- `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
+- `apps/api/internal/server/admin_console.go`
+- `apps/web/app/admin/page.tsx`
+- `docs/runbooks/ops-admin.md`
 
 ## 7. Evidence Bundle
 
@@ -192,10 +192,9 @@ corepack pnpm beta:hardening
 3. browser/API mixed beta flow evidence
    - `corepack pnpm --filter @qorvi/web test:e2e -- e2e/beta-flow.spec.ts --grep "searches a wallet and lands on tracked alerts"`
 4. gate document review
-   - 이 문서와 `/Users/kh/Github/Qorvi/plan.md`
-   - `/Users/kh/Github/Qorvi/task.md`
-   - `/Users/kh/Github/Qorvi/docs/runbooks/beta-release-package.md`
-   - `/Users/kh/Github/Qorvi/docs/runbooks/beta-launch-review.md`
+   - 이 문서
+   - `docs/runbooks/beta-release-package.md`
+   - `docs/runbooks/beta-launch-review.md`
 
 optional billing evidence:
 

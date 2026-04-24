@@ -98,9 +98,9 @@ Dune query는 아래 컬럼을 반드시 반환해야 한다.
 Dune 결과는 바로 release gate에 쓰지 않는다. 먼저 아래 intermediate export로 저장한다.
 
 - 파일 위치 예시:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/dune-backtest-candidates.json`
+  - `packages/intelligence/test/dune-backtest-candidates.json`
 - 템플릿:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/dune-backtest-candidates.template.json`
+  - `packages/intelligence/test/dune-backtest-candidates.template.json`
 
 이 candidate export는 `raw but structured` 단계다.
 
@@ -122,7 +122,7 @@ candidate export는 analyst가 검토한 뒤에만 manifest로 승격한다.
 
 review를 통과한 케이스만 아래 파일로 옮긴다.
 
-- `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest.json`
+- `packages/intelligence/test/backtest-manifest.json`
 
 candidate export에서 reviewer가 채워야 하는 필드:
 
@@ -237,13 +237,13 @@ reviewer가 채우는 필드:
 ## 현재 Qorvi 저장소 기준 산출물
 
 - backtest plan:
-  - `/Users/kh/Github/Qorvi/docs/architecture/analysis-engine-hardening-plan.md`
+  - `docs/architecture/analysis-engine-hardening-plan.md`
 - backtest manifest schema:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest-schema.md`
+  - `packages/intelligence/test/backtest-manifest-schema.md`
 - backtest manifest template:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest.template.json`
+  - `packages/intelligence/test/backtest-manifest.template.json`
 - Dune candidate template:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/dune-backtest-candidates.template.json`
+  - `packages/intelligence/test/dune-backtest-candidates.template.json`
 - Dune candidate normalizer worker mode:
   - `QORVI_WORKER_MODE=analysis-dune-backtest-normalize`
 

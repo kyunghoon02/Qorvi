@@ -6,13 +6,13 @@
 
 - admin web route: `/admin`
 - admin API routes: `/v1/admin/*`
-- admin surface source: [/Users/kh/Github/Qorvi/apps/web/app/admin/admin-console-screen.tsx](/Users/kh/Github/Qorvi/apps/web/app/admin/admin-console-screen.tsx)
+- admin surface source: [apps/web/app/admin/admin-console-screen.tsx](apps/web/app/admin/admin-console-screen.tsx)
 
 관련 runbook:
 
-- admin ops baseline: [/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md](/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md)
-- Dune backtest collection: [/Users/kh/Github/Qorvi/docs/runbooks/dune-backtest-collection.md](/Users/kh/Github/Qorvi/docs/runbooks/dune-backtest-collection.md)
-- production release package: [/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md](/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md)
+- admin ops baseline: [docs/runbooks/ops-admin.md](docs/runbooks/ops-admin.md)
+- Dune backtest collection: [docs/runbooks/dune-backtest-collection.md](docs/runbooks/dune-backtest-collection.md)
+- production release package: [docs/runbooks/production-release-package.md](docs/runbooks/production-release-package.md)
 
 ## 1. Access Gate
 

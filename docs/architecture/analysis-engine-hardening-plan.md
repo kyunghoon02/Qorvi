@@ -494,13 +494,13 @@ fixture benchmark를 넘어서, 실제 과거 온체인 케이스를 재생해 Q
 ### 초기 구현 메모
 
 - manifest schema 문서:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest-schema.md`
+  - `packages/intelligence/test/backtest-manifest-schema.md`
 - template:
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest.template.json`
+  - `packages/intelligence/test/backtest-manifest.template.json`
 - validation worker mode:
   - `QORVI_WORKER_MODE=analysis-backtest-manifest-validate`
 - 실제 release gate는 template가 아니라
-  - `/Users/kh/Github/Qorvi/packages/intelligence/test/backtest-manifest.json`
+  - `packages/intelligence/test/backtest-manifest.json`
   - 이 파일을 채운 뒤 validation + replay runner를 같이 통과해야 한다.
 
 ### 완료 기준

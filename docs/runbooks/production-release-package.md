@@ -1,6 +1,6 @@
 # Production Release Package
 
-이 문서는 Qorvi production launch 직전 운영자와 개발자가 함께 확인하는 handoff 패키지다. 상세 gate 판단은 `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`를 따르고, 이 문서는 실제 실행 순서와 운영 인계를 다룬다.
+이 문서는 Qorvi production launch 직전 운영자와 개발자가 함께 확인하는 handoff 패키지다. 상세 gate 판단은 `docs/runbooks/launch-gates.md`를 따르고, 이 문서는 실제 실행 순서와 운영 인계를 다룬다.
 
 ## 1. Primary Entry Points
 
@@ -20,10 +20,10 @@ corepack pnpm prod:hardening
 
 관련 스크립트:
 
-- `/Users/kh/Github/Qorvi/scripts/production-hardening.sh`
-- `/Users/kh/Github/Qorvi/scripts/production-open-prep.sh`
-- `/Users/kh/Github/Qorvi/scripts/dev-stack.sh`
-- `/Users/kh/Github/Qorvi/scripts/dev-worker-loop.sh`
+- `scripts/production-hardening.sh`
+- `scripts/production-open-prep.sh`
+- `scripts/dev-stack.sh`
+- `scripts/dev-worker-loop.sh`
 
 ## 2. Release Day Preflight
 
@@ -37,7 +37,7 @@ corepack pnpm prod:hardening
 반드시 보관할 evidence:
 
 1. `corepack pnpm prod:evidence:core` 실행 결과
-2. `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md` 검토 결과
+2. `docs/runbooks/launch-gates.md` 검토 결과
 3. admin/ops operator 확인 결과
    - `/v1/admin/provider-quotas`
    - `/v1/admin/observability`
@@ -47,7 +47,7 @@ corepack pnpm prod:hardening
    - treasury/MM finding의 `txRef`, `pathRef`, `entityRef`, `counterpartyRef`, `pathStrength`, `confidenceTier` 누락률
    - bridge/exchange finding의 downstream confirmation 누락률
 6. backtest dataset evidence
-   - `/Users/kh/Github/Qorvi/docs/runbooks/dune-backtest-collection.md` 기준 reviewed candidate 수집 결과
+   - `docs/runbooks/dune-backtest-collection.md` 기준 reviewed candidate 수집 결과
    - `analysis-backtest-manifest-validate` 결과
    - `bridge_return`, `aggregator_routing`, `smart_money_early_entry` 최소 reviewed case 현황
 
@@ -55,12 +55,12 @@ corepack pnpm prod:hardening
 
 운영 인계 시 같이 전달해야 하는 문서:
 
-- gate source of truth: `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`
-- launch review: `/Users/kh/Github/Qorvi/docs/runbooks/production-launch-review.md`
-- production open prep: `/Users/kh/Github/Qorvi/docs/runbooks/production-open-prep.md`
-- operator handoff: `/Users/kh/Github/Qorvi/docs/runbooks/production-operator-handoff.md`
-- admin runbook: `/Users/kh/Github/Qorvi/docs/runbooks/ops-admin.md`
-- admin checklist: `/Users/kh/Github/Qorvi/docs/runbooks/admin-operations-checklist.md`
+- gate source of truth: `docs/runbooks/launch-gates.md`
+- launch review: `docs/runbooks/production-launch-review.md`
+- production open prep: `docs/runbooks/production-open-prep.md`
+- operator handoff: `docs/runbooks/production-operator-handoff.md`
+- admin runbook: `docs/runbooks/ops-admin.md`
+- admin checklist: `docs/runbooks/admin-operations-checklist.md`
 - release package: 이 문서
 
 ## 5. Manual Recovery Entry Points
@@ -102,7 +102,7 @@ production rollout 전 아래를 확인한다.
 
 아래 조건을 만족하면 `go`로 본다.
 
-1. `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`에 `block`이 없다.
+1. `docs/runbooks/launch-gates.md`에 `block`이 없다.
 2. `corepack pnpm prod:evidence:core`가 통과한다.
 3. operator가 admin/ops surface를 직접 확인했다.
 4. billing을 production launch에 켠 경우 billing/account mixed flow가 현재 환경에서 재현 가능하다.

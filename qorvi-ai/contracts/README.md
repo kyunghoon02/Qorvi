@@ -9,7 +9,6 @@ Initial contracts:
 - `signal-explainer`
 - `alert-briefing`
 - `interactive-analyst`
-- `background-detection-agent`
 - `finding-object-schema`
 
 Initial spec:
@@ -18,7 +17,6 @@ Initial spec:
 - `signal-explainer.md`
 - `alert-briefing.md`
 - `interactive-analyst.md`
-- `background-detection-agent.md`
 - `finding-object-schema.md`
 
 Every contract should prefer:

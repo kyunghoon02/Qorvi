@@ -25,12 +25,12 @@ Render's Blueprint workflow is the cleanest fit for that shape.
 
 ## Files added
 
-- `/Users/kh/Github/Qorvi/render.yaml`
-- `/Users/kh/Github/Qorvi/Dockerfile.web`
-- `/Users/kh/Github/Qorvi/Dockerfile.api`
-- `/Users/kh/Github/Qorvi/Dockerfile.worker`
-- `/Users/kh/Github/Qorvi/Dockerfile.neo4j`
-- `/Users/kh/Github/Qorvi/.dockerignore`
+- `render.yaml`
+- `Dockerfile.web`
+- `Dockerfile.api`
+- `Dockerfile.worker`
+- `Dockerfile.neo4j`
+- `.dockerignore`
 
 ## Deploy flow
 
@@ -106,7 +106,7 @@ That split is intentional because the API uses it for Clerk origin validation, w
 
 ## Migrations
 
-This repository still uses file-based Postgres and Neo4j migrations in `/Users/kh/Github/Qorvi/infra/migrations`.
+This repository still uses file-based Postgres and Neo4j migrations in `infra/migrations`.
 
 Before production traffic, run those migrations once against:
 

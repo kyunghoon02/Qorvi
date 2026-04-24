@@ -18,7 +18,7 @@
 
 대상 SQL:
 
-- `/Users/kh/Github/Qorvi/queries/dune/backtest/01_bridge_return_negative.sql`
+- `queries/dune/backtest/01_bridge_return_negative.sql`
 
 초기 파라미터 권장값:
 
@@ -51,7 +51,7 @@
 
 대상 SQL:
 
-- `/Users/kh/Github/Qorvi/queries/dune/backtest/02_aggregator_routing_negative.sql`
+- `queries/dune/backtest/02_aggregator_routing_negative.sql`
 
 초기 파라미터 권장값:
 
@@ -80,7 +80,7 @@
 
 대상 SQL:
 
-- `/Users/kh/Github/Qorvi/queries/dune/backtest/03_smart_money_early_entry_positive.sql`
+- `queries/dune/backtest/03_smart_money_early_entry_positive.sql`
 
 전제:
 
@@ -227,7 +227,7 @@ candidate export 파일명은 아래 형식을 권장한다.
 
 실행용 기본값은 아래 파일에 고정한다.
 
-- `/Users/kh/Github/Qorvi/queries/dune/backtest/query-presets.json`
+- `queries/dune/backtest/query-presets.json`
 
 이 파일은 아래를 관리한다.
 

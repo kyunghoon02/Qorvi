@@ -1,6 +1,6 @@
 # Production Launch Review
 
-이 문서는 Qorvi production launch 직전 실제 gate review 결과를 기록하는 문서다. 상세 기준은 `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`를 따르고, 운영 준비는 `/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md`와 `/Users/kh/Github/Qorvi/docs/runbooks/production-operator-handoff.md`를 따른다.
+이 문서는 Qorvi production launch 직전 실제 gate review 결과를 기록하는 문서다. 상세 기준은 `docs/runbooks/launch-gates.md`를 따르고, 운영 준비는 `docs/runbooks/production-release-package.md`와 `docs/runbooks/production-operator-handoff.md`를 따른다.
 
 ## 1. Review Snapshot
 
@@ -73,7 +73,7 @@ production launch 전 해소해야 할 항목:
 
 아래 조건이 그대로 유지되면 production launch 상태를 유지한다.
 
-1. `/Users/kh/Github/Qorvi/docs/runbooks/launch-gates.md`에 새로운 `block`이 추가되지 않는다.
+1. `docs/runbooks/launch-gates.md`에 새로운 `block`이 추가되지 않는다.
 2. `corepack pnpm prod:open:prep`가 target production environment에서 통과한다.
 3. `corepack pnpm prod:evidence:core`가 통과한다.
 4. operator가 `/v1/admin/provider-quotas`, `/v1/admin/observability`를 직접 확인한다.
@@ -89,5 +89,5 @@ launch 직전 마지막 순서:
 
 1. `corepack pnpm prod:open:prep --env-file <real-target-env-file>`
 2. real target env 기준 `corepack pnpm prod:evidence:core` 재실행
-3. `/Users/kh/Github/Qorvi/docs/runbooks/production-release-package.md` 검토
+3. `docs/runbooks/production-release-package.md` 검토
 4. operator sign-off 기록

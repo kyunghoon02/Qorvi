@@ -18,8 +18,8 @@ Qorvi의 `주요 지갑 자동 인덱싱` canonical source는 Postgres의 admin 
 ### 1. seed JSON 준비
 
 기본 파일:
-- `/Users/kh/Github/Qorvi/configs/curated-wallet-seeds.json`
-- `/Users/kh/Github/Qorvi/configs/probable-wallet-seeds.json`
+- `configs/curated-wallet-seeds.json`
+- `configs/probable-wallet-seeds.json`
 
 현재 starter set은 production 보수 기준으로 다음만 포함합니다.
 - exchange: public explorer-labeled wallets
@@ -181,8 +181,8 @@ wallet item payload 예시:
 중요:
 - 현재 `/admin` 화면은 curated lists를 읽어 보여주는 baseline만 있고, 수정 UI는 아직 없습니다
 - 따라서 지금 운영자가 실제로 채우는 곳은 두 가지입니다
-  1. `/Users/kh/Github/Qorvi/configs/curated-wallet-seeds.json` 수정 후 `corepack pnpm curated:import`
-  2. `/Users/kh/Github/Qorvi/configs/probable-wallet-seeds.json` 수정 후 `corepack pnpm probable:import`
+  1. `configs/curated-wallet-seeds.json` 수정 후 `corepack pnpm curated:import`
+  2. `configs/probable-wallet-seeds.json` 수정 후 `corepack pnpm probable:import`
   3. admin curated list API 직접 호출
 
 `entity` 라벨까지 같이 쓰고 싶으면 같은 curated list 안에 entity item도 추가해야 합니다.
