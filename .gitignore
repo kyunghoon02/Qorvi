@@ -35,3 +35,8 @@ flowintel-ai/contracts/*agent*.md
 .qorvi/raw-payloads
 apps/web/test-results
 apps/web/tsconfig.tsbuildinfo
+.terraform
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform.lock.hcl
