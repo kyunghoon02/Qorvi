@@ -58,7 +58,7 @@ func TestHTTPStripeClientCreateCheckoutSession(t *testing.T) {
 
 	record, err := client.CreateCheckoutSession(context.Background(), StripeConfig{
 		BaseURL:   "https://stripe.test",
-		SecretKey: "sk_live_test",
+		SecretKey: "test-stripe-secret",
 	}, StripeCheckoutSessionCreateRequest{
 		OwnerUserID:   "user_123",
 		Tier:          domain.PlanPro,
@@ -109,7 +109,7 @@ func TestHTTPStripeClientGetSubscription(t *testing.T) {
 
 	record, err := client.GetSubscription(context.Background(), StripeConfig{
 		BaseURL:   "https://stripe.test",
-		SecretKey: "sk_live_test",
+		SecretKey: "test-stripe-secret",
 	}, "sub_live_123")
 	if err != nil {
 		t.Fatalf("GetSubscription returned error: %v", err)

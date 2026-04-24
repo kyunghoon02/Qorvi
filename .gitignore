@@ -21,6 +21,7 @@ go.work.sum
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*.draft
 !.env.example
 .whalegraph/raw-payloads
 .flowintel/raw-payloads

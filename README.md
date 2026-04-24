@@ -4,6 +4,8 @@ Qorvi is an onchain intelligence workspace for teams that need to investigate wa
 
 It brings wallet context, entity relationships, watchlists, alerting, and analyst workflows into one product surface so operators can move from "what happened?" to "what should we track next?"
 
+![Qorvi product preview](docs/assets/qorvi-product-preview.svg)
+
 ## What Qorvi Does
 
 - **Investigate wallets:** inspect wallet activity, graph context, related entities, and historical behavior from a single workspace.
@@ -70,6 +72,8 @@ flowintel-ai/  analyst contracts, datasets, eval notes, and AI roadmap
 ```
 
 The internal package namespace still uses `flowintel` while the product name is being migrated to Qorvi.
+
+Internal planning notes, task backlogs, and local draft environment files are intentionally kept out of the public repository root so the project reads as a product codebase rather than a working scratchpad.
 
 ## Local Development
 
@@ -163,7 +167,7 @@ Other deployment assets:
 - This is a public-source product repository, not an open-source package for reuse. See [LICENSE](LICENSE).
 - Repository-managed seed data is documented in [infra/seeds/README.md](infra/seeds/README.md).
 - Real secrets should live only in local `.env` files or deployment provider secret stores.
-- Test fixtures may contain placeholder values such as `sk_live_test`; these are not live credentials.
+- Test fixtures may contain placeholder credentials; these are not live provider keys.
 
 ## Product Direction
 

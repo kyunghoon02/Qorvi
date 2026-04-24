@@ -116,7 +116,7 @@ func TestBillingSubscriptionSyncServiceRunBatch(t *testing.T) {
 				UpdatedAt:          now,
 			}),
 		},
-		StripeConfig: billing.StripeConfig{SecretKey: "sk_live_test"},
+		StripeConfig: billing.StripeConfig{SecretKey: "test-stripe-secret"},
 		Now: func() time.Time {
 			return now
 		},

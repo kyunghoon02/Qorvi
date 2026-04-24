@@ -56,8 +56,8 @@ func TestBillingServiceCreateCheckoutSession(t *testing.T) {
 
 	repo := repository.NewInMemoryBillingRepository()
 	svc := NewBillingService(repo, billing.StripeConfig{
-		SecretKey:      "sk_live_test",
-		PublishableKey: "pk_live_test",
+		SecretKey:      "test-stripe-secret",
+		PublishableKey: "test-stripe-publishable",
 		SuccessURL:     "http://localhost:3000/account/success",
 		CancelURL:      "http://localhost:3000/account/cancel",
 	}, WithStripeClient(fakeStripeClient{

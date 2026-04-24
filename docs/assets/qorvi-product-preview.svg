@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Qorvi product preview</title>
+  <desc id="desc">A product preview showing wallet investigation, graph intelligence, signal feeds, and watchlist workflows.</desc>
+  <rect width="1280" height="760" fill="#f4f1ea"/>
+  <rect x="64" y="56" width="1152" height="648" rx="18" fill="#171512"/>
+  <rect x="88" y="88" width="216" height="584" rx="12" fill="#221f1a"/>
+  <text x="116" y="132" fill="#f7f0df" font-family="ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="700">Qorvi</text>
+  <text x="116" y="168" fill="#a9a091" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Onchain intelligence</text>
+  <rect x="112" y="214" width="168" height="36" rx="8" fill="#373126"/>
+  <text x="130" y="237" fill="#f7f0df" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Wallet detail</text>
+  <text x="130" y="286" fill="#a9a091" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Signal feeds</text>
+  <text x="130" y="330" fill="#a9a091" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Watchlists</text>
+  <text x="130" y="374" fill="#a9a091" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Entity graph</text>
+  <text x="130" y="418" fill="#a9a091" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Admin ops</text>
+  <rect x="336" y="88" width="840" height="584" rx="12" fill="#faf7ef"/>
+  <text x="376" y="136" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="30" font-weight="700">Wallet intelligence workspace</text>
+  <text x="376" y="168" fill="#6b6257" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15">Investigate wallets, track entities, and turn graph activity into operational signals.</text>
+  <rect x="376" y="206" width="334" height="184" rx="10" fill="#fffdf8" stroke="#ded6c7"/>
+  <text x="400" y="244" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="700">AI brief</text>
+  <text x="400" y="278" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Likely exchange pressure after</text>
+  <text x="400" y="302" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">two-hop funding path converged.</text>
+  <rect x="400" y="330" width="118" height="28" rx="6" fill="#ece2ce"/>
+  <text x="418" y="349" fill="#4b3a1d" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">confidence 0.82</text>
+  <rect x="742" y="206" width="394" height="184" rx="10" fill="#fffdf8" stroke="#ded6c7"/>
+  <text x="766" y="244" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="700">Relationship graph</text>
+  <line x1="846" y1="300" x2="934" y2="268" stroke="#8a7b61" stroke-width="3"/>
+  <line x1="934" y1="268" x2="1018" y2="322" stroke="#8a7b61" stroke-width="3"/>
+  <line x1="846" y1="300" x2="1006" y2="338" stroke="#d0a85f" stroke-width="3"/>
+  <circle cx="846" cy="300" r="28" fill="#40372b"/>
+  <circle cx="934" cy="268" r="20" fill="#b98d3d"/>
+  <circle cx="1018" cy="322" r="24" fill="#40372b"/>
+  <circle cx="1006" cy="338" r="15" fill="#6d6255"/>
+  <rect x="376" y="422" width="230" height="178" rx="10" fill="#fffdf8" stroke="#ded6c7"/>
+  <text x="400" y="460" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Signal feed</text>
+  <text x="400" y="498" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">First connection</text>
+  <text x="400" y="528" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Shadow exit</text>
+  <text x="400" y="558" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Bridge rotation</text>
+  <rect x="638" y="422" width="230" height="178" rx="10" fill="#fffdf8" stroke="#ded6c7"/>
+  <text x="662" y="460" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Watchlists</text>
+  <text x="662" y="498" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Tracked wallets</text>
+  <text x="662" y="528" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Alert rules</text>
+  <text x="662" y="558" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Delivery retries</text>
+  <rect x="900" y="422" width="236" height="178" rx="10" fill="#fffdf8" stroke="#ded6c7"/>
+  <text x="924" y="460" fill="#171512" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Provider indexing</text>
+  <text x="924" y="498" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Alchemy</text>
+  <text x="924" y="528" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Helius</text>
+  <text x="924" y="558" fill="#51483e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Moralis / Dune</text>
+</svg>

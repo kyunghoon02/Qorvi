@@ -572,7 +572,7 @@ func TestBuildWorkerOutputRunsBillingSubscriptionSyncFlow(t *testing.T) {
 					CurrentPeriodEnd:   time.Date(2026, time.April, 22, 0, 0, 0, 0, time.UTC),
 				}),
 			},
-			StripeConfig: billing.StripeConfig{SecretKey: "sk_live_test"},
+			StripeConfig: billing.StripeConfig{SecretKey: "test-stripe-secret"},
 		},
 	)
 	if err != nil {
