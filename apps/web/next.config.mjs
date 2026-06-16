@@ -39,6 +39,21 @@ const nextConfig = {
     ];
   },
   transpilePackages: ["@qorvi/ui"],
+  // WSL on Windows: inotify across the /mnt/c boundary is unreliable,
+  // so file edits on the Windows side don't trigger HMR. Enable polling
+  // so the watcher actively checks the filesystem instead of relying on
+  // event notifications. ~1s polling interval is a reasonable trade-off
+  // between responsiveness and CPU.
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+        ignored: ["**/node_modules", "**/.git", "**/.next"],
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
