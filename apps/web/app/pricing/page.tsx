@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ComingSoonScreen } from "../components/coming-soon-screen";
 
-export default async function PricingPage() {
-  redirect("/");
+export default function PricingPage() {
+  return <ComingSoonScreen title="Pricing" />;
 }

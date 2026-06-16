@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ComingSoonScreen } from "../components/coming-soon-screen";
 
-export default async function AccountPage() {
-  redirect("/");
+export default function AccountPage() {
+  return <ComingSoonScreen title="Account" />;
 }

@@ -7,31 +7,22 @@ import { Badge, Pill } from "@qorvi/ui";
 import { persistClientForwardedAuthHeaders } from "../../lib/request-headers";
 import { AuthButtons } from "../components/auth-buttons";
 import { LanguageSwitcher } from "../components/language-switcher";
-import { NetworkBackground } from "../components/network-background";
+import { MinimalBackdrop } from "../components/minimal-backdrop";
 
-import type { DiscoverTokenCard, DiscoverWalletCard } from "./discover-data";
-import {
-  loadDomesticPrelistingTokenCards,
-  loadFeaturedWalletCards,
-  loadRecentHighPriorityCards,
-  loadSmartMoneyCards,
-  loadTrackedWalletCards,
-  splitFeaturedWalletCards,
-} from "./discover-data";
+import type { DiscoverWalletCard } from "./discover-data";
+import { loadFeaturedWalletCards } from "./discover-data";
 
 const discoverSkeletonSlots = ["a", "b", "c", "d"] as const;
 
 function DiscoverSection({
   title,
   subtitle,
-  tone,
   cards,
   loading,
   emptyLabel,
 }: {
   title: string;
   subtitle: string;
-  tone: "teal" | "amber" | "violet" | "emerald";
   cards: DiscoverWalletCard[];
   loading: boolean;
   emptyLabel: string;
@@ -43,7 +34,7 @@ function DiscoverSection({
           <h2 className="discover-section-title">{title}</h2>
           <p className="discover-section-subtitle">{subtitle}</p>
         </div>
-        <Pill tone={tone}>{cards.length} wallets</Pill>
+        <Pill tone="teal">{cards.length} wallets</Pill>
       </div>
 
       {loading ? (
@@ -70,53 +61,6 @@ function DiscoverSection({
   );
 }
 
-function DiscoverTokenSection({
-  title,
-  subtitle,
-  cards,
-  loading,
-  emptyLabel,
-}: {
-  title: string;
-  subtitle: string;
-  cards: DiscoverTokenCard[];
-  loading: boolean;
-  emptyLabel: string;
-}) {
-  return (
-    <section className="discover-section">
-      <div className="discover-section-header">
-        <div>
-          <h2 className="discover-section-title">{title}</h2>
-          <p className="discover-section-subtitle">{subtitle}</p>
-        </div>
-        <Pill tone="amber">{cards.length} tokens</Pill>
-      </div>
-
-      {loading ? (
-        <div className="discover-skeleton-grid">
-          {discoverSkeletonSlots.map((slot) => (
-            <div
-              key={`discover-token-skeleton-${title}-${slot}`}
-              className="discover-skeleton-card"
-            />
-          ))}
-        </div>
-      ) : cards.length === 0 ? (
-        <div className="discover-empty">
-          <p>{emptyLabel}</p>
-        </div>
-      ) : (
-        <div className="discover-card-grid">
-          {cards.map((card) => (
-            <DiscoverTokenCardView key={card.id} card={card} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Card component
 // ---------------------------------------------------------------------------
@@ -124,9 +68,9 @@ function DiscoverTokenSection({
 function DiscoverCard({
   card,
 }: {
+  key?: string | number | null;
   card: DiscoverWalletCard;
 }) {
-  const analystHref = buildDiscoverAnalystHref(card);
   const tierTone =
     card.sourceTier === "probable"
       ? "amber"
@@ -191,73 +135,11 @@ function DiscoverCard({
         <a className="search-cta discover-card-cta" href={card.detailHref}>
           Open detail
         </a>
-        <a className="search-cta discover-card-cta" href={analystHref}>
-          Analyze
-        </a>
-      </div>
-    </article>
-  );
-}
-
-function DiscoverTokenCardView({
-  card,
-}: {
-  card: DiscoverTokenCard;
-}) {
-  return (
-    <article className="discover-card">
-      <div className="discover-card-top">
-        <div className="discover-card-identity">
-          <strong className="discover-card-name">{card.tokenSymbol}</strong>
-          <span className="discover-card-chain">
-            <Pill tone={card.chain === "solana" ? "violet" : "teal"}>
-              {card.chainLabel}
-            </Pill>
-          </span>
-          <span className="discover-card-category">
-            <Pill tone="amber">{card.marketLabel}</Pill>
-          </span>
-        </div>
-      </div>
-
-      <p className="discover-card-address">
-        {compactAddress(card.tokenAddress)}
-      </p>
-      <p className="discover-card-desc">{card.description}</p>
-
-      <div className="discover-card-signals">
-        <span className="discover-card-signal">
-          <span className="discover-signal-dot discover-signal-dot--signal" />
-          {card.activityLabel}
-        </span>
-        <span className="discover-card-signal">
-          <span className="discover-signal-dot discover-signal-dot--finding" />
-          {card.flowLabel}
-        </span>
-        <span className="discover-card-signal">{card.counterpartyLabel}</span>
-        {card.observedAt ? (
-          <span className="discover-card-observed">
-            {formatRelativeTime(card.observedAt)}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="discover-card-actions">
-        {card.representativeWalletHref ? (
-          <a
-            className="search-cta discover-card-cta"
-            href={card.representativeWalletHref}
-          >
-            {card.representativeWalletLabel
-              ? `Analyze ${card.representativeWalletLabel}`
-              : "Representative wallet"}
-          </a>
-        ) : null}
         <a
           className="search-cta discover-card-cta"
-          href={`/?q=${encodeURIComponent(card.tokenAddress)}`}
+          href={`/copilot?address=${encodeURIComponent(card.address)}`}
         >
-          Search token
+          Analyze in Copilot
         </a>
       </div>
     </article>
@@ -270,44 +152,13 @@ function DiscoverTokenCardView({
 
 export function DiscoverScreen({
   requestHeaders,
-  initialPrelisting = [],
-  initialAuto = [],
-  initialVerified = [],
-  initialProbable = [],
-  initialTracked = [],
-  initialSmartMoney = [],
-  initialRecentActive = [],
+  initialWallets = [],
 }: {
   requestHeaders?: HeadersInit;
-  initialPrelisting?: DiscoverTokenCard[];
-  initialAuto?: DiscoverWalletCard[];
-  initialVerified?: DiscoverWalletCard[];
-  initialProbable?: DiscoverWalletCard[];
-  initialTracked?: DiscoverWalletCard[];
-  initialSmartMoney?: DiscoverWalletCard[];
-  initialRecentActive?: DiscoverWalletCard[];
+  initialWallets?: DiscoverWalletCard[];
 }) {
-  const [prelisting, setPrelisting] =
-    useState<DiscoverTokenCard[]>(initialPrelisting);
-  const [auto, setAuto] = useState<DiscoverWalletCard[]>(initialAuto);
-  const [verified, setVerified] =
-    useState<DiscoverWalletCard[]>(initialVerified);
-  const [probable, setProbable] =
-    useState<DiscoverWalletCard[]>(initialProbable);
-  const [tracked, setTracked] = useState<DiscoverWalletCard[]>(initialTracked);
-  const [smartMoney, setSmartMoney] =
-    useState<DiscoverWalletCard[]>(initialSmartMoney);
-  const [recentActive, setRecentActive] =
-    useState<DiscoverWalletCard[]>(initialRecentActive);
-  const [loading, setLoading] = useState(
-    initialPrelisting.length === 0 &&
-      initialAuto.length === 0 &&
-      initialVerified.length === 0 &&
-      initialProbable.length === 0 &&
-      initialTracked.length === 0 &&
-      initialSmartMoney.length === 0 &&
-      initialRecentActive.length === 0,
-  );
+  const [wallets, setWallets] = useState<DiscoverWalletCard[]>(initialWallets);
+  const [loading, setLoading] = useState(initialWallets.length === 0);
 
   useEffect(() => {
     persistClientForwardedAuthHeaders(requestHeaders);
@@ -319,43 +170,16 @@ export function DiscoverScreen({
     void (async () => {
       const headerOpts = requestHeaders ? { requestHeaders } : {};
 
-      const [
-        prelistingResult,
-        featuredResult,
-        trackedResult,
-        smartResult,
-        recentResult,
-      ] = await Promise.allSettled([
-        loadDomesticPrelistingTokenCards(headerOpts),
+      const featuredResult = await Promise.allSettled([
         loadFeaturedWalletCards(headerOpts),
-        loadTrackedWalletCards(headerOpts),
-        loadSmartMoneyCards(headerOpts),
-        loadRecentHighPriorityCards(headerOpts),
       ]);
 
       if (!active) return;
 
-      setPrelisting(
-        prelistingResult.status === "fulfilled" ? prelistingResult.value : [],
-      );
-      if (featuredResult.status === "fulfilled") {
-        const split = splitFeaturedWalletCards(featuredResult.value);
-        setAuto(split.auto);
-        setVerified(split.verified);
-        setProbable(split.probable);
-      } else {
-        setAuto([]);
-        setVerified([]);
-        setProbable([]);
-      }
-      setTracked(
-        trackedResult.status === "fulfilled" ? trackedResult.value : [],
-      );
-      setSmartMoney(
-        smartResult.status === "fulfilled" ? smartResult.value : [],
-      );
-      setRecentActive(
-        recentResult.status === "fulfilled" ? recentResult.value : [],
+      setWallets(
+        featuredResult[0]?.status === "fulfilled"
+          ? featuredResult[0].value.filter((card) => card.chain === "evm")
+          : [],
       );
       setLoading(false);
     })();
@@ -366,8 +190,8 @@ export function DiscoverScreen({
   }, [requestHeaders]);
 
   return (
-    <main className="discover-layout">
-      <NetworkBackground />
+    <main className="discover-layout discover-layout--minimal">
+      <MinimalBackdrop />
 
       <header className="home-fullscreen-header">
         <div className="home-fullscreen-brand">
@@ -384,17 +208,14 @@ export function DiscoverScreen({
             </a>
           </h1>
           <nav className="discover-nav">
+            <a href="/copilot" className="discover-nav-link">
+              Copilot
+            </a>
             <a
               href="/discover"
               className="discover-nav-link discover-nav-link--active"
             >
               Discover
-            </a>
-            <a href="/signals/shadow-exits" className="discover-nav-link">
-              Signals
-            </a>
-            <a href="/alerts" className="discover-nav-link">
-              Alerts
             </a>
           </nav>
         </div>
@@ -416,73 +237,19 @@ export function DiscoverScreen({
           <div className="discover-hero-content">
             <h1 className="discover-hero-title">Discover</h1>
             <p className="discover-hero-subtitle">
-              Explore wallets that Qorvi is automatically indexing, tracking,
-              and scoring across EVM and Solana chains.
+              Explore Ethereum wallets that are ready for Qorvi AI Wallet
+              Copilot analysis.
             </p>
           </div>
         </div>
 
         <div className="discover-sections">
-          <DiscoverTokenSection
-            title="Domestic prelisting radar"
-            subtitle="Tokens not listed on Upbit or Bithumb yet, but already showing concentrated on-chain movement through tracked wallets"
-            cards={prelisting}
-            loading={loading}
-            emptyLabel="Domestic prelisting candidates will appear once listing sync and token-flow aggregation have enough live data."
-          />
-
           <DiscoverSection
-            title="Auto-discovered wallets"
-            subtitle="Warm candidates already surfaced by search, graph expansion, and ranking pipelines"
-            tone="teal"
-            cards={auto}
+            title="Ethereum wallets"
+            subtitle="Wallets surfaced by search or indexing and ready to inspect with the AI copilot."
+            cards={wallets}
             loading={loading}
-            emptyLabel="Auto-discovered wallets will appear once the background indexers promote new candidates."
-          />
-
-          <DiscoverSection
-            title="Verified public wallets"
-            subtitle="Public-labeled exchanges, bridges, and official treasuries kept warm before manual search"
-            tone="emerald"
-            cards={verified}
-            loading={loading}
-            emptyLabel="Verified curated wallets will appear once the admin curated source has been imported."
-          />
-
-          <DiscoverSection
-            title="Probable funds - smart money"
-            subtitle="Public-labeled or public-ENS fund and market-participant wallets separated from verified infrastructure"
-            tone="amber"
-            cards={probable}
-            loading={loading}
-            emptyLabel="Probable cohort wallets will appear once the probable seed source has been imported."
-          />
-
-          <DiscoverSection
-            title="Tracked wallets"
-            subtitle="Wallets you or the platform are actively tracking for signals"
-            tone="teal"
-            cards={tracked}
-            loading={loading}
-            emptyLabel="No tracked wallets yet. Open a wallet detail and click 'Track' to start."
-          />
-
-          <DiscoverSection
-            title="Smart money - Seed whales"
-            subtitle="Automatically detected high-value or anomalous wallets from shadow exit and first-connection feeds"
-            tone="amber"
-            cards={smartMoney}
-            loading={loading}
-            emptyLabel="Smart money signals will appear when the shadow exit and first-connection feeds have data."
-          />
-
-          <DiscoverSection
-            title="Recently active high-priority wallets"
-            subtitle="Wallets with recent high-importance findings from the analyst feed"
-            tone="violet"
-            cards={recentActive}
-            loading={loading}
-            emptyLabel="High-priority wallet findings will appear once the analyst pipeline has produced results."
+            emptyLabel="No Ethereum wallet candidates are available yet. Use Copilot to analyze a wallet directly."
           />
         </div>
       </div>
@@ -493,19 +260,6 @@ export function DiscoverScreen({
 function compactAddress(value: string): string {
   if (value.length <= 18) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
-}
-
-function buildDiscoverAnalystHref(card: DiscoverWalletCard): string {
-  const tierLabel =
-    card.sourceTier === "probable"
-      ? "probable"
-      : card.sourceTier === "auto"
-        ? "auto-discovered"
-        : "verified";
-  const question = encodeURIComponent(
-    `Explain why this ${tierLabel} wallet matters right now.`,
-  );
-  return `${card.detailHref}?ask=${question}`;
 }
 
 function formatRelativeTime(value: string): string {

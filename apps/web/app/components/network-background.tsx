@@ -242,18 +242,14 @@ export function NetworkBackground() {
   }, []);
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 0,
-        background: "var(--bg)",
-        pointerEvents: "none",
-      }}
-    >
+    <div className="network-background-stage" aria-hidden="true">
       {canRenderCanvas ? (
-        <Canvas camera={{ position: [0, 0, 18], fov: 60 }}>
-          <fog attach="fog" args={["#121212", 10, 28]} />
+        // Camera pulled back (z=32) and fov tightened to 38 so the entire
+        // particle network sits as a contained orb in the viewport rather
+        // than overflowing past the edges. Fog is widened so distant
+        // strands fade smoothly into the canvas instead of cutting off.
+        <Canvas camera={{ position: [0, 0, 32], fov: 38 }}>
+          <fog attach="fog" args={["#121212", 18, 44]} />
           <ParticleNetwork />
         </Canvas>
       ) : null}

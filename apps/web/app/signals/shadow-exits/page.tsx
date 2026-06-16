@@ -1,9 +1,5 @@
-import { loadShadowExitFeedPreview } from "../../../lib/api-boundary";
+import { ComingSoonScreen } from "../../components/coming-soon-screen";
 
-import { ShadowExitFeedScreen } from "./shadow-exit-feed-screen";
-
-export default async function ShadowExitFeedPage() {
-  const feed = await loadShadowExitFeedPreview();
-
-  return <ShadowExitFeedScreen feed={feed} />;
+export default function ShadowExitFeedPage() {
+  return <ComingSoonScreen title="Signals" />;
 }

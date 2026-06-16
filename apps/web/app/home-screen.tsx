@@ -376,14 +376,11 @@ export function HomeScreen({
             Qorvi
           </h1>
           <nav className="discover-nav">
+            <a href="/copilot" className="discover-nav-link">
+              Copilot
+            </a>
             <a href="/discover" className="discover-nav-link">
               Discover
-            </a>
-            <a href="/signals/shadow-exits" className="discover-nav-link">
-              Signals
-            </a>
-            <a href="/alerts" className="discover-nav-link">
-              Alerts
             </a>
           </nav>
         </div>

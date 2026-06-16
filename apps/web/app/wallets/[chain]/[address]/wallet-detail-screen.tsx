@@ -1980,9 +1980,88 @@ export function WalletDetailScreen({
     </article>
   );
 
+  const networkDisplayName =
+    request.chain === "evm"
+      ? "Ethereum Mainnet"
+      : request.chain === "solana"
+        ? "Solana Mainnet"
+        : viewModel.chainLabel;
+
+  const providerDisplayName = (() => {
+    const enrichmentProvider = viewModel.enrichment?.provider?.trim();
+    if (enrichmentProvider) {
+      const formatted =
+        enrichmentProvider.charAt(0).toUpperCase() +
+        enrichmentProvider.slice(1);
+      return `${formatted} Live`;
+    }
+    return request.chain === "evm" ? "Etherscan Live" : "Live API";
+  })();
+
+  const lastAnalyzedDisplay = formatLiveDataTimestamp(
+    viewModel.graphSnapshotGeneratedAt ??
+      viewModel.enrichment?.updatedAt ??
+      viewModel.indexing.lastIndexedAt ??
+      null,
+  );
+
+  const liveDataIssue = deriveLiveDataIssue({
+    mode: summaryPreviewState.mode,
+    statusMessage: summaryPreviewState.statusMessage,
+    indexingStatus: summaryPreviewState.indexing.status,
+    walletAnalysisError,
+  });
+
+  const cexHints = deriveCexHints(viewModel.relatedAddresses);
+  const behaviorMetrics = deriveBehaviorProfile(viewModel, summaryPreviewState);
   return (
     <PageShell>
       <div className="detail-shell detail-shell--redesigned">
+        {/* 0. Live Data Status */}
+        <aside
+          className={`live-data-bar live-data-bar--${liveDataIssue ? liveDataIssue.tone : "ok"}`}
+          aria-label="Live data status"
+        >
+          <div className="live-data-bar-pulse" aria-hidden="true">
+            <span />
+          </div>
+          <div className="live-data-bar-grid">
+            <div className="live-data-bar-cell">
+              <span>Network</span>
+              <strong>{networkDisplayName}</strong>
+            </div>
+            <div className="live-data-bar-cell">
+              <span>Provider</span>
+              <strong>{providerDisplayName}</strong>
+            </div>
+            <div className="live-data-bar-cell">
+              <span>Last analyzed</span>
+              <strong>{lastAnalyzedDisplay}</strong>
+            </div>
+            <div className="live-data-bar-cell live-data-bar-cell--status">
+              <span>Status</span>
+              {liveDataIssue ? (
+                <strong title={liveDataIssue.detail}>
+                  {liveDataIssue.label}
+                </strong>
+              ) : (
+                <strong className="live-data-bar-ok">Healthy</strong>
+              )}
+            </div>
+          </div>
+          <p className="live-data-bar-notice">
+            <strong>Live provider data only.</strong> Qorvi uses configured
+            Ethereum providers and throttles Etherscan calls when that provider
+            is selected. All facts on this page derive from provider / tool
+            output.
+          </p>
+          {liveDataIssue?.detail ? (
+            <output className="live-data-bar-detail" aria-live="polite">
+              {liveDataIssue.detail}
+            </output>
+          ) : null}
+        </aside>
+
         {/* 1. Header (Hero) */}
         <section className="detail-hero detail-hero--redesigned">
           <div className="detail-hero-copy">
@@ -2160,11 +2239,16 @@ export function WalletDetailScreen({
                             )}
                             {turn.toolTrace.length > 0 && (
                               <div className="analyst-finding-row">
-                                <span>Analysis</span>
-                                <div
-                                  style={{ opacity: 0.7, fontSize: "0.8rem" }}
-                                >
-                                  Used: {turn.toolTrace.join(", ")}
+                                <span>Tool trace</span>
+                                <div className="analyst-tool-trace">
+                                  {turn.toolTrace.map((tool) => (
+                                    <code
+                                      key={tool}
+                                      className="analyst-tool-chip"
+                                    >
+                                      {tool}
+                                    </code>
+                                  ))}
                                 </div>
                               </div>
                             )}
@@ -2174,11 +2258,11 @@ export function WalletDetailScreen({
                             <div className="detail-inline-evidence">
                               {turn.evidenceRefs
                                 .map(describeAnalystEvidenceRef)
-                                .filter(Boolean)
+                                .filter((item): item is string => Boolean(item))
                                 .map((item) => (
-                                  <Badge key={item} tone="teal">
-                                    {item}
-                                  </Badge>
+                                  <Fragment key={item}>
+                                    <Badge tone="teal">{item}</Badge>
+                                  </Fragment>
                                 ))}
                             </div>
                           )}
@@ -2305,6 +2389,102 @@ export function WalletDetailScreen({
             </div>
           </section>
         ) : null}
+
+        {/* 2b. Deterministic Analysis Panels */}
+        <section
+          className="detail-analysis-section"
+          aria-label="Deterministic analysis panels"
+        >
+          <header className="detail-analysis-header">
+            <h2>Deterministic analysis</h2>
+            <p>
+              Heuristic panels derived directly from indexed counterparties,
+              flows, and signals. Cross-reference with the AI brief above —
+              these are evidence-first, not generated.
+            </p>
+          </header>
+
+          <div className="detail-analysis-grid">
+            {/* CEX Transfer Hints */}
+            <article className="detail-analysis-card">
+              <div className="detail-analysis-card-header">
+                <div>
+                  <h3>CEX transfer hints</h3>
+                  <span className="detail-analysis-kicker">
+                    Heuristic — labels matched against known exchange list
+                  </span>
+                </div>
+                <Badge tone={cexHints.length > 0 ? "amber" : "violet"}>
+                  {cexHints.length} hint{cexHints.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+
+              {cexHints.length === 0 ? (
+                <p className="detail-analysis-empty">
+                  No counterparties currently match the indexed exchange label
+                  set. CEX hints surface here once a labeled deposit or
+                  withdrawal address appears.
+                </p>
+              ) : (
+                <ul className="detail-analysis-list">
+                  {cexHints.map((hint) => (
+                    <li
+                      key={hint.address}
+                      className="detail-analysis-list-item"
+                    >
+                      <div className="detail-analysis-list-main">
+                        <a className="detail-inline-link" href={hint.href}>
+                          {hint.label}
+                        </a>
+                        <span className="detail-analysis-meta">
+                          {hint.primaryToken ? `${hint.primaryToken} · ` : ""}
+                          IN {hint.inboundCount} · OUT {hint.outboundCount}
+                        </span>
+                      </div>
+                      <Badge tone={hint.tone}>{hint.directionLabel}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="detail-analysis-foot">
+                CEX hints are <em>possible</em>, not definitive — confirm via
+                deposit-address records before acting.
+              </p>
+            </article>
+
+            {/* Approval Risks card removed — wallet-detail-screen does not
+                have a token-allowance feed wired up. The /copilot route's
+                CopilotScreen has the real data path; this surface keeps the
+                deterministic panels honest by only rendering what we can
+                actually back with provider output. */}
+
+            {/* Behavior Profile */}
+            <article className="detail-analysis-card detail-analysis-card--wide">
+              <div className="detail-analysis-card-header">
+                <div>
+                  <h3>Behavior profile</h3>
+                  <span className="detail-analysis-kicker">
+                    Derived from coverage window, flows, and active signals
+                  </span>
+                </div>
+                <Badge tone="teal">Live</Badge>
+              </div>
+              <div className="detail-behavior-grid">
+                {behaviorMetrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="detail-behavior-cell"
+                    data-tone={metric.tone ?? "default"}
+                  >
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    {metric.helper ? <em>{metric.helper}</em> : null}
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+        </section>
 
         {/* 3. Graph Canvas (Main Section) */}
         <div id="graph-canvas" className="detail-graph-container">
@@ -2862,9 +3042,349 @@ export function WalletDetailScreen({
             </div>
           </details>
         </section>
+
+        {/* 99. Limitations & safety footer */}
+        <footer
+          className="detail-limitations"
+          aria-label="Limitations and safety"
+        >
+          <div className="detail-limitations-head">
+            <h3>Limitations &amp; safety</h3>
+            <span className="detail-limitations-kicker">
+              All facts derive from provider / tool output.
+            </span>
+          </div>
+          <ul>
+            <li>
+              <strong>Not financial advice.</strong> Interpret findings
+              alongside your own due diligence.
+            </li>
+            <li>
+              <strong>Not a security audit.</strong> Qorvi summarizes on-chain
+              behavior, not contract code.
+            </li>
+            <li>
+              <strong>Labels are heuristic.</strong> Counterparty entities and
+              tags may misclassify.
+            </li>
+            <li>
+              <strong>CEX hints are possible, not definitive.</strong>{" "}
+              Deposit-pattern signals require manual confirmation.
+            </li>
+            <li>
+              <strong>Etherscan free plan may cap returned rows.</strong> Some
+              long-tail transfers can be omitted from the window.
+            </li>
+          </ul>
+        </footer>
       </div>
     </PageShell>
   );
+}
+
+type LiveDataIssue = {
+  tone: "rate-limit" | "auth" | "provider" | "indexing";
+  label: string;
+  detail: string;
+};
+
+const KNOWN_CEX_LABEL_FRAGMENTS = [
+  "binance",
+  "coinbase",
+  "kraken",
+  "okx",
+  "ok-x",
+  "bybit",
+  "gate",
+  "bithumb",
+  "upbit",
+  "kucoin",
+  "huobi",
+  "htx",
+  "gemini",
+  "bitfinex",
+  "mexc",
+  "crypto.com",
+  "bitget",
+  "bitstamp",
+  "kraken",
+  "robinhood",
+];
+
+const CEX_ENTITY_TYPES = new Set([
+  "exchange",
+  "cex",
+  "centralized_exchange",
+  "centralized-exchange",
+]);
+
+function looksLikeCexCounterparty(
+  counterparty: WalletRelatedAddressViewModel,
+): boolean {
+  if (counterparty.entityType) {
+    if (CEX_ENTITY_TYPES.has(counterparty.entityType.toLowerCase())) {
+      return true;
+    }
+  }
+  if (counterparty.entityLabel) {
+    const label = counterparty.entityLabel.toLowerCase();
+    return KNOWN_CEX_LABEL_FRAGMENTS.some((fragment) =>
+      label.includes(fragment),
+    );
+  }
+  return false;
+}
+
+function compactAddressShort(value: string): string {
+  if (value.length <= 14) {
+    return value;
+  }
+  return `${value.slice(0, 6)}…${value.slice(-4)}`;
+}
+
+type CexHint = {
+  address: string;
+  label: string;
+  directionLabel: string;
+  inboundCount: number;
+  outboundCount: number;
+  primaryToken: string;
+  href: string;
+  tone: Tone;
+};
+
+function deriveCexHints(
+  relatedAddresses: WalletRelatedAddressViewModel[],
+): CexHint[] {
+  return relatedAddresses
+    .filter(looksLikeCexCounterparty)
+    .slice(0, 4)
+    .map((counterparty) => {
+      const isDeposit = counterparty.outboundCount > counterparty.inboundCount;
+      return {
+        address: counterparty.address,
+        label:
+          counterparty.entityLabel || compactAddressShort(counterparty.address),
+        directionLabel: isDeposit ? "Likely deposit" : "Likely withdrawal",
+        inboundCount: counterparty.inboundCount,
+        outboundCount: counterparty.outboundCount,
+        primaryToken: counterparty.primaryToken,
+        href: counterparty.href,
+        tone: isDeposit ? "amber" : "teal",
+      };
+    });
+}
+
+type BehaviorProfileMetric = {
+  label: string;
+  value: string;
+  helper?: string;
+  tone?: Tone;
+};
+
+function deriveBehaviorProfile(
+  viewModel: WalletDetailViewModel,
+  summary: WalletSummaryPreview,
+): BehaviorProfileMetric[] {
+  const total30d =
+    viewModel.recentFlow.incomingTxCount30d +
+    viewModel.recentFlow.outgoingTxCount30d;
+  const intensityLabel =
+    total30d === 0
+      ? "Dormant"
+      : total30d <= 10
+        ? "Occasional"
+        : total30d <= 50
+          ? "Steady"
+          : total30d <= 200
+            ? "Active"
+            : "High frequency";
+  const intensityTone: Tone =
+    total30d === 0
+      ? "violet"
+      : total30d <= 10
+        ? "violet"
+        : total30d <= 200
+          ? "teal"
+          : "amber";
+
+  const tokenCounts = new Map<string, number>();
+  for (const counterparty of viewModel.relatedAddresses) {
+    if (!counterparty.primaryToken) {
+      continue;
+    }
+    tokenCounts.set(
+      counterparty.primaryToken,
+      (tokenCounts.get(counterparty.primaryToken) ?? 0) +
+        counterparty.interactionCount,
+    );
+  }
+  const dominantToken = [...tokenCounts.entries()].sort(
+    (a, b) => b[1] - a[1],
+  )[0];
+
+  const counterpartyTone: Tone =
+    summary.counterparties >= 50
+      ? "amber"
+      : summary.counterparties >= 10
+        ? "teal"
+        : "violet";
+
+  const topScore = viewModel.summaryScores[0];
+  const latestSignal = viewModel.latestSignals[0];
+
+  const metrics: BehaviorProfileMetric[] = [
+    {
+      label: "Activity intensity",
+      value: intensityLabel,
+      helper: `${total30d} tx in last 30d`,
+      tone: intensityTone,
+    },
+    {
+      label: "Net direction",
+      value:
+        viewModel.recentFlow.netDirection30d.charAt(0).toUpperCase() +
+        viewModel.recentFlow.netDirection30d.slice(1),
+      helper: `7d: ${viewModel.recentFlow.netDirection7d}`,
+      tone:
+        viewModel.recentFlow.netDirection30d === "outbound"
+          ? "amber"
+          : viewModel.recentFlow.netDirection30d === "inbound"
+            ? "teal"
+            : "violet",
+    },
+    {
+      label: "Counterparty diversity",
+      value: `${summary.counterparties}`,
+      helper:
+        summary.counterparties >= 50
+          ? "High mixing surface"
+          : summary.counterparties >= 10
+            ? "Typical retail range"
+            : "Concentrated set",
+      tone: counterpartyTone,
+    },
+    {
+      label: "Dominant token",
+      value: dominantToken ? dominantToken[0] : "—",
+      helper: dominantToken
+        ? `${dominantToken[1]} indexed interactions`
+        : "Token data warming up",
+    },
+  ];
+
+  if (topScore) {
+    metrics.push({
+      label: topScore.name.replaceAll("_", " "),
+      value: `${topScore.value}/100`,
+      helper: topScore.rating,
+      tone: topScore.tone,
+    });
+  }
+
+  if (latestSignal) {
+    metrics.push({
+      label: "Latest signal",
+      value: latestSignal.label || latestSignal.name.replaceAll("_", " "),
+      helper: `${latestSignal.source} · ${latestSignal.observedAt.slice(0, 10)}`,
+      tone: latestSignal.rating === "high" ? "amber" : "teal",
+    });
+  }
+
+  return metrics;
+}
+
+function deriveLiveDataIssue(input: {
+  mode: "live" | "unavailable";
+  statusMessage: string;
+  indexingStatus: "ready" | "indexing";
+  walletAnalysisError: string;
+}): LiveDataIssue | null {
+  const candidate = (input.statusMessage || input.walletAnalysisError || "")
+    .toString()
+    .trim();
+  const lowered = candidate.toLowerCase();
+
+  if (
+    lowered.includes("rate") ||
+    lowered.includes("429") ||
+    lowered.includes("limit")
+  ) {
+    return {
+      tone: "rate-limit",
+      label: "Etherscan rate limit",
+      detail:
+        candidate ||
+        "Etherscan free plan throttled the request. Qorvi will retry shortly.",
+    };
+  }
+
+  if (
+    lowered.includes("invalid key") ||
+    lowered.includes("unauthorized") ||
+    lowered.includes("api key") ||
+    lowered.includes("forbidden")
+  ) {
+    return {
+      tone: "auth",
+      label: "Provider auth issue",
+      detail: candidate || "Provider rejected the request — check API key.",
+    };
+  }
+
+  if (
+    input.mode === "unavailable" ||
+    lowered.includes("provider") ||
+    lowered.includes("upstream") ||
+    lowered.includes("etherscan") ||
+    lowered.includes("network")
+  ) {
+    return {
+      tone: "provider",
+      label: "Provider error",
+      detail:
+        candidate ||
+        "Upstream provider returned an error. Showing the last cached snapshot.",
+    };
+  }
+
+  if (input.indexingStatus === "indexing") {
+    return {
+      tone: "indexing",
+      label: "Indexing in progress",
+      detail:
+        candidate ||
+        "Coverage window is still warming up. Results refresh automatically.",
+    };
+  }
+
+  return null;
+}
+
+function formatLiveDataTimestamp(value: string | null): string {
+  if (!value) {
+    return "Awaiting first sync";
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+  if (deltaSeconds < 45) {
+    return "just now";
+  }
+  if (deltaSeconds < 3600) {
+    return `${Math.floor(deltaSeconds / 60)}m ago`;
+  }
+  if (deltaSeconds < 86400) {
+    return `${Math.floor(deltaSeconds / 3600)}h ago`;
+  }
+  if (deltaSeconds < 86400 * 14) {
+    return `${Math.floor(deltaSeconds / 86400)}d ago`;
+  }
+
+  return new Date(parsed).toISOString().slice(0, 10);
 }
 
 function flowToneByDirection(direction: string): Tone {

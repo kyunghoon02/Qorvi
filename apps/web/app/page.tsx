@@ -1,11 +1,5 @@
-import { headers } from "next/headers";
-
-import { buildForwardedAuthHeaders } from "../lib/request-headers";
-
-import { HomeScreen } from "./home-screen";
+import { LandingScreen } from "./landing-screen";
 
 export default function Page() {
-  const requestHeaders = buildForwardedAuthHeaders(headers());
-
-  return <HomeScreen {...(requestHeaders ? { requestHeaders } : {})} />;
+  return <LandingScreen />;
 }
