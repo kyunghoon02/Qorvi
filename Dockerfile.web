@@ -15,6 +15,18 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_APP_BASE_URL
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG API_PROXY_TARGET
+
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_APP_BASE_URL=${NEXT_PUBLIC_APP_BASE_URL}
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+ENV API_PROXY_TARGET=${API_PROXY_TARGET}
+
 COPY apps/web ./apps/web
 COPY packages/ui ./packages/ui
 COPY biome.json turbo.json ./
@@ -40,4 +52,4 @@ COPY --from=build /app/packages/ui ./packages/ui
 
 EXPOSE 3000
 
-CMD ["sh", "-lc", "cd /app/apps/web && exec ../../node_modules/.bin/next start -H 0.0.0.0 -p ${PORT:-3000}"]
+CMD ["sh", "-lc", "exec pnpm --filter @qorvi/web exec next start -H 0.0.0.0 -p ${PORT:-3000}"]

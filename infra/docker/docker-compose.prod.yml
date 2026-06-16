@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${QORVI_POSTGRES_DB:-qorvi}
+      POSTGRES_USER: ${QORVI_POSTGRES_USER:-qorvi}
+      POSTGRES_PASSWORD: ${QORVI_POSTGRES_PASSWORD:?QORVI_POSTGRES_PASSWORD is required}
+    volumes:
+      - qorvi_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - qorvi_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  neo4j:
+    image: neo4j:5.24-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${QORVI_NEO4J_USERNAME:-neo4j}/${QORVI_NEO4J_PASSWORD:?QORVI_NEO4J_PASSWORD is required}
+      NEO4J_server_memory_pagecache_size: ${QORVI_NEO4J_PAGECACHE_SIZE:-256M}
+      NEO4J_server_memory_heap_initial__size: ${QORVI_NEO4J_HEAP_INITIAL_SIZE:-256M}
+      NEO4J_server_memory_heap_max__size: ${QORVI_NEO4J_HEAP_MAX_SIZE:-256M}
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - qorvi_neo4j_data:/data
+      - qorvi_neo4j_logs:/logs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "cypher-shell -u $${QORVI_NEO4J_USERNAME:-neo4j} -p ${QORVI_NEO4J_PASSWORD} 'RETURN 1' >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - ../../.env.backend
+      - path: ../../.env.wallet-secrets
+        required: false
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://${QORVI_POSTGRES_USER:-qorvi}:${QORVI_POSTGRES_PASSWORD}@postgres:5432/${QORVI_POSTGRES_DB:-qorvi}?sslmode=disable}
+      NEO4J_URL: ${NEO4J_URL:-bolt://neo4j:7687}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://qorvi.app}
+        NEXT_PUBLIC_APP_BASE_URL: ${NEXT_PUBLIC_APP_BASE_URL:-https://qorvi.app}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.qorvi.app}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        API_PROXY_TARGET: http://api:4000
+    restart: unless-stopped
+    env_file:
+      - ../../.env.backend
+      - path: ../../.env.wallet-secrets
+        required: false
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://${QORVI_POSTGRES_USER:-qorvi}:${QORVI_POSTGRES_PASSWORD}@postgres:5432/${QORVI_POSTGRES_DB:-qorvi}?sslmode=disable}
+      QORVI_WALLET_ANALYSIS_EXECUTION_MODE: ${QORVI_WALLET_ANALYSIS_EXECUTION_MODE:-worker}
+      QORVI_WALLET_PROVIDER: ${QORVI_WALLET_PROVIDER:-auto}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://qorvi.app}
+      NEXT_PUBLIC_APP_BASE_URL: ${NEXT_PUBLIC_APP_BASE_URL:-https://qorvi.app}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.qorvi.app}
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  worker-backfill:
+    profiles: ["worker"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - ../../.env.backend
+      - path: ../../.env.wallet-secrets
+        required: false
+    environment:
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://${QORVI_POSTGRES_USER:-qorvi}:${QORVI_POSTGRES_PASSWORD}@postgres:5432/${QORVI_POSTGRES_DB:-qorvi}?sslmode=disable}
+      NEO4J_URL: ${NEO4J_URL:-bolt://neo4j:7687}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+volumes:
+  qorvi_postgres_data:
+  qorvi_redis_data:
+  qorvi_neo4j_data:
+  qorvi_neo4j_logs:
