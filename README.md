@@ -10,7 +10,6 @@ questions without treating the model as the source of truth.
 Checked on 2026-06-16:
 
 - App: [https://qorvi.app](https://qorvi.app)
-- Deployment runbook: [docs/deploy/gcp-wallet-copilot.md](/C:/Github/Qorvi/docs/deploy/gcp-wallet-copilot.md)
 
 ## What It Does
 
