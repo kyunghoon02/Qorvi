@@ -5,11 +5,6 @@ deterministic on-chain data collection with an LLM explanation layer so a user
 can inspect a wallet, read an evidence-backed report, and ask follow-up
 questions without treating the model as the source of truth.
 
-## Live Links
-
-Checked on 2026-06-16:
-
-- App: [https://qorvi.app](https://qorvi.app)
 
 ## What It Does
 
